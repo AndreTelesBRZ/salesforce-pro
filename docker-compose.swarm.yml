@@ -28,7 +28,7 @@ services:
         delay: 5s
       labels:
         - "traefik.enable=true"
-        - "traefik.docker.network=${TRAEFIK_NETWORK}"
+        - "traefik.docker.network=traefik_public"
         # Roteador HTTPS
         - "traefik.http.routers.salesforce.rule=Host(`${SALESFORCE_HOST}`)"
         - "traefik.http.routers.salesforce.entrypoints=websecure"
@@ -52,7 +52,7 @@ networks:
   # Rede externa já criada pelo stack do Traefik
   traefik_net:
     external: true
-    name: ${TRAEFIK_NETWORK}
+    name: traefik_public
 
 volumes:
   salesforce_data:
