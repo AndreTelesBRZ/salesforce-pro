@@ -2,7 +2,10 @@ version: "3.8"
 services:
   salesforce-app:
     image: ${IMAGE}
-    # Porta não exposta: acesso somente via Traefik
+    # Expor porta 8080 para teste direto por IP/host
+    ports:
+      - "8080:8080"
+    # Em produção via Traefik, esta seção pode ser removida
     environment:
       NODE_ENV: production
       DB_PATH: /data/database.sqlite
