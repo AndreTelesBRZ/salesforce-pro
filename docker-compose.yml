@@ -3,15 +3,21 @@ version: '3.8'
 services:
   salesforce-app:
     container_name: salesforce_pro
-    # Instrui o Docker a construir a imagem baseada no Dockerfile atual
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      # Opcional: sobrescreva valores do .env
+      # - SECRET_KEY=${SECRET_KEY}
+      # - MASTER_KEY=${MASTER_KEY}
+      # - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      # - DATABASE_URL=${DATABASE_URL}
     ports:
-      # Mapeia a porta 8080 do host para a 80 do container
-      - "8080:80"
-    # Configuração de rede (opcional, mas boa prática)
+      - "8080:8080"
+    volumes:
+      - ./database.sqlite:/app/database.sqlite
     networks:
       - salesforce_net
 

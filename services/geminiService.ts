@@ -3,17 +3,17 @@ import { GoogleGenAI } from "@google/genai";
 import { Product } from '../types';
 
 class GeminiService {
-  private ai: GoogleGenAI;
+  private ai: GoogleGenAI | null = null;
 
   constructor() {
-    // Ensure the API key is available
-    const apiKey = process.env.API_KEY || '';
-    this.ai = new GoogleGenAI({ apiKey });
+    // Usa somente variável do cliente explicitamente permitida
+    const apiKey = (import.meta as any)?.env?.VITE_GEMINI_API_KEY || '';
+    this.ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
   }
 
   async generateSalesPitch(product: Product): Promise<string> {
-    if (!process.env.API_KEY) {
-      return "Chave de API não configurada. Adicione a chave Gemini no ambiente.";
+    if (!this.ai) {
+      return "Chave Gemini ausente. Defina VITE_GEMINI_API_KEY.";
     }
 
     try {
@@ -28,7 +28,7 @@ class GeminiService {
         Foque nos benefícios para o cliente. Use tom profissional mas entusiasmado.
       `;
 
-      const response = await this.ai.models.generateContent({
+      const response = await (this.ai as any).models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
       });
@@ -41,13 +41,13 @@ class GeminiService {
   }
 
   async generateProductImage(product: Product): Promise<string | null> {
-    if (!process.env.API_KEY) return null;
+    if (!this.ai) return null;
 
     try {
       const prompt = `Professional product photography of ${product.name}, ${product.description}. 
       High quality, 4k, realistic, studio lighting, white background, commercial photography.`;
 
-      const response = await this.ai.models.generateContent({
+      const response = await (this.ai as any).models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
             parts: [{ text: prompt }]
