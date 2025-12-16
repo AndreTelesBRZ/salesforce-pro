@@ -21,10 +21,12 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local SSH keys (never commit)
+.ssh/
+
 # Capacitor / Android build
 android/
 ios/
 
 # SQLite local
 database.sqlite
-
