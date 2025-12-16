@@ -1,0 +1,5 @@
+{
+  "name": "SalesForce Pro",
+  "description": "Aplicativo de força de vendas híbrido (Web/Mobile) com integração de banco de dados via Tailscale e suporte de IA para argumentos de vendas.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,15 @@
+{
+  "appId": "com.salesforce.pro",
+  "appName": "SalesForce Pro",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Keyboard": {
+      "resize": "body",
+      "style": "dark",
+      "resizeOnFullScreen": true
+    }
+  }
+}

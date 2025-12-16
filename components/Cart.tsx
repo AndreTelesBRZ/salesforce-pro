@@ -1,0 +1,511 @@
+
+import React, { useState, useEffect } from 'react';
+import { CartItem, Order, Customer } from '../types';
+import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag } from 'lucide-react';
+import { apiService } from '../services/api';
+import { dbService } from '../services/db';
+
+interface CartProps {
+  cart: CartItem[];
+  onUpdateQuantity: (id: string, newQuantity: number) => void;
+  onRemove: (id: string) => void;
+  onClear: () => void;
+}
+
+// --- KEYPAD COMPONENT ---
+interface NumericKeypadModalProps {
+  initialValue: number;
+  itemName: string;
+  unit: string;
+  onConfirm: (val: number) => void;
+  onClose: () => void;
+}
+
+const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ initialValue, itemName, unit, onConfirm, onClose }) => {
+  // Converte para string com vírgula para edição
+  const [displayValue, setDisplayValue] = useState(initialValue.toString().replace('.', ','));
+  const [hasTyped, setHasTyped] = useState(false); // Novo estado: sabe se o usuário começou a digitar
+
+  const handleNumber = (num: string) => {
+    setDisplayValue(prev => {
+      // Se for a primeira tecla digitada, substitui o valor inicial (comportamento de ATM)
+      if (!hasTyped) {
+          setHasTyped(true);
+          if (num === ',') return '0,';
+          return num;
+      }
+      
+      // Se for 0 apenas e digitar outro numero, substitui
+      if (prev === '0' && num !== ',') {
+          return num;
+      }
+      // Evita múltiplas vírgulas
+      if (num === ',' && prev.includes(',')) return prev;
+      
+      // Limite de caracteres para segurança
+      if (prev.length > 8) return prev;
+      
+      return prev + num;
+    });
+  };
+
+  const handleBackspace = () => {
+    setHasTyped(true); // Considera como interação
+    setDisplayValue(prev => {
+      if (prev.length <= 1) return '0';
+      return prev.slice(0, -1);
+    });
+  };
+
+  const handleClear = () => {
+    setHasTyped(true);
+    setDisplayValue('0');
+  };
+  
+  const handleRemoveItem = () => {
+      // Confirmação com 0 remove o item na lógica do pai
+      onConfirm(0);
+  };
+
+  const handleConfirm = () => {
+    // Converte de volta para float (pt-BR 1,5 -> 1.5)
+    const normalized = displayValue.replace(',', '.');
+    const val = parseFloat(normalized);
+    
+    // Aceita 0 para permitir remoção
+    if (!isNaN(val)) {
+      onConfirm(val);
+    } else {
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-xs bg-white dark:bg-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+          <div>
+             <h3 className="font-bold text-lg">Quantidade</h3>
+             <p className="text-xs text-slate-400 truncate max-w-[200px]">{itemName}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-white/80 hover:text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Display */}
+        <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center bg-white dark:bg-slate-800 border-2 border-orange-500 rounded-lg overflow-hidden h-16 shadow-inner relative">
+            <div className="flex-1 text-right text-3xl font-bold text-slate-800 dark:text-white px-4 tracking-wider z-10">
+               {displayValue} <span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>
+            </div>
+            {!hasTyped && (
+                <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-700 px-1 rounded opacity-70">
+                    Digite para substituir
+                </div>
+            )}
+            <button 
+                onClick={handleBackspace}
+                className="h-full px-4 bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors border-l border-slate-200 dark:border-slate-600 z-20"
+            >
+                <Delete className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        {/* Keypad Grid */}
+        <div className="p-2 grid grid-cols-3 gap-2 bg-slate-100 dark:bg-slate-950">
+           {[7, 8, 9, 4, 5, 6, 1, 2, 3].map(num => (
+             <button
+                key={num}
+                onClick={() => handleNumber(num.toString())}
+                className="h-16 rounded-lg bg-white dark:bg-slate-800 shadow-sm border-b-2 border-slate-200 dark:border-slate-700 text-2xl font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all"
+             >
+                {num}
+             </button>
+           ))}
+           
+           {/* Linha Final */}
+           <button
+              onClick={() => handleNumber(',')}
+              className="h-16 rounded-lg bg-slate-200 dark:bg-slate-900 text-2xl font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-800 active:scale-95 transition-all"
+           >
+              ,
+           </button>
+           <button
+              onClick={() => handleNumber('0')}
+              className="h-16 rounded-lg bg-white dark:bg-slate-800 shadow-sm border-b-2 border-slate-200 dark:border-slate-700 text-2xl font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all"
+           >
+              0
+           </button>
+           
+           {/* Botão C (Clear) melhorado para Zerar */}
+           <button
+              onClick={handleClear}
+              className="h-16 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 shadow-sm border-b-2 border-red-200 dark:border-red-800 text-xl font-bold flex items-center justify-center hover:bg-red-200 active:scale-95 transition-all"
+              title="Zerar"
+           >
+              C
+           </button>
+        </div>
+        
+        {/* Action Buttons */}
+        <div className="grid grid-cols-2 gap-0 border-t border-slate-200 dark:border-slate-800">
+             <button 
+                onClick={handleRemoveItem}
+                className="py-4 text-sm font-bold text-red-500 bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center justify-center gap-2 transition-colors border-r border-slate-200 dark:border-slate-800"
+            >
+                <Trash2 className="w-4 h-4" />
+                REMOVER ITEM
+            </button>
+            <button 
+                onClick={handleConfirm}
+                className="py-4 text-sm font-bold text-white bg-green-600 hover:bg-green-700 flex items-center justify-center gap-2 transition-colors"
+            >
+                <Check className="w-5 h-5" />
+                CONFIRMAR
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemove, onClear }) => {
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  
+  // State para o Modal Keypad
+  const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
+
+  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+  useEffect(() => {
+      apiService.getCustomers().then(apiData => {
+          setCustomers(apiData);
+          if (!selectedCustomer) {
+             const defaultCus = apiData.find(c => c.id === '0');
+             if (defaultCus) setSelectedCustomer(defaultCus);
+          }
+      });
+  }, []);
+
+  const handleCheckout = async () => {
+    if (cart.length === 0) return;
+    if (!selectedCustomer) {
+        alert('Por favor, selecione um cliente para o pedido.');
+        return;
+    }
+
+    setSubmitting(true);
+    
+    // GERAÇÃO DE ID SEQUENCIAL SEGURO
+    const nextId = await dbService.generateNextOrderId();
+
+    const order: Order = {
+      id: crypto.randomUUID(),
+      displayId: nextId,
+      items: cart,
+      total: total,
+      customerId: selectedCustomer.id,
+      customerName: selectedCustomer.name,
+      customerDoc: selectedCustomer.document,
+      status: 'pending', // Sempre pendente inicialmente
+      createdAt: new Date().toISOString()
+    };
+
+    await dbService.saveOrder(order);
+    
+    setSubmitting(false);
+    setLastOrderNumber(nextId);
+    setSuccess(true);
+    
+    setTimeout(() => {
+      if (document.getElementById('success-view')) {
+          handleNewOrder();
+      }
+    }, 5000); // 5s para ler a mensagem
+  };
+
+  const handleNewOrder = () => {
+      setSuccess(false);
+      onClear();
+  };
+
+  const confirmClearCart = () => {
+      onClear();
+      setShowClearConfirm(false);
+  };
+
+  // --- TELA DE CONFIRMAÇÃO DE LIMPEZA ---
+  if (showClearConfirm) {
+      return (
+          <div className="flex flex-col items-center justify-center h-full p-8 text-center animate-in fade-in zoom-in duration-200">
+              <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-6">
+                  <AlertTriangle className="w-10 h-10 text-red-600 dark:text-red-400" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Limpar carrinho?</h2>
+              <p className="text-slate-600 dark:text-slate-300 mb-8">
+                  Isso removerá todos os itens do pedido atual. Essa ação não pode ser desfeita.
+              </p>
+              <div className="flex flex-col w-full gap-3">
+                  <button 
+                      onClick={confirmClearCart}
+                      className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm transition-colors"
+                  >
+                      Sim, Limpar Tudo
+                  </button>
+                  <button 
+                      onClick={() => setShowClearConfirm(false)}
+                      className="w-full py-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-semibold rounded-lg transition-colors"
+                  >
+                      Cancelar
+                  </button>
+              </div>
+          </div>
+      );
+  }
+
+  // --- TELA DE SUCESSO ---
+  if (success) {
+    return (
+      <div id="success-view" className="flex flex-col items-center justify-center h-full p-8 text-center animate-fade-in relative">
+        <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center mb-6">
+          <Save className="w-10 h-10 text-orange-600 dark:text-orange-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Pedido #{lastOrderNumber} Salvo!</h2>
+        
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 p-4 rounded-lg my-2 w-full max-w-sm">
+            <p className="text-sm font-semibold text-orange-800 dark:text-orange-200 flex items-center justify-center gap-2">
+                <CloudOff className="w-4 h-4" />
+                Status: Pendente de Envio
+            </p>
+            <p className="text-xs text-orange-700 dark:text-orange-300 mt-1">
+                O pedido foi guardado no dispositivo. Quando tiver internet, acesse o menu <strong>"Enviar Dados"</strong> para transmitir.
+            </p>
+        </div>
+        
+        <div className="mt-8 w-full max-w-xs space-y-3">
+            <button 
+                onClick={handleNewOrder}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md flex items-center justify-center gap-2 transition-all active:scale-95"
+            >
+                <span>Novo Pedido Agora</span>
+                <ArrowRight className="w-5 h-5" />
+            </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (cart.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-slate-400 dark:text-slate-500">
+        <ShoppingCart className="w-16 h-16 mb-4 opacity-20" />
+        <p>Seu carrinho está vazio.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-white dark:bg-slate-800 max-w-2xl mx-auto shadow-sm md:rounded-lg md:my-6 overflow-hidden transition-colors relative">
+      
+      {/* --- MODAL KEYPAD --- */}
+      {editingItem && (
+        <NumericKeypadModal 
+            initialValue={editingItem.quantity}
+            itemName={editingItem.name}
+            unit={editingItem.unit}
+            onClose={() => setEditingItem(null)}
+            onConfirm={(val) => {
+                onUpdateQuantity(editingItem.id, val);
+                setEditingItem(null);
+            }}
+        />
+      )}
+
+      {/* Customer Selection */}
+      <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex justify-between items-center mb-3">
+             <h2 className="text-lg font-bold text-slate-800 dark:text-white">Cliente</h2>
+             <button 
+                onClick={() => setShowClearConfirm(true)}
+                className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+             >
+                <Trash2 className="w-3.5 h-3.5" /> Limpar
+             </button>
+        </div>
+        
+        {!selectedCustomer ? (
+            <div className="relative">
+                 <button 
+                    onClick={() => setShowCustomerSearch(!showCustomerSearch)}
+                    className="w-full p-3 border border-slate-300 dark:border-slate-600 border-dashed rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center gap-2 transition-colors"
+                 >
+                    <User className="w-5 h-5" /> Selecionar Cliente
+                 </button>
+            </div>
+        ) : (
+            <div className="relative">
+                <div className="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-center gap-3">
+                        {selectedCustomer.id === '0' ? (
+                           <div className="bg-blue-200 dark:bg-blue-800 p-2 rounded-full">
+                              <Store className="w-4 h-4 text-blue-700 dark:text-blue-200" />
+                           </div>
+                        ) : (
+                           <div className="bg-slate-200 dark:bg-slate-700 p-2 rounded-full">
+                              <User className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                           </div>
+                        )}
+                        <div>
+                            <p className="font-bold text-blue-900 dark:text-blue-100">{selectedCustomer.name}</p>
+                            <p className="text-xs text-blue-700 dark:text-blue-300">{selectedCustomer.document}</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => setShowCustomerSearch(!showCustomerSearch)} 
+                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium px-2 py-1"
+                    >
+                        Trocar
+                    </button>
+                </div>
+
+                {showCustomerSearch && (
+                     <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl rounded-lg z-20 p-2 max-h-60 overflow-y-auto animate-in slide-in-from-top-2">
+                        <div className="sticky top-0 bg-white dark:bg-slate-800 p-2 border-b border-slate-100 dark:border-slate-700 flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="Buscar cliente..." 
+                                autoFocus
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="flex-1 p-2 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-slate-400 hover:text-slate-600">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        {customers.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase())).map(c => (
+                            <button 
+                                key={c.id}
+                                onClick={() => { setSelectedCustomer(c); setShowCustomerSearch(false); }}
+                                className={`w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 text-sm dark:text-white flex items-center gap-2 ${c.id === '0' ? 'font-bold bg-slate-50 dark:bg-slate-700/50' : ''}`}
+                            >
+                                {c.id === '0' && <Store className="w-4 h-4 text-blue-500" />}
+                                <div>
+                                    <div className="font-medium">{c.name}</div>
+                                    <div className="text-xs text-slate-500">{c.document}</div>
+                                </div>
+                            </button>
+                        ))}
+                     </div>
+                 )}
+            </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {cart.map((item) => {
+            const isFractional = item.unit.toLowerCase() === 'cto';
+            const step = isFractional ? 0.01 : 1;
+
+            return (
+              <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-4 py-4 border-b border-slate-100 dark:border-slate-700 last:border-0">
+                 <div className="flex items-center gap-4 flex-1">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-slate-800 dark:text-white text-sm break-words">{item.name}</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+                          <span className="font-mono bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-600 flex items-center gap-1">
+                             <Tag className="w-3 h-3" /> {item.id}
+                          </span>
+                          <span>•</span>
+                          R$ {item.price.toFixed(2)} / {item.unit}
+                      </p>
+                    </div>
+                </div>
+                
+                {/* Quantity Controls */}
+                <div className="flex items-center justify-between sm:justify-end gap-3 mt-2 sm:mt-0">
+                    <div className="flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md">
+                        <button 
+                            onClick={() => onUpdateQuantity(item.id, item.quantity - step)}
+                            className="p-2 text-slate-500 hover:text-orange-600 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-l-md transition-colors"
+                        >
+                            <Minus className="w-4 h-4" />
+                        </button>
+                        
+                        <button 
+                            onClick={() => setEditingItem({ id: item.id, name: item.name, quantity: item.quantity, unit: item.unit })}
+                            className="w-20 p-2 text-center text-sm font-bold text-slate-800 dark:text-white border-x border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors bg-slate-50 dark:bg-slate-900"
+                        >
+                            {item.quantity.toString().replace('.', ',')}
+                        </button>
+
+                         <button 
+                            onClick={() => onUpdateQuantity(item.id, item.quantity + step)}
+                            className="p-2 text-slate-500 hover:text-orange-600 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-r-md transition-colors"
+                        >
+                            <Plus className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    <button 
+                        onClick={() => onRemove(item.id)} 
+                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors ml-2"
+                        title="Remover Item"
+                    >
+                        <Trash2 className="w-5 h-5" />
+                    </button>
+                </div>
+              </div>
+            );
+        })}
+      </div>
+
+      <div className="p-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700">
+        <div className="flex justify-between items-center mb-6">
+          <span className="text-slate-600 dark:text-slate-400">Total</span>
+          <span className="text-2xl font-bold text-blue-900 dark:text-white">R$ {total.toFixed(2).replace('.', ',')}</span>
+        </div>
+        
+        <div className="flex gap-3">
+             <button
+                onClick={() => setShowClearConfirm(true)}
+                disabled={submitting}
+                className="flex-none px-4 py-4 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600 font-bold rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors"
+                title="Limpar Carrinho"
+             >
+                <Trash2 className="w-5 h-5" />
+             </button>
+
+            <button
+              onClick={handleCheckout}
+              disabled={submitting}
+              className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+            >
+              {submitting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Salvando...</span>
+                  </>
+              ) : (
+                  <>
+                    <Save className="w-5 h-5" />
+                    <span>Salvar (Pendente)</span>
+                  </>
+              )}
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+};

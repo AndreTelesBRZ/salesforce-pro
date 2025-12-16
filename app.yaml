@@ -1,0 +1,12 @@
+
+runtime: nodejs18
+
+instance_class: F1
+
+automatic_scaling:
+  max_instances: 10
+
+env_variables:
+  NODE_ENV: 'production'
+  # Se for usar banco na nuvem (Cloud SQL/Postgres), descomente e preencha:
+  # DATABASE_URL: 'postgres://usuario:senha@host:5432/banco'

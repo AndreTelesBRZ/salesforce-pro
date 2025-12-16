@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  salesforce-app:
+    container_name: salesforce_pro
+    # Instrui o Docker a construir a imagem baseada no Dockerfile atual
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      # Mapeia a porta 8080 do host para a 80 do container
+      - "8080:80"
+    # Configuração de rede (opcional, mas boa prática)
+    networks:
+      - salesforce_net
+
+networks:
+  salesforce_net:
+    driver: bridge
