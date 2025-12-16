@@ -43,6 +43,14 @@ class ApiService {
         theme: 'system'
     };
 
+    // Permite definir um backend padrão via variável de build do Vite
+    try {
+      const viteBackend = (import.meta as any)?.env?.VITE_BACKEND_URL;
+      if (viteBackend && typeof viteBackend === 'string' && viteBackend.trim() !== '') {
+        this.config.backendUrl = viteBackend.trim();
+      }
+    } catch {}
+
     const savedConfig = localStorage.getItem('appConfig');
     if (savedConfig) {
       try {
