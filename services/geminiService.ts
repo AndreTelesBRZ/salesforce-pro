@@ -1,74 +1,61 @@
 
-import { GoogleGenAI } from "@google/genai";
 import { Product } from '../types';
+import { apiService } from './api';
 
 class GeminiService {
-  private ai: GoogleGenAI | null = null;
+  private getBaseUrl(): string {
+    const base = apiService.getConfig().backendUrl?.trim().replace(/\/$/, '') || '';
+    return base;
+  }
 
-  constructor() {
-    // Usa somente variável do cliente explicitamente permitida
-    const apiKey = (import.meta as any)?.env?.VITE_GEMINI_API_KEY || '';
-    this.ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+  private getAuthHeader(): string | null {
+    const token = localStorage.getItem('authToken') || apiService.getConfig().apiToken;
+    return token ? `Bearer ${token}` : null;
   }
 
   async generateSalesPitch(product: Product): Promise<string> {
-    if (!this.ai) {
-      return "Chave Gemini ausente. Defina VITE_GEMINI_API_KEY.";
-    }
-
     try {
-      const prompt = `
-        Atue como um vendedor experiente e persuasivo.
-        Escreva um argumento de vendas curto (máximo 3 frases) e impactante para o seguinte produto:
-        Nome: ${product.name}
-        Categoria: ${product.category}
-        Preço: R$ ${product.price}
-        Descrição técnica: ${product.description}
-        
-        Foque nos benefícios para o cliente. Use tom profissional mas entusiasmado.
-      `;
-
-      const response = await (this.ai as any).models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
+      const base = this.getBaseUrl();
+      const url = `${base}/api/ai/pitch`;
+      const auth = this.getAuthHeader();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(auth ? { Authorization: auth } : {})
+        },
+        body: JSON.stringify({ product })
       });
 
-      return response.text || "Não foi possível gerar o argumento de venda.";
-    } catch (error) {
-      console.error("Erro ao chamar Gemini (Texto):", error);
-      return "Erro ao conectar com a IA de vendas.";
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return data.message || 'Falha ao gerar argumento de vendas.';
+      }
+      const data = await res.json();
+      return data.text || 'Não foi possível gerar o argumento de vendas.';
+    } catch (e: any) {
+      return 'Erro ao comunicar com o servidor de IA.';
     }
   }
 
   async generateProductImage(product: Product): Promise<string | null> {
-    if (!this.ai) return null;
-
     try {
-      const prompt = `Professional product photography of ${product.name}, ${product.description}. 
-      High quality, 4k, realistic, studio lighting, white background, commercial photography.`;
-
-      const response = await (this.ai as any).models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-            parts: [{ text: prompt }]
+      const base = this.getBaseUrl();
+      const url = `${base}/api/ai/image`;
+      const auth = this.getAuthHeader();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(auth ? { Authorization: auth } : {})
         },
-        config: {
-            // responseMimeType não é suportado para geração de imagem neste modelo, o output vem em inlineData
-        }
+        body: JSON.stringify({ product })
       });
 
-      // O modelo nano banana (gemini-2.5-flash-image) retorna a imagem dentro de parts -> inlineData
-      if (response.candidates && response.candidates[0].content.parts) {
-        for (const part of response.candidates[0].content.parts) {
-            if (part.inlineData && part.inlineData.data) {
-                return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-            }
-        }
-      }
-      
-      return null;
-    } catch (error) {
-      console.error("Erro ao chamar Gemini (Imagem):", error);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.imageDataUrl || null;
+    } catch (e) {
       return null;
     }
   }

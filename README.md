@@ -18,8 +18,7 @@ Aplicativo de força de vendas híbrido (Web/Mobile) com backend Node/Express e 
 
    `cp .env.example .env`
 
-   - Front-end (Vite): `VITE_GEMINI_API_KEY` (opcional, para IA)
-   - Backend: `SECRET_KEY`, `MASTER_KEY`, `GOOGLE_CLIENT_ID`, `DATABASE_URL` (opcional para Postgres)
+   - Backend: `SECRET_KEY`, `MASTER_KEY`, `GOOGLE_CLIENT_ID`, `DATABASE_URL` (opcional), `GEMINI_API_KEY` (para IA)
 
 2) Instale dependências:
 
@@ -57,10 +56,11 @@ Persistência de dados:
 
 Variáveis (via `.env`):
 - `DB_PATH=/data/database.sqlite` (default do compose)
+- `GEMINI_API_KEY=...` (IA no backend, sem rebuild do frontend)
 
 ## Notas de Segurança
 
-- Variáveis do frontend agora usam prefixo `VITE_` e não expõem segredos do servidor.
+- Integração Gemini movida para o backend: configure `GEMINI_API_KEY` no servidor.
 - No backend, altere `SECRET_KEY` e `MASTER_KEY` em produção.
 - Para Google, defina `GOOGLE_CLIENT_ID` corretamente.
 
