@@ -1,0 +1,35 @@
+version: "3.8"
+services:
+  salesforce-app:
+    image: ${IMAGE}
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      DB_PATH: /data/database.sqlite
+      SECRET_KEY: ${SECRET_KEY}
+      MASTER_KEY: ${MASTER_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      DATABASE_URL: ${DATABASE_URL}
+      VITE_BACKEND_URL: ${VITE_BACKEND_URL}
+    volumes:
+      - salesforce_data:/data
+    networks:
+      - salesforce_net
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      update_config:
+        order: start-first
+        parallelism: 1
+        delay: 5s
+
+networks:
+  salesforce_net:
+    driver: overlay
+
+volumes:
+  salesforce_data:
+
