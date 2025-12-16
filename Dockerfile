@@ -3,7 +3,11 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* .npmrc* ./
-RUN npm ci || npm install
+RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
+      echo "Using npm ci" && npm ci; \
+    else \
+      echo "No lockfile found, using npm install" && npm install; \
+    fi
 COPY . .
 ARG VITE_GEMINI_API_KEY
 ARG VITE_BACKEND_URL
