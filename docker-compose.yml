@@ -16,11 +16,17 @@ services:
       # - DATABASE_URL=${DATABASE_URL}
     ports:
       - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/data/database.sqlite
     volumes:
-      - ./database.sqlite:/app/database.sqlite
+      - salesforce_data:/data
     networks:
       - salesforce_net
 
 networks:
   salesforce_net:
     driver: bridge
+volumes:
+  salesforce_data:

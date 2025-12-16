@@ -19,7 +19,7 @@ const SECRET_KEY = process.env.SECRET_KEY || 'super-secret-key-change-this-in-pr
 const MASTER_KEY = process.env.MASTER_KEY || 'salesforce-pro-token';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
-const DB_PATH = './database.sqlite';
+const DB_PATH = process.env.DB_PATH || './database.sqlite';
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 

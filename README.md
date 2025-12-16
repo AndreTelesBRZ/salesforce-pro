@@ -51,7 +51,12 @@ docker compose up --build -d
 
 O serviço ficará disponível em `http://localhost:8080`.
 
-Banco local SQLite é persistido no arquivo `database.sqlite` (mapeado como volume).
+Persistência de dados:
+- O SQLite fica em `/data/database.sqlite` dentro do container
+- O diretório local `./data` é montado em `/data` (volume), garantindo persistência entre recriações
+
+Variáveis (via `.env`):
+- `DB_PATH=/data/database.sqlite` (default do compose)
 
 ## Notas de Segurança
 
