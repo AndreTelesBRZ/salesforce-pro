@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, ShoppingCart, LayoutGrid, DownloadCloud, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database } from 'lucide-react';
+import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 
@@ -58,7 +58,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     { id: 'customers', label: 'Clientes', icon: User, color: 'text-blue-700' },
     { id: 'products', label: 'Produtos', icon: LayoutGrid, color: 'text-blue-700' },
     { id: 'orders', label: 'Histórico', icon: FileText, color: 'text-blue-700' }, 
-    { id: 'sync', label: 'Sincronizar', icon: DownloadCloud, color: 'text-purple-600' },
+    { id: 'sync', label: 'Sincronizar', icon: Download, color: 'text-purple-600' },
     { id: 'send', label: 'Enviar Dados', icon: UploadCloud, color: 'text-orange-600', badge: pendingCount },
     { id: 'settings', label: 'Configurações', icon: Settings, color: 'text-slate-600' },
   ];

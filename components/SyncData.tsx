@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { apiService } from '../services/api';
-import { DownloadCloud, RefreshCw, Package, Users, CheckCircle, AlertCircle, ArrowLeft, Database } from 'lucide-react';
+import { Download, RefreshCw, Package, Users, CheckCircle, AlertCircle, ArrowLeft, Database } from 'lucide-react';
 
 interface SyncDataProps {
   onBack: () => void;
@@ -71,7 +71,7 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
                <ArrowLeft className="w-6 h-6 text-slate-600 dark:text-slate-300" />
            </button>
            <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-             <DownloadCloud className="w-6 h-6 text-purple-600" /> Sincronização de Dados
+             <Download className="w-6 h-6 text-purple-600" /> Sincronização de Dados
            </h2>
        </div>
 
