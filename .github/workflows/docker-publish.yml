@@ -50,9 +50,9 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          no-cache: true
           tags: ${{ steps.meta-ghcr.outputs.tags }}
           labels: ${{ steps.meta-ghcr.outputs.labels }}
           build-args: |
             VITE_BACKEND_URL=${{ env.VITE_BACKEND_URL }}
             VITE_GEMINI_API_KEY=${{ env.VITE_GEMINI_API_KEY }}
-
