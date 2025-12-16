@@ -767,5 +767,9 @@ if (fs.existsSync(distPath)) {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Servidor rodando em: http://localhost:${PORT}`);
   console.log(`📦 Modo Banco de Dados: ${isPostgres ? 'PostgreSQL (Remoto)' : 'SQLite (Local)'}\n`);
-  console.log(`🔑 Master Key Ativa: ${MASTER_KEY} (Use isso no campo Token de Integração se tiver problemas)\n`);
+  // Evite logar segredos em produção
+  if (process.env.NODE_ENV !== 'production') {
+    const mask = (v) => (v && v.length > 8 ? `${v.slice(0,4)}…${v.slice(-4)}` : '(defina via env)');
+    console.log(`🔑 Master Key (mascarada): ${mask(MASTER_KEY)}\n`);
+  }
 });

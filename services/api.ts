@@ -626,12 +626,28 @@ class ApiService {
 
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
       const targetUrl = url.trim() ? url.trim().replace(/\/$/, "") : '';
-      const endpoint = targetUrl ? `${targetUrl}/api/products?limit=1` : `/api/products?limit=1`;
+      // Preferimos /api/me para validar permissão do token, pois alguns backends
+      // exigem vendedor_id nas rotas de produtos e retornam 403.
+      const meEndpoint = targetUrl ? `${targetUrl}/api/me` : `/api/me`;
+      const productsBase = targetUrl ? `${targetUrl}/api/products?limit=1` : `/api/products?limit=1`;
       
-      this.addLog(`Testando: ${endpoint}`, 'info');
+      // Anexa vendedor_id se já estiver salvo (alguns backends exigem)
+      const seller = this.getSellerId();
+      const endpoint = seller ? `${productsBase}&vendedor_id=${encodeURIComponent(seller)}` : productsBase;
+      
+      this.addLog(`Testando: ${meEndpoint} ou ${endpoint}`, 'info');
       
       try {
-        const response = await fetch(endpoint, {
+        // 1) Tenta /api/me
+        let response = await fetch(meEndpoint, {
+          method: 'GET',
+          headers: { ...this.getAuthHeaders() }
+        });
+
+        if (response.ok) return { success: true, message: 'Conectado!' };
+        
+        // 2) Fallback para produtos (com vendedor_id se houver)
+        response = await fetch(endpoint, {
           method: 'GET',
           headers: { ...this.getAuthHeaders() }
         });
@@ -742,7 +758,10 @@ class ApiService {
 
   private async fetchProductsFromNetwork(page: number, limit: number): Promise<Product[]> {
     try {
-      const response = await this.fetchWithAuth(`/api/products?page=${page}&limit=${limit}`);
+      // Alguns backends exigem vendedor_id para listar produtos
+      const seller = this.getSellerId();
+      const extra = seller ? `&vendedor_id=${encodeURIComponent(seller)}` : '';
+      const response = await this.fetchWithAuth(`/api/products?page=${page}&limit=${limit}${extra}`);
       if (!response.ok) return [];
       
       const data = await response.json();
@@ -757,7 +776,9 @@ class ApiService {
   async syncFullCatalog(onProgress: (current: number, total: number | null) => void): Promise<{ success: boolean, count: number, message?: string }> {
     try {
         // CORREÇÃO: limit=-1 garante que o backend envie todos os produtos sem paginação
-        const response = await this.fetchWithAuth(`/api/products?limit=-1`);
+        const seller = this.getSellerId();
+        const extra = seller ? `&vendedor_id=${encodeURIComponent(seller)}` : '';
+        const response = await this.fetchWithAuth(`/api/products?limit=-1${extra}`);
         
         if (!response.ok) throw new Error(`Erro ${response.status}`);
         
