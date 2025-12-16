@@ -14,10 +14,8 @@ class GeminiService {
   }
 
   async generateSalesPitch(product: Product): Promise<string> {
-    try {
-      const base = this.getBaseUrl();
-      const url = `${base}/api/ai/pitch`;
-      const auth = this.getAuthHeader();
+    const auth = this.getAuthHeader();
+    const tryFetch = async (url: string) => {
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -26,23 +24,29 @@ class GeminiService {
         },
         body: JSON.stringify({ product })
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        return data.message || 'Falha ao gerar argumento de vendas.';
+      if (!res.ok) throw res;
+      return res.json();
+    };
+    try {
+      const base = this.getBaseUrl();
+      // Tenta remoto (se configurado)
+      if (base) {
+        try {
+          const data = await tryFetch(`${base}/api/ai/pitch`);
+          return data.text || 'Não foi possível gerar o argumento de vendas.';
+        } catch {}
       }
-      const data = await res.json();
+      // Fallback para local
+      const data = await tryFetch(`/api/ai/pitch`);
       return data.text || 'Não foi possível gerar o argumento de vendas.';
-    } catch (e: any) {
+    } catch {
       return 'Erro ao comunicar com o servidor de IA.';
     }
   }
 
   async generateProductImage(product: Product): Promise<string | null> {
-    try {
-      const base = this.getBaseUrl();
-      const url = `${base}/api/ai/image`;
-      const auth = this.getAuthHeader();
+    const auth = this.getAuthHeader();
+    const tryFetch = async (url: string) => {
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -51,11 +55,20 @@ class GeminiService {
         },
         body: JSON.stringify({ product })
       });
-
-      if (!res.ok) return null;
-      const data = await res.json();
+      if (!res.ok) throw res;
+      return res.json();
+    };
+    try {
+      const base = this.getBaseUrl();
+      if (base) {
+        try {
+          const data = await tryFetch(`${base}/api/ai/image`);
+          return data.imageDataUrl || null;
+        } catch {}
+      }
+      const data = await tryFetch(`/api/ai/image`);
       return data.imageDataUrl || null;
-    } catch (e) {
+    } catch {
       return null;
     }
   }

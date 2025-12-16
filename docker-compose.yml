@@ -10,21 +10,17 @@ services:
         VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY}
         VITE_BACKEND_URL: ${VITE_BACKEND_URL}
     restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      # Opcional: sobrescreva valores do .env
-      # - SECRET_KEY=${SECRET_KEY}
-      # - MASTER_KEY=${MASTER_KEY}
-      # - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      # - DATABASE_URL=${DATABASE_URL}
-      # Backend AI key (runtime)
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
     ports:
       - "8080:8080"
-    env_file:
-      - .env
     environment:
+      - NODE_ENV=production
       - DB_PATH=/data/database.sqlite
+      - SECRET_KEY=${SECRET_KEY}
+      - MASTER_KEY=${MASTER_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Optional:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - DATABASE_URL=${DATABASE_URL}
     volumes:
       - salesforce_data:/data
     networks:
