@@ -237,6 +237,18 @@ async function initDb() {
 initDb();
 
 // --- ROTAS DE AUTENTICAÇÃO ---
+// Healthcheck simples para orquestradores (Portainer/Swarm)
+app.get('/health', async (req, res) => {
+    try {
+        const row = await db.get(isPostgres ? 'SELECT 1 as ok' : 'SELECT 1 as ok');
+        if (row && (row.ok === 1 || row.ok === '1')) {
+            return res.status(200).json({ status: 'ok', db: isPostgres ? 'postgres' : 'sqlite' });
+        }
+        return res.status(200).json({ status: 'ok', db: isPostgres ? 'postgres' : 'sqlite' });
+    } catch (e) {
+        return res.status(500).json({ status: 'error', error: e.message });
+    }
+});
 
 app.post('/api/register', async (req, res) => {
   const { name, email, password, seller_id } = req.body;

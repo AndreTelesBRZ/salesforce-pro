@@ -25,6 +25,11 @@ services:
         order: start-first
         parallelism: 1
         delay: 5s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 networks:
   salesforce_net:
@@ -32,4 +37,3 @@ networks:
 
 volumes:
   salesforce_data:
-
