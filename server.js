@@ -509,18 +509,16 @@ app.get('/api/me', verifyToken, async (req, res) => {
 
 // Listar Produtos
 app.get('/api/products', verifyToken, async (req, res) => {
-  // LÓGICA DE LIMITE ROBUSTA:
-  // Se limit não for enviado, assume 50 (paginação padrão).
-  // Se limit for enviado e for <= 0, assume SEM LIMITES (Sync).
-  
-  let limit = 50; 
-  if (req.query.limit) {
+  // LÓGICA DE LIMITE ROBUSTA (atualizada):
+  // Se limit não for enviado, NÃO aplicamos paginação (retorna tudo — útil para sync).
+  // Se limit for enviado e > 0, aplicamos paginação normal.
+  let limit = -1;
+  if (req.query.limit !== undefined) {
       const parsed = parseInt(req.query.limit);
       if (!isNaN(parsed)) limit = parsed;
   }
-  
   const page = parseInt(req.query.page) || 1;
-  const offset = (page - 1) * limit;
+  const offset = limit > 0 ? (page - 1) * limit : 0;
 
   try {
       let query = "SELECT * FROM products ORDER BY name";
@@ -582,11 +580,10 @@ app.post('/api/products', verifyToken, async (req, res) => {
 app.get('/api/clientes', verifyToken, async (req, res) => {
     const vendedorId = req.query.vendedor_id;
     
-    // LÓGICA DE LIMITE ROBUSTA:
-    // Se limit não for enviado, assume 50 (paginação padrão para não travar).
-    // Se limit for <= 0 (ex: -1), remove limites.
-    let limit = 50; 
-    if (req.query.limit) {
+    // LÓGICA DE LIMITE ROBUSTA (atualizada): sem parâmetro -> sem limite (sync completo).
+    // Se limit > 0, aplica paginação.
+    let limit = -1; 
+    if (req.query.limit !== undefined) {
         const parsed = parseInt(req.query.limit);
         if (!isNaN(parsed)) limit = parsed;
     }
