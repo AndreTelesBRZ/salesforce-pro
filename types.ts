@@ -57,4 +57,7 @@ export interface AppConfig {
   apiToken: string; // Token fixo para autenticação do App no ERP
   useMockData: boolean;
   theme: ThemeMode;
+  // Quando verdadeiro, a listagem de clientes ignora o cache local e
+  // consulta sempre o backend com limit=-1 (todos os clientes)
+  alwaysFetchCustomers?: boolean;
 }

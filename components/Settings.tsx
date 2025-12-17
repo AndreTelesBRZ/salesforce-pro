@@ -163,6 +163,17 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
           />
         </div>
 
+        {/* Always fetch customers toggle */}
+        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-900 p-4 rounded-md border dark:border-slate-700">
+          <span className="text-sm font-medium">Sempre buscar clientes do servidor</span>
+          <input
+            type="checkbox"
+            checked={!!config.alwaysFetchCustomers}
+            onChange={(e) => setConfig({ ...config, alwaysFetchCustomers: e.target.checked })}
+            className="w-5 h-5 accent-blue-600"
+          />
+        </div>
+
         {message && <div className="p-3 bg-green-100 text-green-700 rounded-md text-sm text-center">{message}</div>}
 
         <button

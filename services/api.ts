@@ -147,7 +147,12 @@ class ApiService {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
                   localStorage.setItem('username', name);
                   if (sellerId) {
-                      localStorage.setItem('sellerId', sellerId);
+                      // Guarda o vendedor para filtrar clientes nas próximas chamadas
+                      localStorage.setItem('sellerId', String(sellerId));
+                  }
+                  if (sellerId) {
+                      // também guarda em memória para uso imediato
+                      
                   }
                   return { name, seller_id: sellerId };
               }
@@ -824,15 +829,15 @@ class ApiService {
       const currentSellerId = this.getSellerId();
       
       try {
-         let local = await dbService.getLocalCustomers();
-         
-         // FILTRO DE SEGURANÇA: Se houver vendedor logado, só mostra clientes dele
-         // (ou sem vendedor definido, para garantir compatibilidade)
-         if (currentSellerId) {
-             local = local.filter(c => !c.sellerId || c.sellerId === currentSellerId);
+         // Se configuração exigir, ignora cache local e busca sempre do backend
+         if (!this.config.alwaysFetchCustomers) {
+            let local = await dbService.getLocalCustomers();
+            // FILTRO DE SEGURANÇA: se houver vendedor logado, só mostra clientes dele
+            if (currentSellerId) {
+                local = local.filter(c => !c.sellerId || c.sellerId === currentSellerId);
+            }
+            if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
          }
-         
-         if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
 
          // FALLBACK: Aumenta limite de visualização direta se não sincronizado
          // limit=-1 para garantir que traga tudo se a sincronização falhou antes
