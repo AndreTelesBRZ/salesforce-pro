@@ -34,6 +34,15 @@ services:
         - "traefik.http.routers.salesforce.entrypoints=websecure"
         - "traefik.http.routers.salesforce.tls=true"
         - "traefik.http.routers.salesforce.tls.certresolver=letsencryptresolver"
+        # Middlewares de produção (HSTS + compress) aplicados no router HTTPS
+        - "traefik.http.routers.salesforce.middlewares=salesforce-sec-headers,salesforce-compress"
+        - "traefik.http.middlewares.salesforce-compress.compress=true"
+        - "traefik.http.middlewares.salesforce-sec-headers.headers.forceSTSHeader=true"
+        - "traefik.http.middlewares.salesforce-sec-headers.headers.stsSeconds=15552000"
+        - "traefik.http.middlewares.salesforce-sec-headers.headers.stsIncludeSubdomains=true"
+        - "traefik.http.middlewares.salesforce-sec-headers.headers.stsPreload=true"
+        - "traefik.http.middlewares.salesforce-sec-headers.headers.contentTypeNosniff=true"
+        - "traefik.http.middlewares.salesforce-sec-headers.headers.browserXSSFilter=true"
         - "traefik.http.services.salesforce.loadbalancer.server.port=8080"
         # Roteador HTTP com redirecionamento para HTTPS
         - "traefik.http.routers.salesforce-http.rule=Host(`vendas.edsondosparafusos.app.br`)"
