@@ -8,12 +8,14 @@ import { dbService } from '../services/db';
 interface CartProps {
   cart: CartItem[];
   onUpdateQuantity: (id: string, newQuantity: number) => void;
+  onUpdatePrice?: (id: string, newPrice: number) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
 }
 
 // --- KEYPAD COMPONENT ---
 interface NumericKeypadModalProps {
+  title: string;
   initialValue: number;
   itemName: string;
   unit: string;
@@ -21,7 +23,7 @@ interface NumericKeypadModalProps {
   onClose: () => void;
 }
 
-const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ initialValue, itemName, unit, onConfirm, onClose }) => {
+const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialValue, itemName, unit, onConfirm, onClose }) => {
   // Converte para string com vírgula para edição
   const [displayValue, setDisplayValue] = useState(initialValue.toString().replace('.', ','));
   const [hasTyped, setHasTyped] = useState(false); // Novo estado: sabe se o usuário começou a digitar
@@ -86,7 +88,7 @@ const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ initialValue, i
         {/* Header */}
         <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
           <div>
-             <h3 className="font-bold text-lg">Quantidade</h3>
+             <h3 className="font-bold text-lg">{title}</h3>
              <p className="text-xs text-slate-400 truncate max-w-[200px]">{itemName}</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-white/80 hover:text-white transition-colors">
@@ -173,7 +175,7 @@ const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ initialValue, i
 };
 
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemove, onClear }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear }) => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
@@ -185,6 +187,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemove, on
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
+  const [editingPrice, setEditingPrice] = useState<{ id: string, name: string, price: number, unit: string } | null>(null);
 
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
@@ -318,9 +321,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemove, on
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-800 max-w-2xl mx-auto shadow-sm md:rounded-lg md:my-6 overflow-hidden transition-colors relative">
       
-      {/* --- MODAL KEYPAD --- */}
+      {/* --- MODAL KEYPAD: Quantidade --- */}
       {editingItem && (
         <NumericKeypadModal 
+            title="Quantidade"
             initialValue={editingItem.quantity}
             itemName={editingItem.name}
             unit={editingItem.unit}
@@ -328,6 +332,21 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemove, on
             onConfirm={(val) => {
                 onUpdateQuantity(editingItem.id, val);
                 setEditingItem(null);
+            }}
+        />
+      )}
+
+      {/* --- MODAL KEYPAD: Preço --- */}
+      {editingPrice && (
+        <NumericKeypadModal 
+            title="Preço Unitário"
+            initialValue={editingPrice.price}
+            itemName={editingPrice.name}
+            unit={editingPrice.unit}
+            onClose={() => setEditingPrice(null)}
+            onConfirm={(val) => {
+                if (onUpdatePrice) onUpdatePrice(editingPrice.id, val);
+                setEditingPrice(null);
             }}
         />
       )}
@@ -428,7 +447,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemove, on
                              <Tag className="w-3 h-3" /> {item.id}
                           </span>
                           <span>•</span>
-                          R$ {item.price.toFixed(2)} / {item.unit}
+                          <button
+                            onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit })}
+                            className="underline decoration-dotted hover:decoration-solid"
+                            title="Editar preço"
+                          >
+                            R$ {item.price.toFixed(2)} / {item.unit}
+                          </button>
                       </p>
                     </div>
                 </div>

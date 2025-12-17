@@ -239,6 +239,10 @@ export default function App() {
             <Cart 
               cart={cart} 
               onUpdateQuantity={updateQuantity} 
+              onUpdatePrice={(id, newPrice) => {
+                 if (newPrice <= 0 || isNaN(newPrice)) return;
+                 setCart(prev => prev.map(i => i.id === id ? { ...i, price: newPrice } : i));
+              }}
               onRemove={removeFromCart} 
               onClear={clearCart} 
             />
