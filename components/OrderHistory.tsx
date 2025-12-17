@@ -242,7 +242,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                     <table className="w-full text-sm mb-6">
                         <thead>
                             <tr className="border-b border-slate-300">
-                                <th className="text-left py-2 font-bold text-slate-600">Qtd</th>
+                                <th className="text-left py-2 font-bold text-slate-600">Qtd x Unit.</th>
                                 <th className="text-left py-2 font-bold text-slate-600">Item</th>
                                 <th className="text-right py-2 font-bold text-slate-600">Total</th>
                             </tr>
@@ -250,10 +250,12 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                         <tbody className="font-mono text-slate-700">
                             {viewingReceipt.items.map((item, idx) => (
                                 <tr key={idx} className="border-b border-slate-100">
-                                    <td className="py-2 align-top w-12">{item.quantity}</td>
+                                    <td className="py-2 align-top w-40">
+                                        {item.quantity} {item.unit} x R$ {item.price.toFixed(2)}
+                                    </td>
                                     <td className="py-2 align-top">
                                         <div className="font-bold text-slate-900">{item.name}</div>
-                                        <div className="text-[10px] text-slate-500">{item.id} • R$ {item.price.toFixed(2)}</div>
+                                        <div className="text-[10px] text-slate-500">{item.id}</div>
                                     </td>
                                     <td className="py-2 align-top text-right font-bold">
                                         R$ {(item.quantity * item.price).toFixed(2)}
