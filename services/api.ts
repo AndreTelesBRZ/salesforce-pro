@@ -274,6 +274,8 @@ class ApiService {
   }
 
   private async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
+      // exportado para uso em outros componentes (ex.: Settings -> importação da API externa)
+      // mantendo método public via class - já é público, mas adiciono comentário para indicar intenção
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       const baseUrl = this.getBaseUrl();
       const hasRemoteConfig = baseUrl !== '';

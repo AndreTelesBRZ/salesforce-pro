@@ -21,6 +21,55 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [storeForm, setStoreForm] = useState<any>({});
+  const importFromERP = async () => {
+    try {
+      // Busca lista de lojas na API do ERP
+      const res = await apiService.fetchWithAuth('/api/lojas');
+      if (!res.ok) {
+        alert('Falha ao consultar /api/lojas no ERP');
+        return;
+      }
+      const payload = await res.json();
+      const data = Array.isArray(payload) ? payload : (payload.data || []);
+      if (!data || data.length === 0) {
+        alert('Nenhuma loja retornada pelo ERP.');
+        return;
+      }
+
+      // Usa a primeira loja como padrão
+      const loja: any = data[0];
+
+      const pick = (obj: any, keys: string[]) => {
+        for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]);
+        return '';
+      };
+      const findBy = (obj: any, regex: RegExp) => {
+        for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]);
+        return '';
+      };
+
+      const mapped = {
+        legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA']),
+        trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA']),
+        document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC']),
+        email: pick(loja, ['AGEMAIL','EMAIL']) || findBy(loja, /email/i),
+        phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETEL2','AGETELF','AGETELEFONE','AGETELE','AGECELP','CELULAR','TELEFONE']) || findBy(loja, /(tel|fone|cel)/i),
+        street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA']),
+        number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM']),
+        neighborhood: pick(loja, ['AGEBAI','BAIRRO']),
+        city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO']),
+        state: pick(loja, ['AGEEST','UF','ESTADO']),
+        zip: pick(loja, ['AGECEP','CEP']),
+      };
+
+      setStoreForm((prev: any) => ({ ...prev, ...mapped }));
+      // Persiste imediatamente
+      await (await apiService.fetchWithAuth('/api/store', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(mapped) })).json();
+      alert('Dados da loja importados com sucesso!');
+    } catch (e) {
+      alert('Falha ao importar dados da API.');
+    }
+  };
 
   // Auto-teste
   useEffect(() => {
@@ -191,6 +240,9 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             <Building className="w-4 h-4 text-blue-600" />
             Dados da Loja (para relatórios/recibos)
           </label>
+          <div className="flex justify-end mb-2">
+            <button onClick={importFromERP} className="px-3 py-2 text-xs bg-emerald-600 text-white rounded font-bold hover:bg-emerald-700">Importar da API</button>
+          </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Razão Social" value={storeForm.legal_name||''} onChange={e=>setStoreForm({...storeForm, legal_name:e.target.value})} />
             <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Nome Fantasia" value={storeForm.trade_name||''} onChange={e=>setStoreForm({...storeForm, trade_name:e.target.value})} />
