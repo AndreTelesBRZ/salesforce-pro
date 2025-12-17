@@ -229,6 +229,34 @@ async function initDb() {
              } catch(e) { console.log("Info: Cliente padrão não criado"); }
         }
 
+        // Tabela de Dados da Loja (Store Info)
+        await db.run(`CREATE TABLE IF NOT EXISTS store_info (
+            id INTEGER PRIMARY KEY ${autoInc},
+            legal_name TEXT,
+            trade_name TEXT,
+            document TEXT,
+            state_registration TEXT,
+            municipal_registration TEXT,
+            email TEXT,
+            phone TEXT,
+            street TEXT,
+            number TEXT,
+            neighborhood TEXT,
+            city TEXT,
+            state TEXT,
+            zip TEXT,
+            complement TEXT,
+            updated_at TEXT
+        )`);
+
+        // Garante um registro único (id=1)
+        try {
+            const s = await db.get("SELECT id FROM store_info WHERE id = ?", [1]);
+            if (!s) {
+                await db.run(`INSERT INTO store_info (id, legal_name, trade_name, document, email, phone, street, number, neighborhood, city, state, zip, updated_at) VALUES (1, '', '', '', '', '', '', '', '', '', '', '', ?)`, [new Date().toISOString()]);
+            }
+        } catch (e) {}
+
     } catch (e) {
         console.error("Erro na migração de DB:", e);
     }
@@ -675,6 +703,36 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
   } catch (e) {
       console.error('[ORDER_ERROR] Erro ao gravar pedido:', e);
       res.status(500).json({ message: `Erro Interno: ${e.message}` });
+  }
+});
+
+// Dados da Loja
+app.get('/api/store', verifyToken, async (req, res) => {
+  try {
+    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    res.json(row || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/store', verifyToken, async (req, res) => {
+  const fields = [
+    'legal_name','trade_name','document','state_registration','municipal_registration','email','phone','street','number','neighborhood','city','state','zip','complement'
+  ];
+  const data = {};
+  fields.forEach(k => { if (req.body[k] !== undefined) data[k] = req.body[k]; });
+  data.updated_at = new Date().toISOString();
+  
+  try {
+    // Monta SET dinâmico
+    const setCols = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const params = Object.values(data);
+    await db.run(`UPDATE store_info SET ${setCols} WHERE id = 1`, params);
+    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    res.json(row);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

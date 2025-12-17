@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService, LogEntry } from '../services/api';
 import { AppConfig, ThemeMode } from '../types';
-import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase } from 'lucide-react';
+import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 
 interface SettingsProps {
   onClose: () => void;
@@ -20,6 +20,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [showToken, setShowToken] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [storeForm, setStoreForm] = useState<any>({});
 
   // Auto-teste
   useEffect(() => {
@@ -31,6 +32,16 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     }, 1500);
     return () => clearTimeout(delay);
   }, [config.apiToken, config.backendUrl]);
+
+  // Carrega dados da loja ao abrir
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiService.fetchWithAuth('/api/store');
+        if (res.ok) setStoreForm(await res.json());
+      } catch {}
+    })();
+  }, []);
 
   const refreshLogs = () => {
       setLogs([...apiService.getLogs()]);
@@ -172,6 +183,38 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             onChange={(e) => setConfig({ ...config, alwaysFetchCustomers: e.target.checked })}
             className="w-5 h-5 accent-blue-600"
           />
+        </div>
+
+        {/* Dados da Loja (opcional) */}
+        <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-md border dark:border-slate-700">
+          <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">
+            <Building className="w-4 h-4 text-blue-600" />
+            Dados da Loja (para relatórios/recibos)
+          </label>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Razão Social" value={storeForm.legal_name||''} onChange={e=>setStoreForm({...storeForm, legal_name:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Nome Fantasia" value={storeForm.trade_name||''} onChange={e=>setStoreForm({...storeForm, trade_name:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="CNPJ/CPF" value={storeForm.document||''} onChange={e=>setStoreForm({...storeForm, document:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="E-mail" value={storeForm.email||''} onChange={e=>setStoreForm({...storeForm, email:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Telefone" value={storeForm.phone||''} onChange={e=>setStoreForm({...storeForm, phone:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Logradouro" value={storeForm.street||''} onChange={e=>setStoreForm({...storeForm, street:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Número" value={storeForm.number||''} onChange={e=>setStoreForm({...storeForm, number:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Bairro" value={storeForm.neighborhood||''} onChange={e=>setStoreForm({...storeForm, neighborhood:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Cidade" value={storeForm.city||''} onChange={e=>setStoreForm({...storeForm, city:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="UF" value={storeForm.state||''} onChange={e=>setStoreForm({...storeForm, state:e.target.value})} />
+            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="CEP" value={storeForm.zip||''} onChange={e=>setStoreForm({...storeForm, zip:e.target.value})} />
+          </div>
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={async ()=>{
+                try{
+                  await (await apiService.fetchWithAuth('/api/store', { method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(storeForm)})).json();
+                  alert('Dados da loja atualizados!');
+                }catch(e){ alert('Falha ao salvar'); }
+              }}
+              className="px-3 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700"
+            >Salvar Dados da Loja</button>
+          </div>
         </div>
 
         {message && <div className="p-3 bg-green-100 text-green-700 rounded-md text-sm text-center">{message}</div>}

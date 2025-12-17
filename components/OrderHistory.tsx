@@ -19,6 +19,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
   
   // Estado para o Modal de Recibo
   const [viewingReceipt, setViewingReceipt] = useState<Order | null>(null);
+  const [headerStore, setHeaderStore] = useState<any | null>(null);
 
   // Estados para seleção múltipla
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -30,6 +31,13 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
     if (activeTab !== 'pending') {
         syncRemoteHistory();
     }
+    // Carrega dados da loja para o cabeçalho do recibo
+    apiService.fetchWithAuth('/api/store').then(async (res) => {
+        if (res.ok) {
+            const data = await res.json();
+            setHeaderStore(data);
+        }
+    }).catch(()=>{});
   }, []);
 
   // Limpa seleção ao trocar de aba
@@ -217,9 +225,21 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
 
                 {/* Conteúdo do Recibo (Imprimível) */}
                 <div className="p-8 bg-white text-slate-900 print-content overflow-y-auto flex-1">
-                    <div className="text-center border-b-2 border-slate-800 pb-4 mb-4">
-                        <h1 className="text-2xl font-bold uppercase tracking-wide">SalesForce Pro</h1>
-                        <p className="text-sm text-slate-500">Comprovante de Pedido</p>
+                    <div className="border-b-2 border-slate-800 pb-4 mb-4">
+                        <h1 className="text-2xl font-bold uppercase tracking-wide">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
+                        <p className="text-sm text-slate-600">{headerStore?.legal_name}</p>
+                        {headerStore?.document && (
+                          <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
+                        )}
+                        {(headerStore?.street || headerStore?.city) && (
+                          <p className="text-xs text-slate-500">
+                            {headerStore?.street || ''} {headerStore?.number || ''} {headerStore?.neighborhood ? `- ${headerStore.neighborhood}` : ''} {headerStore?.city ? `• ${headerStore.city}/${headerStore.state || ''}` : ''} {headerStore?.zip ? `• ${headerStore.zip}` : ''}
+                          </p>
+                        )}
+                        {headerStore?.phone && (
+                          <p className="text-xs text-slate-500">Fone: {headerStore.phone}</p>
+                        )}
+                        <p className="text-sm text-slate-500 mt-2">Comprovante de Pedido</p>
                     </div>
 
                     <div className="flex justify-between items-end mb-6">
