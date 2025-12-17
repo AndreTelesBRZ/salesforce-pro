@@ -33,7 +33,7 @@ services:
         - "traefik.http.routers.salesforce.rule=Host(`${SALESFORCE_HOST}`)"
         - "traefik.http.routers.salesforce.entrypoints=websecure"
         - "traefik.http.routers.salesforce.tls=true"
-        - "traefik.http.routers.salesforce.tls.certresolver=${TRAEFIK_CERTRESOLVER}"
+        - "traefik.http.routers.salesforce.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.salesforce.loadbalancer.server.port=8080"
         # Roteador HTTP com redirecionamento para HTTPS
         - "traefik.http.routers.salesforce-http.rule=Host(`${SALESFORCE_HOST}`)"
