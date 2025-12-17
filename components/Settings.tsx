@@ -21,6 +21,9 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [storeForm, setStoreForm] = useState<any>({});
+  const [erpStores, setErpStores] = useState<any[]>([]);
+  const [selectStoreOpen, setSelectStoreOpen] = useState(false);
+  const [selectedStoreIndex, setSelectedStoreIndex] = useState<number>(0);
   const importFromERP = async () => {
     try {
       // Busca lista de lojas na API do ERP
@@ -36,18 +39,21 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
         return;
       }
 
-      // Usa a primeira loja como padrão
-      const loja: any = data[0];
+      setErpStores(data);
+      const idx = data.findIndex((l: any) => String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0') === '000001');
+      setSelectedStoreIndex(idx >= 0 ? idx : 0);
+      setSelectStoreOpen(true);
+    } catch (e) {
+      alert('Falha ao importar dados da API.');
+    }
+  };
 
-      const pick = (obj: any, keys: string[]) => {
-        for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]);
-        return '';
-      };
-      const findBy = (obj: any, regex: RegExp) => {
-        for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]);
-        return '';
-      };
-
+  const confirmImportFromERP = async () => {
+    try {
+      const loja = erpStores[selectedStoreIndex];
+      if (!loja) { setSelectStoreOpen(false); return; }
+      const pick = (obj: any, keys: string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
+      const findBy = (obj: any, regex: RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
       const mapped = {
         legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA']),
         trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA']),
@@ -61,15 +67,14 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
         state: pick(loja, ['AGEEST','UF','ESTADO']),
         zip: pick(loja, ['AGECEP','CEP']),
       };
-
       setStoreForm((prev: any) => ({ ...prev, ...mapped }));
-      // Persiste imediatamente
       await (await apiService.fetchWithAuth('/api/store', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(mapped) })).json();
+      setSelectStoreOpen(false);
       alert('Dados da loja importados com sucesso!');
     } catch (e) {
       alert('Falha ao importar dados da API.');
     }
-  };
+  }
 
   // Auto-teste
   useEffect(() => {
@@ -204,6 +209,31 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                 O token de integração ou seu login vinculará automaticamente sua carteira de clientes.
              </p>
         </div>
+
+        {/* Modal: Seletor de Loja da API */}
+        {selectStoreOpen && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-lg shadow-xl p-4">
+              <h3 className="text-lg font-bold mb-3 text-slate-800 dark:text-white">Selecionar Loja</h3>
+              <p className="text-xs text-slate-500 mb-2">Escolha qual registro de loja deseja importar da API.</p>
+              <select
+                value={selectedStoreIndex}
+                onChange={(e)=>setSelectedStoreIndex(parseInt(e.target.value))}
+                className="w-full p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700"
+              >
+                {erpStores.map((l:any, idx:number)=>{
+                  const code = String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0');
+                  const name = String(l.AGEFAN || l.FANTASIA || l.NOME_FANTASIA || l.AGEEMP || l.RAZAO || 'Loja');
+                  return <option key={idx} value={idx}>{code} - {name}</option>;
+                })}
+              </select>
+              <div className="flex justify-end gap-2 mt-4">
+                <button onClick={()=>setSelectStoreOpen(false)} className="px-3 py-2 rounded border text-slate-600 dark:text-slate-300">Cancelar</button>
+                <button onClick={confirmImportFromERP} className="px-3 py-2 rounded bg-blue-600 text-white font-bold hover:bg-blue-700">Importar</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Status */}
         {testStatus === 'error' && (
