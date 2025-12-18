@@ -758,6 +758,20 @@ class ApiService {
         const result = await dbService.searchProducts(page, limit, searchTerm, category);
         if (result.products.length > 0 || searchTerm !== '') return result.products;
       }
+      // Sem produtos locais; se estiver em modo demonstração, cria um catálogo base
+      if (this.config.useMockData && (count === 0)) {
+         const demo: Product[] = [
+            { id:'IP14-128', name:'iPhone 14 128GB', description:'Smartphone Apple iPhone 14 128GB', price:4999, category:'Smartphone', stock:25, unit:'un' },
+            { id:'S23U-256', name:'Samsung Galaxy S23 Ultra 256GB', description:'Top de linha Samsung com S-Pen', price:5499, category:'Smartphone', stock:12, unit:'un' },
+            { id:'MAC-13M2', name:'MacBook Air 13" M2 8GB/256GB', description:'Notebook Apple M2', price:8999, category:'Notebook', stock:8, unit:'un' },
+            { id:'NOTE-I7', name:'Notebook i7 16GB/512GB', description:'Windows 11, SSD 512GB, 16GB RAM', price:4399, category:'Notebook', stock:14, unit:'un' },
+            { id:'TV-65OLED', name:'Smart TV 65" OLED 4K', description:'Dolby Vision/Atmos', price:6999, category:'TV', stock:6, unit:'un' },
+            { id:'FONE-ANC', name:'Fone Bluetooth com ANC', description:'Cancelamento ativo de ruído', price:699, category:'Acessórios', stock:40, unit:'un' }
+         ];
+         await dbService.bulkAddProducts(demo);
+         const seeded = await dbService.searchProducts(page, limit, searchTerm, category);
+         if (seeded.products.length > 0) return seeded.products;
+      }
     } catch (e) {}
 
     return this.fetchProductsFromNetwork(page, limit);
@@ -839,6 +853,17 @@ class ApiService {
                 local = local.filter(c => !c.sellerId || c.sellerId === currentSellerId);
             }
             if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
+         }
+
+         // Se estiver em Mock e não houver clientes locais, cria uma base de demonstração
+         if (this.config.useMockData) {
+            const demoClients: Customer[] = [
+                { id:'C100', name:'Rede Varejista Alfa', fantasyName:'Alfa Supermercados', document:'12.345.678/0001-90', address:'Av. Brasil', addressNumber:'1000', neighborhood:'Centro', city:'Fortaleza', state:'CE', zipCode:'60000-000', phone:'(85) 3333-0001', email:'compras@alfa.com', sellerId: currentSellerId || '' },
+                { id:'C200', name:'Clínica Saúde Vida', fantasyName:'Saúde Vida', document:'11.222.333/0001-55', address:'Rua das Flores', addressNumber:'200', neighborhood:'Jardins', city:'Fortaleza', state:'CE', zipCode:'60111-111', phone:'(85) 98888-7777', email:'contato@saudevida.com', sellerId: currentSellerId || '' },
+                { id:'C300', name:'Serviços Beta Ltda', fantasyName:'Beta Serviços', document:'22.333.444/0001-77', address:'Av. Independência', addressNumber:'300', neighborhood:'Aldeota', city:'Fortaleza', state:'CE', zipCode:'60123-000', phone:'(85) 99999-6666', email:'financeiro@betaservicos.com', sellerId: currentSellerId || '' }
+            ];
+            await dbService.bulkAddCustomers(demoClients);
+            return [WALK_IN_CUSTOMER, ...demoClients];
          }
 
          // FALLBACK: Aumenta limite de visualização direta se não sincronizado

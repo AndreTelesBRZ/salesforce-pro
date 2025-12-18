@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CartItem, Order, Customer } from '../types';
-import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 
@@ -241,6 +241,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const handleNewOrder = () => {
       setSuccess(false);
       onClear();
+  };
+
+  const shareQuote = () => {
+      const lines = cart.map(i => `- ${i.quantity} ${i.unit} ${i.name} (R$ ${(i.price*i.quantity).toFixed(2)})`).join('\n');
+      const text = `Orçamento\nCliente: ${selectedCustomer?.name || ''}\nTotal: R$ ${total.toFixed(2)}\n\nItens:\n${lines}`;
+      const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.open(url, '_blank');
   };
 
   const confirmClearCart = () => {
@@ -510,6 +517,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 title="Limpar Carrinho"
              >
                 <Trash2 className="w-5 h-5" />
+             </button>
+
+             <button
+               onClick={shareQuote}
+               className="flex-none px-4 py-4 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-200"
+               title="Compartilhar orçamento via WhatsApp"
+             >
+               <Share2 className="w-5 h-5" />
              </button>
 
             <button

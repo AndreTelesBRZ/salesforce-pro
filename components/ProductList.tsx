@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Product, CartItem } from '../types';
 import { apiService } from '../services/api';
 import { geminiService } from '../services/geminiService';
-import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save } from 'lucide-react';
+import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2 } from 'lucide-react';
 
 interface ProductListProps {
   onAddToCart: (product: Product) => void;
@@ -159,6 +159,13 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, cart }) =
 
   const getCartItem = (productId: string) => {
     return cart.find(i => i.id === productId);
+  };
+
+  // Compartilhamento rápido via WhatsApp
+  const shareProduct = (product: Product) => {
+    const text = `Orçamento/Produto\n\n${product.name}\nCódigo: ${product.id}\nPreço: R$ ${product.price.toFixed(2)} / ${product.unit}\n\nEnviado via SalesForce Pro`;
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
   };
 
   if (loading && page === 1 && !searchTerm) {
@@ -511,6 +518,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, cart }) =
                      <div className="font-bold text-blue-800 dark:text-blue-400 text-sm whitespace-nowrap">R$ {product.price.toFixed(2)}</div>
                      <div className="text-[10px] text-slate-400">/{product.unit}</div>
                   </div>
+                  <div className="flex gap-2">
                   <button 
                     onClick={() => onAddToCart(product)}
                     className={`p-2 rounded-lg transition-colors ${
@@ -521,6 +529,14 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, cart }) =
                   >
                      <ShoppingCart className="w-4 h-4" />
                   </button>
+                  <button
+                    onClick={() => shareProduct(product)}
+                    title="Compartilhar via WhatsApp"
+                    className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                  </div>
                </div>
             </div>
           );

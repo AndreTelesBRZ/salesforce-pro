@@ -427,6 +427,24 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                                     >
                                         <Printer className="w-3 h-3" /> Visualizar / PDF
                                     </button>
+                                    <button
+                                        onClick={() => duplicateOrder(order)}
+                                        className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white hover:bg-green-700 rounded text-xs font-bold transition-colors shadow-sm"
+                                        title="Duplicar pedido"
+                                    >
+                                        <Copy className="w-3 h-3" /> Duplicar
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const text = `Pedido #${order.displayId}\nCliente: ${order.customerName}\nTotal: R$ ${order.total.toFixed(2)}\n\nItens:\n` + order.items.map(i => `- ${i.quantity} ${i.unit} ${i.name} (R$ ${(i.quantity*i.price).toFixed(2)})`).join('\n');
+                                            const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                                            window.open(url, '_blank');
+                                        }}
+                                        className="flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 rounded text-xs font-bold transition-colors shadow-sm"
+                                        title="Compartilhar no WhatsApp"
+                                    >
+                                        <Share2 className="w-3 h-3" /> WhatsApp
+                                    </button>
                                 </div>
                             </div>
 

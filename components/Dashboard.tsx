@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database } from 'lucide-react';
+import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, BarChart2, Award, Star } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 
@@ -23,6 +23,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     refreshLocalCounts();
     checkStoragePersistence();
     checkDeviceLink();
+  }, []);
+
+  // KPIs simples gerados localmente para demonstração
+  const [todayTotal, setTodayTotal] = useState<number>(0);
+  const [monthGoal] = useState<number>(50000); // meta fixa de demonstração
+  const [ticket, setTicket] = useState<number>(0);
+  const [topCustomers, setTopCustomers] = useState<{name:string,total:number}[]>([]);
+
+  useEffect(() => {
+     (async () => {
+        const all = await dbService.getOrders();
+        const today = new Date().toDateString();
+        const todayOrders = all.filter(o => new Date(o.createdAt).toDateString() === today);
+        const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
+        setTodayTotal(todaySum);
+        setTicket(todayOrders.length > 0 ? todaySum / todayOrders.length : 0);
+        
+        // Top clientes simples pelos pedidos salvos
+        const map: Record<string, number> = {};
+        all.forEach(o => {
+           const key = o.customerName || 'Cliente';
+           map[key] = (map[key] || 0) + o.total;
+        });
+        const tops = Object.entries(map).map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total).slice(0,5);
+        setTopCustomers(tops);
+     })();
   }, []);
 
   const checkDeviceLink = () => {
@@ -65,6 +91,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
 
   return (
     <div className="p-4 pt-8 pb-20">
+      {/* KPIs de Vendas */}
+      <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">Vendido Hoje</span>
+                <BarChart2 className="w-4 h-4 text-blue-600" />
+            </div>
+            <div className="text-2xl font-bold mt-1 text-blue-900 dark:text-blue-300">R$ {todayTotal.toFixed(2)}</div>
+         </div>
+         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">Meta Mensal</span>
+                <Award className="w-4 h-4 text-orange-600" />
+            </div>
+            <div className="mt-2">
+               <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded">
+                  <div className="h-3 bg-orange-500 rounded" style={{width: `${Math.min(100, (todayTotal/ monthGoal)*100).toFixed(0)}%`}} />
+               </div>
+               <div className="flex justify-between text-xs text-slate-500 mt-1">
+                  <span>R$ 0</span>
+                  <span>R$ {monthGoal.toLocaleString('pt-BR')}</span>
+               </div>
+            </div>
+         </div>
+         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">Ticket Médio (Hoje)</span>
+                <Star className="w-4 h-4 text-yellow-500" />
+            </div>
+            <div className="text-2xl font-bold mt-1 text-blue-900 dark:text-blue-300">R$ {ticket.toFixed(2)}</div>
+         </div>
+      </div>
       
       {/* ALERTA DE BANCO DE DADOS (PERSISTÊNCIA) */}
       {!isStoragePersisted && !permissionRequested && (
@@ -151,6 +209,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           </button>
         ))}
       </div>
+
+      {/* Top Clientes */}
+      {topCustomers.length > 0 && (
+        <div className="max-w-4xl mx-auto mt-6 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+            <div className="flex items-center justify-between mb-3">
+               <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><User className="w-4 h-4"/> Top Clientes</h3>
+            </div>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+               {topCustomers.map((c,idx)=> (
+                  <li key={idx} className="py-2 flex justify-between text-sm">
+                     <span>{idx+1}. {c.name}</span>
+                     <span className="font-bold">R$ {c.total.toFixed(2)}</span>
+                  </li>
+               ))}
+            </ul>
+        </div>
+      )}
     </div>
   );
 };

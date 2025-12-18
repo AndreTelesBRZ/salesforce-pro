@@ -22,6 +22,7 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [currentUser, setCurrentUser] = useState('');
+  const [sellerCode, setSellerCode] = useState<string | null>(null);
 
   // Inicialização do App
   useEffect(() => {
@@ -36,11 +37,15 @@ export default function App() {
       if (validSession) {
           // Garante que a UI receba o nome atualizado, mesmo se vier do cache local inicial
           setCurrentUser(apiService.getUsername());
+          setSellerCode(apiService.getSellerId());
           
           // Tenta buscar o perfil mais atual em background para corrigir "Terminal Vinculado"
           // se a conexão estiver disponível
           apiService.fetchProfile().then(profile => {
-              if (profile) setCurrentUser(profile.name);
+              if (profile) {
+                setCurrentUser(profile.name);
+                if (profile.seller_id) setSellerCode(profile.seller_id);
+              }
           });
       }
       
@@ -72,6 +77,7 @@ export default function App() {
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
     setCurrentUser(apiService.getUsername());
+    setSellerCode(apiService.getSellerId());
     setShowSettingsFromLogin(false);
     setCurrentView('dashboard');
   };
@@ -212,7 +218,9 @@ export default function App() {
               {currentUser && (
                   <div className="flex flex-col items-end mr-1">
                       <span className="text-[10px] text-blue-300 uppercase font-bold tracking-wider">Vendedor</span>
-                      <span className="text-sm font-bold text-white leading-none">{currentUser}</span>
+                      <span className="text-sm font-bold text-white leading-none">
+                        {currentUser}{sellerCode ? ` (${sellerCode})` : ''}
+                      </span>
                   </div>
               )}
 
