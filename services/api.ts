@@ -769,6 +769,26 @@ class ApiService {
        return [];
   }
 
+  // Atualiza status de negócio no servidor (se exposto) e reflete local
+  async updateOrderBusinessStatus(order: Order, next: Order['businessStatus']): Promise<{ success: boolean; message?: string }> {
+    try {
+      const remoteId = order.remoteId || order.displayId || order.id;
+      // tenta atualizar servidor; se falhar, mantém apenas local
+      try {
+        await this.fetchWithAuth(`/api/pedidos/${remoteId}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: next })
+        });
+      } catch {}
+      order.businessStatus = next;
+      await dbService.saveOrder(order);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  }
+
   // --- PRODUTOS ---
 
   async createProduct(product: Partial<Product>): Promise<{ success: boolean, message?: string }> {

@@ -731,6 +731,20 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
   }
 });
 
+// Atualizar status de negócio do pedido no servidor (mock / exemplo)
+// PUT /api/pedidos/:id/status  body: { status: 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado' }
+app.put('/api/pedidos/:id/status', verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body || {};
+  if (!status) return res.status(400).json({ message: 'status é obrigatório.' });
+  try {
+    // Nesta base exemplo, não persistimos pedidos; retornamos sucesso para o app refletir localmente
+    res.json({ success: true, id, status });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
 // Dados da Loja
 app.get('/api/store', verifyToken, async (req, res) => {
   try {
@@ -850,10 +864,15 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
 // Endpoint genérico para teste de envio de e-mail
 app.post('/api/sendmail', verifyToken, async (req, res) => {
   if (!mailer) return res.status(400).json({ message: 'Mailer não configurado.' });
-  const { to, subject, text, html } = req.body || {};
+  const { to, subject, text, html, attachments } = req.body || {};
   if (!to || !subject) return res.status(400).json({ message: 'Parâmetros inválidos.' });
   try {
-    const info = await mailer.sendMail({ from: MAILER_FROM, to, subject, text, html });
+    const opts = { from: MAILER_FROM, to, subject, text, html };
+    if (attachments && Array.isArray(attachments)) {
+      // attachments: [{ filename, content (base64), encoding: 'base64' }]
+      opts.attachments = attachments.map(a => ({ filename: a.filename, content: a.content, encoding: a.encoding || 'base64' }));
+    }
+    const info = await mailer.sendMail(opts);
     res.json({ success: true, id: info.messageId });
   } catch (e) {
     res.status(500).json({ message: e.message });

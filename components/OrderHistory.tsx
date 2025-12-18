@@ -15,7 +15,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'synced'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'synced' | 'flow'>(initialTab);
   
   // Estado para o Modal de Recibo
   const [viewingReceipt, setViewingReceipt] = useState<Order | null>(null);
@@ -181,6 +181,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
 
   const pendingCount = orders.filter(o => o.status === 'pending').length;
   const syncedCount = orders.filter(o => o.status === 'synced').length;
+  const preVendaCount = orders.filter(o => o.businessStatus === 'pre_venda').length;
 
   // --- RENDER ---
   
@@ -396,9 +397,32 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
           <button onClick={() => setActiveTab('synced')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'synced' ? 'bg-white dark:bg-slate-700 text-green-600 dark:text-green-400 shadow-sm' : 'text-slate-500'}`}>
              Enviados ({syncedCount})
           </button>
+          <button onClick={() => setActiveTab('flow')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'flow' ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm' : 'text-slate-500'}`}>
+             Fluxo ({preVendaCount})
+          </button>
       </div>
 
-      {filteredOrders.length === 0 ? (
+      {activeTab === 'flow' ? (
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+           <h3 className="font-bold mb-3 text-slate-800 dark:text-white">Ações de Fluxo</h3>
+           <p className="text-sm mb-3 text-slate-600 dark:text-slate-300">Selecione um pedido enviado e altere a etapa do processo.</p>
+           {orders.filter(o => o.businessStatus && o.businessStatus !== 'entregue' && o.businessStatus !== 'cancelado').slice(0,10).map(order => (
+             <div key={order.id} className="flex items-center justify-between border-t py-2 first:border-t-0">
+               <div>
+                 <div className="font-semibold">#{order.displayId} • {order.customerName}</div>
+                 <div className="text-xs text-slate-500">Etapa: {order.businessStatus || 'orcamento'}</div>
+               </div>
+               <div className="flex gap-2">
+                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'pre_venda').then(loadOrders)} className="px-2 py-1 text-xs bg-blue-600 text-white rounded">Pré‑venda</button>
+                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'separacao').then(loadOrders)} className="px-2 py-1 text-xs bg-amber-600 text-white rounded">Separação</button>
+                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'faturado').then(loadOrders)} className="px-2 py-1 text-xs bg-green-700 text-white rounded">Faturado</button>
+                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'entregue').then(loadOrders)} className="px-2 py-1 text-xs bg-emerald-600 text-white rounded">Entregue</button>
+                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'cancelado').then(loadOrders)} className="px-2 py-1 text-xs bg-red-600 text-white rounded">Cancelar</button>
+               </div>
+             </div>
+           ))}
+        </div>
+      ) : filteredOrders.length === 0 ? (
         <div className="bg-white dark:bg-slate-800 p-12 rounded-lg text-center shadow-sm border border-slate-100 dark:border-slate-700">
             <Filter className="w-12 h-12 mx-auto text-slate-300 mb-3" />
             <p className="text-slate-500">Nenhum pedido encontrado nesta categoria.</p>
