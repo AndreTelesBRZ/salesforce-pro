@@ -12,6 +12,7 @@ import fs from 'fs';
 import { OAuth2Client } from 'google-auth-library';
 import { GoogleGenAI } from '@google/genai';
 import PDFDocument from 'pdfkit';
+import nodemailer from 'nodemailer';
 
 // Configuração Básica
 const app = express();
@@ -23,6 +24,13 @@ const MASTER_KEY = process.env.MASTER_KEY || 'salesforce-pro-token';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 const DB_PATH = process.env.DB_PATH || './database.sqlite';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+// E-mail/SMTP
+const SMTP_ADDRESS  = process.env.SMTP_ADDRESS || '';
+const SMTP_PORT     = parseInt(process.env.SMTP_PORT || '587');
+const SMTP_USERNAME = process.env.SMTP_USERNAME || '';
+const SMTP_PASSWORD = process.env.SMTP_PASSWORD || '';
+const SMTP_TLS      = (process.env.SMTP_ENABLE_STARTTLS_AUTO || 'true') === 'true';
+const MAILER_FROM   = process.env.MAILER_SENDER_EMAIL || 'SalesForce <no-reply@salesforce.pro>';
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 let genAI = null;
@@ -32,6 +40,22 @@ if (GEMINI_API_KEY) {
   } catch (e) {
     console.warn('[AI] Falha ao inicializar GoogleGenAI:', e.message);
   }
+}
+
+// Transport opcional do nodemailer (só se variáveis estiverem definidas)
+let mailer = null;
+try {
+  if (SMTP_ADDRESS && SMTP_USERNAME && SMTP_PASSWORD) {
+    mailer = nodemailer.createTransport({
+      host: SMTP_ADDRESS,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { user: SMTP_USERNAME, pass: SMTP_PASSWORD },
+      tls: { rejectUnauthorized: false }
+    });
+  }
+} catch (e) {
+  console.warn('[MAILER] Falha ao inicializar transporte SMTP:', e.message);
 }
 
 // Middleware
@@ -820,6 +844,19 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
   } catch (e) {
     console.error('[PDF_ERROR]', e);
     res.status(500).json({ message: 'Falha ao gerar PDF.' });
+  }
+});
+
+// Endpoint genérico para teste de envio de e-mail
+app.post('/api/sendmail', verifyToken, async (req, res) => {
+  if (!mailer) return res.status(400).json({ message: 'Mailer não configurado.' });
+  const { to, subject, text, html } = req.body || {};
+  if (!to || !subject) return res.status(400).json({ message: 'Parâmetros inválidos.' });
+  try {
+    const info = await mailer.sendMail({ from: MAILER_FROM, to, subject, text, html });
+    res.json({ success: true, id: info.messageId });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 });
 
