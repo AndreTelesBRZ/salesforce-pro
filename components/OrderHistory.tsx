@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { dbService } from '../services/db';
 import { apiService } from '../services/api';
 import { Order } from '../types';
-import { FileText, Printer, ChevronDown, ChevronUp, Calendar, User, Check, Clock, Package, RefreshCw, Filter, AlertCircle, CheckCircle2, UploadCloud, Trash2, Square, CheckSquare, X, Loader2, Download, Store } from 'lucide-react';
+import { FileText, Printer, ChevronDown, ChevronUp, Calendar, User, Check, Clock, Package, RefreshCw, Filter, AlertCircle, CheckCircle2, UploadCloud, Trash2, Square, CheckSquare, X, Loader2, Download, Store, Copy, Share2 } from 'lucide-react';
 
 interface OrderHistoryProps {
     onNavigate?: (view: string) => void;
@@ -24,6 +24,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
   // Estados para seleção múltipla
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
+  const [duplicating, setDuplicating] = useState<string | null>(null);
 
   useEffect(() => {
     loadOrders();
@@ -68,6 +69,27 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
           }
       } catch (e) {
           console.error("Falha ao sincronizar histórico remoto", e);
+      }
+  };
+
+  // Duplicar pedido rapidamente (gera novo ID e marca pendente)
+  const duplicateOrder = async (order: Order) => {
+      try {
+          setDuplicating(order.id);
+          const nextId = await dbService.generateNextOrderId();
+          const newOrder: Order = {
+              ...order,
+              id: crypto.randomUUID(),
+              displayId: nextId,
+              status: 'pending',
+              createdAt: new Date().toISOString()
+          };
+          await dbService.saveOrder(newOrder);
+          await loadOrders();
+      } catch (e) {
+          alert('Não foi possível duplicar o pedido.');
+      } finally {
+          setDuplicating(null);
       }
   };
 
