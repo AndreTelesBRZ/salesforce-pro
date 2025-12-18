@@ -28,7 +28,8 @@
     "body-parser": "^1.20.2",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "google-auth-library": "^9.6.3"
+    "google-auth-library": "^9.6.3",
+    "pdfkit": "^0.13.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^5.7.0",

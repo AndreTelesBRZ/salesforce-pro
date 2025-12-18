@@ -11,6 +11,7 @@ import { dirname, join } from 'path';
 import fs from 'fs';
 import { OAuth2Client } from 'google-auth-library';
 import { GoogleGenAI } from '@google/genai';
+import PDFDocument from 'pdfkit';
 
 // Configuração Básica
 const app = express();
@@ -766,6 +767,59 @@ app.post('/api/ai/pitch', verifyToken, async (req, res) => {
   } catch (e) {
     console.error('[AI] Erro pitch:', e);
     return res.status(500).json({ message: 'Erro ao gerar argumento de vendas.' });
+  }
+});
+
+// --- GERAR PDF DE RECIBO (SERVER-SIDE) ---
+// POST /api/recibo/pdf  -> Body: { id, displayId, customer, items:[{name,quantity,unit,price}], total, store? }
+app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
+  try {
+    const receipt = req.body || {};
+
+    // Busca store_info para cabeçalho caso não venha no body
+    let store = receipt.store;
+    if (!store) {
+      try { store = await db.get("SELECT * FROM store_info WHERE id = 1", []); } catch {}
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=pedido-${receipt.displayId || 'recibo'}.pdf`);
+
+    const doc = new PDFDocument({ margin: 40 });
+    doc.pipe(res);
+
+    // Cabeçalho
+    doc.fontSize(18).text(store?.trade_name || 'SalesForce Pro', { continued: false });
+    if (store?.legal_name) doc.fontSize(10).text(store.legal_name);
+    if (store?.document) doc.text(`CNPJ/CPF: ${store.document}`);
+    const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip].filter(Boolean).join(' - ');
+    if (addr) doc.text(addr);
+    if (store?.phone) doc.text(`Fone: ${store.phone}`);
+    doc.moveDown();
+
+    doc.fontSize(12).text(`Comprovante de Pedido`, { align: 'left' });
+    doc.text(`Pedido: #${receipt.displayId || ''}`);
+    doc.text(`Data: ${new Date().toLocaleString()}`);
+    if (receipt.customer) doc.text(`Cliente: ${receipt.customer}`);
+    doc.moveDown();
+
+    // Tabela simples
+    doc.fontSize(10).text('Qtd x Unit.   Item                                      Total', { underline: true });
+    (receipt.items || []).forEach((it) => {
+      const left = `${it.quantity} ${it.unit} x R$ ${Number(it.price).toFixed(2)}`.padEnd(14);
+      const name = String(it.name || '').slice(0, 35).padEnd(38);
+      const total = `R$ ${(Number(it.quantity) * Number(it.price)).toFixed(2)}`;
+      doc.text(`${left} ${name} ${total}`);
+    });
+    doc.moveDown();
+    doc.fontSize(12).text(`Total Geral: R$ ${Number(receipt.total || 0).toFixed(2)}`, { align: 'right' });
+
+    doc.moveDown().fontSize(8).text('Emitido via SalesForce App');
+    doc.end();
+
+  } catch (e) {
+    console.error('[PDF_ERROR]', e);
+    res.status(500).json({ message: 'Falha ao gerar PDF.' });
   }
 });
 

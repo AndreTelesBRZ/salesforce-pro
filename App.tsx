@@ -58,6 +58,23 @@ export default function App() {
     initApp();
   }, []);
 
+  // Carrega rascunho de carrinho ao navegar para Cart (duplicar pedido)
+  useEffect(() => {
+    if (currentView === 'cart') {
+       try {
+          const raw = localStorage.getItem('cartDraft');
+          if (raw) {
+            const items: CartItem[] = JSON.parse(raw);
+            // Ignora se carrinho já tem itens (não sobrescreve pedido atual)
+            if (cart.length === 0 && Array.isArray(items) && items.length > 0) {
+               setCart(items.map(i => ({ ...i, quantity: Number(i.quantity) || 1, price: Number(i.price) || 0 })));
+            }
+            localStorage.removeItem('cartDraft');
+          }
+       } catch {}
+    }
+  }, [currentView]);
+
   // Efeito apenas para tema visual
   useEffect(() => {
     const applyTheme = () => {

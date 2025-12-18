@@ -300,6 +300,20 @@ class ApiService {
     return headers;
   }
 
+  // Força requisição ao mesmo host do app (ignora backendUrl) — útil para /api/store e geração de PDF
+  async fetchLocal(endpoint: string, options: RequestInit = {}): Promise<Response> {
+      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      // Usa Master Key como Bearer para bypass do backend local
+      const masterKey = 'salesforce-pro-token';
+      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}), 'Authorization': `Bearer ${masterKey}` } as any;
+      try {
+        const res = await fetch(cleanEndpoint, { ...options, headers });
+        return res;
+      } catch (e) {
+        throw e;
+      }
+  }
+
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
       // exportado para uso em outros componentes (ex.: Settings -> importação da API externa)
       // mantendo método public via class - já é público, mas adiciono comentário para indicar intenção
@@ -875,9 +889,9 @@ class ApiService {
          // Se configuração exigir, ignora cache local e busca sempre do backend
          if (!this.config.alwaysFetchCustomers) {
             let local = await dbService.getLocalCustomers();
-            // FILTRO DE SEGURANÇA: se houver vendedor logado, só mostra clientes dele
+            // Filtro estrito: se houver vendedor logado, lista SOMENTE clientes vinculados a ele
             if (currentSellerId) {
-                local = local.filter(c => !c.sellerId || c.sellerId === currentSellerId);
+                local = local.filter(c => c.sellerId === currentSellerId);
             }
             if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
          }

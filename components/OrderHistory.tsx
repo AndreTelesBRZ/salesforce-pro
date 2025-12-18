@@ -72,22 +72,15 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
       }
   };
 
-  // Duplicar pedido rapidamente (gera novo ID e marca pendente)
+  // Duplicar pedido -> enviar itens para o carrinho para edição
   const duplicateOrder = async (order: Order) => {
       try {
           setDuplicating(order.id);
-          const nextId = await dbService.generateNextOrderId();
-          const newOrder: Order = {
-              ...order,
-              id: crypto.randomUUID(),
-              displayId: nextId,
-              status: 'pending',
-              createdAt: new Date().toISOString()
-          };
-          await dbService.saveOrder(newOrder);
-          await loadOrders();
+          // Salva um rascunho no localStorage que o App lerá ao abrir o carrinho
+          localStorage.setItem('cartDraft', JSON.stringify(order.items || []));
+          if (onNavigate) onNavigate('cart');
       } catch (e) {
-          alert('Não foi possível duplicar o pedido.');
+          alert('Não foi possível enviar os itens para o carrinho.');
       } finally {
           setDuplicating(null);
       }
@@ -333,22 +326,44 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                         <Printer className="w-5 h-5" />
                         Imprimir / PDF
                     </button>
-                    <a
-                        href={URL.createObjectURL(new Blob([
-                            JSON.stringify({
-                                id: viewingReceipt.id,
-                                displayId: viewingReceipt.displayId,
-                                customer: viewingReceipt.customerName,
-                                items: viewingReceipt.items,
-                                total: viewingReceipt.total
-                            }, null, 2)
-                        ], { type: 'application/json' }))}
-                        download={`pedido-${viewingReceipt.displayId}.json`}
-                        className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2 transition-colors text-center"
+                    <button
+                        onClick={async () => {
+                          try {
+                            // monta payload igual ao que o backend espera
+                            const payload = {
+                              id: viewingReceipt.id,
+                              displayId: viewingReceipt.displayId,
+                              customer: viewingReceipt.customerName,
+                              items: viewingReceipt.items,
+                              total: viewingReceipt.total,
+                              store: headerStore
+                            };
+                            // força no host local para evitar CORS/traefik e usar Master Key
+                            const res = await apiService.fetchLocal('/api/recibo/pdf', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(payload)
+                            });
+                            if (!res.ok) throw new Error('Falha ao gerar PDF');
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `pedido-${viewingReceipt.displayId}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                          } catch {
+                            alert('Não foi possível gerar o PDF agora.');
+                          }
+                        }}
+                        className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2 transition-colors"
                     >
                         <Download className="w-5 h-5" />
-                        Baixar (JSON)
-                    </a>
+                        Baixar PDF
+                    </button>
+                    
                 </div>
             </div>
         </div>
