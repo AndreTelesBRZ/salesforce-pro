@@ -333,6 +333,22 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                         <Printer className="w-5 h-5" />
                         Imprimir / PDF
                     </button>
+                    <a
+                        href={URL.createObjectURL(new Blob([
+                            JSON.stringify({
+                                id: viewingReceipt.id,
+                                displayId: viewingReceipt.displayId,
+                                customer: viewingReceipt.customerName,
+                                items: viewingReceipt.items,
+                                total: viewingReceipt.total
+                            }, null, 2)
+                        ], { type: 'application/json' }))}
+                        download={`pedido-${viewingReceipt.displayId}.json`}
+                        className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2 transition-colors text-center"
+                    >
+                        <Download className="w-5 h-5" />
+                        Baixar (JSON)
+                    </a>
                 </div>
             </div>
         </div>

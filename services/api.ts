@@ -33,6 +33,20 @@ class ApiService {
   private token: string | null = null;
   private isInitialized: boolean = false;
   private logs: LogEntry[] = [];
+  
+  // Decodifica o token JWT e tenta extrair nome/código do vendedor
+  private decodeToken(token: string): { name?: string; sellerId?: string } {
+      try {
+          const parts = token.split('.')
+          if (parts.length < 2) return {};
+          const payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+          // Vários backends: user.vendor_name / vendor_code ou campos diretos
+          const user = payload.user || payload;
+          const name = user.vendor_name || user.name || user.username || user.user_name;
+          const sellerId = user.vendor_code || user.seller_id || user.sellerId || user.vendedor_codigo;
+          return { name, sellerId };
+      } catch { return {}; }
+  }
 
   constructor() {
     // Configuração padrão: URL vazia significa "Usar o mesmo endereço do site" (Relativo)
@@ -60,6 +74,12 @@ class ApiService {
     }
     
     this.token = localStorage.getItem('authToken');
+    // PRE-POPULA nome/código a partir do token salvo (melhora experiência offline)
+    if (this.token) {
+        const info = this.decodeToken(this.token);
+        if (info.name && !localStorage.getItem('username')) localStorage.setItem('username', info.name);
+        if (info.sellerId && !localStorage.getItem('sellerId')) localStorage.setItem('sellerId', String(info.sellerId));
+    }
     this.addLog('Sistema iniciado.', 'info');
   }
 
@@ -197,23 +217,24 @@ class ApiService {
               this.token = this.config.apiToken;
               localStorage.setItem('authToken', this.token);
               
-              if (result.success) {
-                 this.addLog('Sessão validada via Token de Integração.', 'success');
-                 // Busca o perfil agora que o token está setado
-                 await this.fetchProfile();
-              } else {
-                 this.addLog('Modo Offline: Usando Token de Integração salvo.', 'warning');
-              }
-
-              // Garante que haja um nome, mesmo que genérico
-              if (!localStorage.getItem('username')) {
-                  localStorage.setItem('username', 'Terminal Vinculado');
-              }
-              
-              return true;
+          if (result.success) {
+             this.addLog('Sessão validada via Token de Integração.', 'success');
+             // Busca o perfil agora que o token está setado
+             await this.fetchProfile();
           } else {
-              this.addLog('Token de Integração rejeitado pelo servidor (401).', 'error');
+             this.addLog('Modo Offline: Usando Token de Integração salvo.', 'warning');
           }
+
+          // Garante que haja um nome, mesmo que genérico
+          const decoded = this.decodeToken(this.token);
+          if (decoded.name) localStorage.setItem('username', decoded.name);
+          if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
+          if (!localStorage.getItem('username')) localStorage.setItem('username', 'Terminal Vinculado');
+          
+          return true;
+      } else {
+          this.addLog('Token de Integração rejeitado pelo servidor (401).', 'error');
+      }
       }
 
       this.addLog('Nenhuma sessão válida encontrada.', 'warning');
@@ -236,7 +257,13 @@ class ApiService {
 
           // Tenta pegar o nome real do dono do token
           const profile = await this.fetchProfile();
-          const userName = profile?.name || 'Terminal Vinculado';
+          let userName = profile?.name;
+          if (!userName) {
+              const decoded = this.decodeToken(this.token);
+              if (decoded.name) localStorage.setItem('username', decoded.name);
+              if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
+              userName = decoded.name || 'Terminal Vinculado';
+          }
           
           this.addLog(`Login forçado: ${userName}`, 'success');
           return { success: true };
