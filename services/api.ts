@@ -751,6 +751,13 @@ class ApiService {
       }
 
       this.addLog(`Pedido ${order.displayId} enviado com sucesso!`, 'success');
+      // Atualiza status de negócio e salva localmente para refletir no histórico
+      try {
+          order.businessStatus = 'pre_venda';
+          const data = await response.clone().json().catch(()=>({}));
+          if (data && (data.orderId || data.id)) order.remoteId = data.orderId || data.id;
+          await dbService.saveOrder(order);
+      } catch {}
       return { success: true };
     } catch (error: any) { 
         this.addLog(`Falha envio #${order.displayId}: ${error.message}`, 'error');

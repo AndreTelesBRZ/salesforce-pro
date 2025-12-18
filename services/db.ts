@@ -42,6 +42,7 @@ class DatabaseService {
           orderStore.createIndex('createdAt', 'createdAt', { unique: false });
           orderStore.createIndex('status', 'status', { unique: false });
           orderStore.createIndex('displayId', 'displayId', { unique: true });
+          orderStore.createIndex('businessStatus', 'businessStatus', { unique: false });
         }
 
         // Store de Clientes

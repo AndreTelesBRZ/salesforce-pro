@@ -47,6 +47,10 @@ export interface Order {
   items: CartItem[];
   total: number;
   status: 'pending' | 'synced';
+  // Fluxo de negócio da venda
+  businessStatus?: 'orcamento' | 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado';
+  // ID do pedido no servidor, se já transmitido
+  remoteId?: string | number;
   createdAt: string;
 }
 
