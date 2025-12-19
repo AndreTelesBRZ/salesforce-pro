@@ -33,7 +33,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
         syncRemoteHistory();
     }
     // Carrega dados da loja para o cabeçalho do recibo
-    apiService.fetchWithAuth('/api/store').then(async (res) => {
+    // Usa o servidor local (Node) com Master Key para evitar 401/404 quando estiver em produção com backendUrl
+    apiService.fetchLocal('/api/store').then(async (res) => {
         if (res.ok) {
             const data = await res.json();
             setHeaderStore(data);

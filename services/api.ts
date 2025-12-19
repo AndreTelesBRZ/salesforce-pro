@@ -153,8 +153,12 @@ class ApiService {
   // Busca dados atualizados do perfil no servidor
   async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
       try {
-          // Garante que o fetchWithAuth usará o token correto (seja local ou config)
-          const res = await this.fetchWithAuth('/api/me');
+          // Primeiro tenta o servidor local (Node) que consolida /api/me
+          let res = await this.fetchLocal('/api/me');
+          if (!res.ok) {
+              // Fallback para backend configurado
+              res = await this.fetchWithAuth('/api/me');
+          }
           if (res.ok) {
               const data = await res.json();
               
@@ -724,6 +728,7 @@ class ApiService {
         data_criacao: order.createdAt,
         total: order.total,
         cliente_id: order.customerId, 
+        observacao: order.notes || '',
         itens: order.items.map(item => ({ 
             codigo_produto: item.id,
             quantidade: item.quantity, 

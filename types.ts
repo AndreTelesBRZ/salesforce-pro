@@ -51,6 +51,8 @@ export interface Order {
   businessStatus?: 'orcamento' | 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado';
   // ID do pedido no servidor, se já transmitido
   remoteId?: string | number;
+  // Observação livre do vendedor/cliente
+  notes?: string;
   createdAt: string;
 }
 

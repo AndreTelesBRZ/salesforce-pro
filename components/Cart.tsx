@@ -184,6 +184,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [notes, setNotes] = useState('');
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
@@ -221,6 +222,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
       customerDoc: selectedCustomer.document,
+      notes,
       status: 'pending', // Sempre pendente inicialmente
       createdAt: new Date().toISOString()
     };
@@ -504,6 +506,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       </div>
 
       <div className="p-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700">
+        {/* Observação do pedido */}
+        <div className="mb-4">
+          <label className="text-xs font-bold text-slate-500 uppercase">Observações</label>
+          <textarea
+            value={notes}
+            onChange={(e)=>setNotes(e.target.value)}
+            rows={3}
+            placeholder="Alguma orientação para expedição, pagamento, entrega..."
+            className="w-full p-2 mt-1 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+          />
+        </div>
+
         <div className="flex justify-between items-center mb-6">
           <span className="text-slate-600 dark:text-slate-400">Total</span>
           <span className="text-2xl font-bold text-blue-900 dark:text-white">R$ {total.toFixed(2).replace('.', ',')}</span>
