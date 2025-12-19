@@ -153,31 +153,26 @@ class ApiService {
   // Busca dados atualizados do perfil no servidor
   async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
       try {
-          // Primeiro tenta o servidor local (Node) que consolida /api/me
+          // 1) Primeiro tenta o servidor local (Node)
           let res = await this.fetchLocal('/api/me');
           if (!res.ok) {
-              // Fallback para backend configurado
-              res = await this.fetchWithAuth('/api/me');
+              // 2) Tenta múltiplos endpoints comuns no ERP
+              const endpoints = ['/api/me','/me','/api/user/me','/api/usuarios/me','/api/profile','/api/auth/me'];
+              for (const ep of endpoints) {
+                  const r = await this.fetchWithAuth(ep).catch(()=>null as any);
+                  if (r && r.ok) { res = r; break; }
+              }
           }
           if (res.ok) {
               const data = await res.json();
-              
-              // Normaliza dados vindos do /api/me (pode vir no formato novo user: {} ou plano)
               const profile = data.user || data; 
-              const name = profile.vendor_name || profile.name;
-              const sellerId = profile.vendor_code || profile.seller_id;
+              const name = profile.vendor_name || profile.name || profile.username;
+              const sellerId = profile.vendor_code || profile.seller_id || profile.sellerId || profile.codigo_vendedor;
 
               if (name) {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
                   localStorage.setItem('username', name);
-                  if (sellerId) {
-                      // Guarda o vendedor para filtrar clientes nas próximas chamadas
-                      localStorage.setItem('sellerId', String(sellerId));
-                  }
-                  if (sellerId) {
-                      // também guarda em memória para uso imediato
-                      
-                  }
+                  if (sellerId) localStorage.setItem('sellerId', String(sellerId));
                   return { name, seller_id: sellerId };
               }
           }
@@ -185,6 +180,37 @@ class ApiService {
           this.addLog(`Erro ao buscar perfil: ${e.message}`, 'warning');
       }
       return null;
+  }
+
+  // Importa dados de loja do ERP e grava no Node local (/api/store) se possível
+  private async ensureStoreFromERP(): Promise<void> {
+      if (this.config.useMockData) return;
+      try {
+          const r = await this.fetchWithAuth('/api/lojas');
+          if (!r.ok) return;
+          const payload = await r.json();
+          const data = Array.isArray(payload) ? payload : (payload.data || []);
+          if (!data || data.length === 0) return;
+          const loja = data.find((l:any)=> String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0') === '000001') || data[0];
+          if (!loja) return;
+          const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
+          const findBy = (obj:any, regex:RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
+          const mapped = {
+              legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA']),
+              trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA']),
+              document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC']),
+              email: pick(loja, ['AGEMAIL','EMAIL']) || findBy(loja, /email/i),
+              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETEL2','AGETELF','AGETELEFONE','AGETELE','AGECELP','CELULAR','TELEFONE']) || findBy(loja, /(tel|fone|cel)/i),
+              street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA']),
+              number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM']),
+              neighborhood: pick(loja, ['AGEBAI','BAIRRO']),
+              city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO']),
+              state: pick(loja, ['AGEEST','UF','ESTADO']),
+              zip: pick(loja, ['AGECEP','CEP'])
+          };
+          await this.fetchLocal('/api/store', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
+          this.addLog('Dados da loja importados automaticamente.', 'success');
+      } catch {}
   }
 
   /**
@@ -216,29 +242,25 @@ class ApiService {
           // CRÍTICO: Se tiver sucesso OU se estiver offline (mas não rejeitado), liberamos o acesso.
           // Isso garante que o app abra mesmo sem internet se já foi configurado.
           if (result.success || result.message !== 'Token Inválido') {
-              
-              // "Loga" automaticamente usando o token da config ANTES de buscar perfil
+              // "Loga" automaticamente usando o token da config
               this.token = this.config.apiToken;
               localStorage.setItem('authToken', this.token);
-              
-          if (result.success) {
-             this.addLog('Sessão validada via Token de Integração.', 'success');
-             // Busca o perfil agora que o token está setado
-             await this.fetchProfile();
-          } else {
-             this.addLog('Modo Offline: Usando Token de Integração salvo.', 'warning');
-          }
 
-          // Garante que haja um nome, mesmo que genérico
-          const decoded = this.decodeToken(this.token);
-          if (decoded.name) localStorage.setItem('username', decoded.name);
-          if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
-          if (!localStorage.getItem('username')) localStorage.setItem('username', 'Terminal Vinculado');
-          
-          return true;
-      } else {
-          this.addLog('Token de Integração rejeitado pelo servidor (401).', 'error');
-      }
+              // Sempre tenta buscar perfil e loja (mesmo offline tentamos decode)
+              let prof = await this.fetchProfile();
+              if (!prof) {
+                 const decoded = this.decodeToken(this.token);
+                 if (decoded.name) localStorage.setItem('username', decoded.name);
+                 if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
+              }
+              await this.ensureStoreFromERP();
+
+              if (!localStorage.getItem('username')) localStorage.setItem('username', 'Terminal Vinculado');
+              this.addLog(result.success ? 'Sessão validada via Token.' : 'Sessão offline com Token.', result.success ? 'success' : 'warning');
+              return true;
+          } else {
+              this.addLog('Token de Integração rejeitado pelo servidor (401).', 'error');
+          }
       }
 
       this.addLog('Nenhuma sessão válida encontrada.', 'warning');
