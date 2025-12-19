@@ -53,6 +53,9 @@ export interface Order {
   remoteId?: string | number;
   // Observação livre do vendedor/cliente
   notes?: string;
+  // Vendedor vinculado ao pedido
+  sellerId?: string;
+  sellerName?: string;
   createdAt: string;
 }
 

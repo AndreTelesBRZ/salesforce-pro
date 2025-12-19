@@ -222,6 +222,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
       customerDoc: selectedCustomer.document,
+      sellerId: apiService.getSellerId() || undefined,
+      sellerName: apiService.getUsername() || undefined,
       notes,
       status: 'pending', // Sempre pendente inicialmente
       createdAt: new Date().toISOString()

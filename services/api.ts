@@ -751,6 +751,8 @@ class ApiService {
         total: order.total,
         cliente_id: order.customerId, 
         observacao: order.notes || '',
+        vendedor_id: order.sellerId || this.getSellerId() || '',
+        vendedor_nome: order.sellerName || this.getUsername() || '',
         itens: order.items.map(item => ({ 
             codigo_produto: item.id,
             quantidade: item.quantity, 

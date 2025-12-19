@@ -207,8 +207,16 @@ async function initDb() {
             customer_id TEXT, 
             total REAL,
             status TEXT,
-            created_at TEXT
+            created_at TEXT,
+            seller_id TEXT,
+            seller_name TEXT,
+            notes TEXT
         )`);
+
+        // Migração: adicionar campos de vendedor/observações em orders (caso já exista)
+        try { await db.run("ALTER TABLE orders ADD COLUMN seller_id TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN seller_name TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN notes TEXT"); } catch (e) {}
 
         // Tabela de Itens do Pedido
         await db.run(`CREATE TABLE IF NOT EXISTS order_items (
@@ -689,7 +697,7 @@ app.get('/api/clientes', verifyToken, async (req, res) => {
 
 // Salvar Pedido
 app.post('/api/pedidos', verifyToken, async (req, res) => {
-  const { cliente_id, total, data_criacao, itens } = req.body;
+  const { cliente_id, total, data_criacao, itens, observacao, vendedor_id, vendedor_nome } = req.body;
 
   // DEBUG: Log do payload recebido
   console.log(`\n[ORDER_DEBUG] Novo pedido recebido de UserID: ${req.userId}`);
@@ -710,8 +718,8 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
   try {
       // Nota: customer_id agora é TEXT no CREATE TABLE para aceitar UUIDs do frontend
       const orderRes = isPostgres 
-        ? await db.run("INSERT INTO orders (customer_id, total, status, created_at) VALUES (?, ?, ?, ?) RETURNING id", [String(cliente_id), total, 'confirmed', data_criacao])
-        : await db.run("INSERT INTO orders (customer_id, total, status, created_at) VALUES (?, ?, ?, ?)", [String(cliente_id), total, 'confirmed', data_criacao]);
+        ? await db.run("INSERT INTO orders (customer_id, total, status, created_at, seller_id, seller_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id", [String(cliente_id), total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null])
+        : await db.run("INSERT INTO orders (customer_id, total, status, created_at, seller_id, seller_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?)", [String(cliente_id), total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null]);
       
       const orderId = orderRes.lastID; // No PG adaptado, lastID pega o id retornado
       console.log(`[ORDER_DEBUG] Pedido criado com ID: ${orderId}`);
@@ -839,6 +847,10 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
     doc.text(`Pedido: #${receipt.displayId || ''}`);
     doc.text(`Data: ${new Date().toLocaleString()}`);
     if (receipt.customer) doc.text(`Cliente: ${receipt.customer}`);
+    if (receipt.sellerName || receipt.sellerId) {
+      doc.text(`Vendedor: ${receipt.sellerName || ''} ${receipt.sellerId ? `(${receipt.sellerId})` : ''}`);
+    }
+    if (receipt.notes) doc.text(`Obs: ${receipt.notes}`);
     doc.moveDown();
 
     // Tabela simples

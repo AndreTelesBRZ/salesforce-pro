@@ -274,6 +274,14 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                         <p className="text-xs text-slate-500 uppercase font-bold mb-1">Cliente</p>
                         <p className="font-bold text-lg leading-tight">{viewingReceipt.customerName}</p>
                         <p className="text-sm text-slate-600 font-mono mt-1">Doc: {viewingReceipt.customerDoc || 'N/A'}</p>
+                        {(viewingReceipt.sellerName || viewingReceipt.sellerId) && (
+                          <p className="text-xs text-slate-500 mt-2">
+                            Vendedor: {viewingReceipt.sellerName || '—'} {viewingReceipt.sellerId ? `(${viewingReceipt.sellerId})` : ''}
+                          </p>
+                        )}
+                        {viewingReceipt.notes && (
+                          <p className="text-xs text-slate-500 mt-2">Obs: {viewingReceipt.notes}</p>
+                        )}
                     </div>
 
                     <table className="w-full text-sm mb-6">
@@ -336,6 +344,9 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                               id: viewingReceipt.id,
                               displayId: viewingReceipt.displayId,
                               customer: viewingReceipt.customerName,
+                              sellerName: viewingReceipt.sellerName,
+                              sellerId: viewingReceipt.sellerId,
+                              notes: viewingReceipt.notes,
                               items: viewingReceipt.items,
                               total: viewingReceipt.total,
                               store: headerStore
@@ -354,8 +365,10 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                             a.download = `pedido-${viewingReceipt.displayId}.pdf`;
                             document.body.appendChild(a);
                             a.click();
-                            a.remove();
-                            URL.revokeObjectURL(url);
+                            setTimeout(() => {
+                              URL.revokeObjectURL(url);
+                              a.remove();
+                            }, 1000);
                           } catch {
                             alert('Não foi possível gerar o PDF agora.');
                           }
@@ -473,6 +486,11 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(order.createdAt).toLocaleDateString()}</span>
                                     <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {order.items.length} itens</span>
                                 </div>
+                                {(order.sellerName || order.sellerId) && (
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                                        Vendedor: {order.sellerName || '—'} {order.sellerId ? `(${order.sellerId})` : ''}
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="text-right">
