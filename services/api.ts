@@ -164,6 +164,11 @@ class ApiService {
               }
           }
           if (res.ok) {
+              const contentType = res.headers.get('content-type') || '';
+              if (!contentType.includes('application/json')) {
+                  this.addLog('Perfil: resposta não é JSON.', 'warning');
+                  return null;
+              }
               const data = await res.json();
               const profile = data.user || data; 
               const name = profile.vendor_name || profile.name || profile.username;
@@ -188,6 +193,11 @@ class ApiService {
       try {
           const r = await this.fetchWithAuth('/api/lojas');
           if (!r.ok) return;
+          const ct = r.headers.get('content-type') || '';
+          if (!ct.includes('application/json')) {
+              this.addLog('ERP /api/lojas não retornou JSON.', 'warning');
+              return;
+          }
           const payload = await r.json();
           const data = Array.isArray(payload) ? payload : (payload.data || []);
           if (!data || data.length === 0) return;
@@ -208,7 +218,7 @@ class ApiService {
               state: pick(loja, ['AGEEST','UF','ESTADO']),
               zip: pick(loja, ['AGECEP','CEP'])
           };
-          await this.fetchLocal('/api/store', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
+          await this.fetchLocal('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
           this.addLog('Dados da loja importados automaticamente.', 'success');
       } catch {}
   }
@@ -329,15 +339,8 @@ class ApiService {
   // Força requisição ao mesmo host do app (ignora backendUrl) — útil para /api/store e geração de PDF
   async fetchLocal(endpoint: string, options: RequestInit = {}): Promise<Response> {
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      // Usa Master Key como Bearer para bypass do backend local
-      const masterKey = 'salesforce-pro-token';
-      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}), 'Authorization': `Bearer ${masterKey}` } as any;
-      try {
-        const res = await fetch(cleanEndpoint, { ...options, headers });
-        return res;
-      } catch (e) {
-        throw e;
-      }
+      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) } as any;
+      return fetch(cleanEndpoint, { ...options, headers });
   }
 
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {

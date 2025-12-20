@@ -91,7 +91,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   useEffect(() => {
     (async () => {
       try {
-        const res = await apiService.fetchWithAuth('/api/store');
+        const res = await apiService.fetchLocal('/api/store/public');
         if (res.ok) setStoreForm(await res.json());
       } catch {}
     })();
@@ -290,7 +290,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             <button
               onClick={async ()=>{
                 try{
-                  await (await apiService.fetchWithAuth('/api/store', { method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(storeForm)})).json();
+                  await (await apiService.fetchLocal('/api/store/public', { method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(storeForm)})).json();
                   alert('Dados da loja atualizados!');
                 }catch(e){ alert('Falha ao salvar'); }
               }}

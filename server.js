@@ -753,7 +753,7 @@ app.put('/api/pedidos/:id/status', verifyToken, async (req, res) => {
   }
 });
 
-// Dados da Loja
+// Dados da Loja (privado)
 app.get('/api/store', verifyToken, async (req, res) => {
   try {
     const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
@@ -773,6 +773,35 @@ app.put('/api/store', verifyToken, async (req, res) => {
   
   try {
     // Monta SET dinâmico
+    const setCols = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const params = Object.values(data);
+    await db.run(`UPDATE store_info SET ${setCols} WHERE id = 1`, params);
+    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    res.json(row);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Dados da Loja (público) — usado pelo PWA em produção
+app.get('/api/store/public', async (req, res) => {
+  try {
+    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    res.json(row || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/store/public', async (req, res) => {
+  const fields = [
+    'legal_name','trade_name','document','state_registration','municipal_registration','email','phone','street','number','neighborhood','city','state','zip','complement'
+  ];
+  const data = {};
+  fields.forEach(k => { if (req.body[k] !== undefined) data[k] = req.body[k]; });
+  data.updated_at = new Date().toISOString();
+
+  try {
     const setCols = Object.keys(data).map(k => `${k} = ?`).join(', ');
     const params = Object.values(data);
     await db.run(`UPDATE store_info SET ${setCols} WHERE id = 1`, params);
@@ -869,6 +898,57 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
 
   } catch (e) {
     console.error('[PDF_ERROR]', e);
+    res.status(500).json({ message: 'Falha ao gerar PDF.' });
+  }
+});
+
+// PDF público para uso direto no PWA (sem auth)
+app.post('/api/recibo/pdf/public', async (req, res) => {
+  try {
+    const receipt = req.body || {};
+    let store = receipt.store;
+    if (!store) {
+      try { store = await db.get("SELECT * FROM store_info WHERE id = 1", []); } catch {}
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=pedido-${receipt.displayId || 'recibo'}.pdf`);
+
+    const doc = new PDFDocument({ margin: 40 });
+    doc.pipe(res);
+
+    doc.fontSize(18).text(store?.trade_name || 'SalesForce Pro', { continued: false });
+    if (store?.legal_name) doc.fontSize(10).text(store.legal_name);
+    if (store?.document) doc.text(`CNPJ/CPF: ${store.document}`);
+    const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip].filter(Boolean).join(' - ');
+    if (addr) doc.text(addr);
+    if (store?.phone) doc.text(`Fone: ${store.phone}`);
+    doc.moveDown();
+
+    doc.fontSize(12).text(`Comprovante de Pedido`, { align: 'left' });
+    doc.text(`Pedido: #${receipt.displayId || ''}`);
+    doc.text(`Data: ${new Date().toLocaleString()}`);
+    if (receipt.customer) doc.text(`Cliente: ${receipt.customer}`);
+    if (receipt.sellerName || receipt.sellerId) {
+      doc.text(`Vendedor: ${receipt.sellerName || ''} ${receipt.sellerId ? `(${receipt.sellerId})` : ''}`);
+    }
+    if (receipt.notes) doc.text(`Obs: ${receipt.notes}`);
+    doc.moveDown();
+
+    doc.fontSize(10).text('Qtd x Unit.   Item                                      Total', { underline: true });
+    (receipt.items || []).forEach((it) => {
+      const left = `${it.quantity} ${it.unit} x R$ ${Number(it.price).toFixed(2)}`.padEnd(14);
+      const name = String(it.name || '').slice(0, 35).padEnd(38);
+      const total = `R$ ${(Number(it.quantity) * Number(it.price)).toFixed(2)}`;
+      doc.text(`${left} ${name} ${total}`);
+    });
+    doc.moveDown();
+    doc.fontSize(12).text(`Total Geral: R$ ${Number(receipt.total || 0).toFixed(2)}`, { align: 'right' });
+
+    doc.moveDown().fontSize(8).text('Emitido via SalesForce App');
+    doc.end();
+  } catch (e) {
+    console.error('[PDF_PUBLIC_ERROR]', e);
     res.status(500).json({ message: 'Falha ao gerar PDF.' });
   }
 });

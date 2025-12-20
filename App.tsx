@@ -266,7 +266,12 @@ export default function App() {
               onUpdateQuantity={updateQuantity} 
               onUpdatePrice={(id, newPrice) => {
                  if (newPrice <= 0 || isNaN(newPrice)) return;
-                 setCart(prev => prev.map(i => i.id === id ? { ...i, price: newPrice } : i));
+                 setCart(prev => prev.map(i => {
+                   if (i.id !== id) return i;
+                   // Nunca permitir reduzir o preço abaixo do atual
+                   if (newPrice < i.price) return i;
+                   return { ...i, price: newPrice };
+                 }));
               }}
               onRemove={removeFromCart} 
               onClear={clearCart} 
