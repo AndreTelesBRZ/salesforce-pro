@@ -1018,7 +1018,9 @@ class ApiService {
          if (res.ok) {
              const data = await res.json();
              const list = Array.isArray(data) ? data : data.data || [];
-             const mapped = list.map((c: any) => this.mapCustomer(c)).filter(c => c.type !== 'TEMPORARIO');
+             const mapped = list
+                 .filter((item: any) => item?.type !== 'TEMPORARIO')
+                 .map((item: any) => this.mapCustomer(item));
              return [WALK_IN_CUSTOMER, ...mapped];
          }
       } catch(e) {}
