@@ -210,7 +210,8 @@ class ApiService {
               trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA']),
               document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC']),
               email: pick(loja, ['AGEMAIL','EMAIL']) || findBy(loja, /email/i),
-              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETEL2','AGETELF','AGETELEFONE','AGETELE','AGECELP','CELULAR','TELEFONE']) || findBy(loja, /(tel|fone|cel)/i),
+              // Ignora AGETEL2 e AGECPL conforme solicitado
+              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETELF','AGETELEFONE','AGECELP','CELULAR','TELEFONE']) || findBy(loja, /(tel|fone|cel)/i),
               street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA']),
               number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM']),
               neighborhood: pick(loja, ['AGEBAI','BAIRRO']),
