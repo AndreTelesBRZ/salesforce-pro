@@ -206,17 +206,18 @@ class ApiService {
           const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
           const findBy = (obj:any, regex:RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
           const mapped = {
-              legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA']),
-              trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA']),
-              document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC']),
-              email: pick(loja, ['AGEMAIL','EMAIL']) || findBy(loja, /email/i),
+              legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA','Razao Social','Razão Social']),
+              trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA','Nome Fantasia']),
+              document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC','CNPJ/CPF']),
+              municipal_registration: pick(loja, ['INSC_MUN','INSC_MUNICIPAL','Insc. Mun.']),
+              email: pick(loja, ['AGEMAIL','EMAIL','E-mail']) || findBy(loja, /email/i),
               // Ignora AGETEL2 e AGECPL conforme solicitado
-              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETELF','AGETELEFONE','AGECELP','CELULAR','TELEFONE']) || findBy(loja, /(tel|fone|cel)/i),
-              street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA']),
-              number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM']),
-              neighborhood: pick(loja, ['AGEBAI','BAIRRO']),
-              city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO']),
-              state: pick(loja, ['AGEEST','UF','ESTADO']),
+              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETELF','AGETELEFONE','AGECELP','CELULAR','TELEFONE','Telefone']) || findBy(loja, /(tel|fone|cel)/i),
+              street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA','Endereco','Endereço']),
+              number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM','Numero']),
+              neighborhood: pick(loja, ['AGEBAI','BAIRRO','Bairro']),
+              city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO','Cidade']),
+              state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
               zip: pick(loja, ['AGECEP','CEP'])
           };
           await this.fetchLocal('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
