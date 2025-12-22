@@ -1,5 +1,5 @@
 
-import { Product, Order, AppConfig, Customer, CartItem } from '../types';
+import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan } from '../types';
 import { dbService } from './db';
 
 // Cliente Coringa (Consumidor Final)
@@ -8,6 +8,7 @@ const WALK_IN_CUSTOMER: Customer = {
   name: 'Consumidor Final',
   fantasyName: 'Venda de Balcão',
   document: '000.000.000-00',
+  type: 'NORMAL',
   address: 'Balcão / Loja',
   addressNumber: '',
   neighborhood: '',
@@ -16,6 +17,7 @@ const WALK_IN_CUSTOMER: Customer = {
   zipCode: '',
   phone: '',
   email: '',
+  origin: '',
   sellerId: '',
   sellerName: 'Loja',
   lastSaleDate: '',
@@ -751,10 +753,45 @@ class ApiService {
     }
 
     try {
+      let planCode = order.paymentPlanCode;
+      let planDescription = order.paymentPlanDescription;
+      let planInstallments = order.paymentInstallments;
+      let planDaysBetween = order.paymentDaysBetween;
+      let planMinValue = order.paymentMinValue;
+
+      if (!planCode && order.customerId) {
+          try {
+              const plans = await this.getPaymentPlansForCustomer(order.customerId);
+              if (plans.length > 0) {
+                  const fallback = plans[0];
+                  planCode = fallback.code;
+                  planDescription = fallback.description;
+                  planInstallments = fallback.installments;
+                  planDaysBetween = fallback.daysBetweenInstallments;
+                  planMinValue = fallback.minValue;
+                  order.paymentPlanCode = planCode;
+                  order.paymentPlanDescription = planDescription;
+                  order.paymentInstallments = planInstallments;
+                  order.paymentDaysBetween = planDaysBetween;
+                  order.paymentMinValue = planMinValue;
+              }
+          } catch {}
+      }
+
+      if (!planCode) {
+          return { success: false, message: 'Plano de pagamento obrigatório.' };
+      }
+
       const backendOrder = {
         data_criacao: order.createdAt,
         total: order.total,
         cliente_id: order.customerId, 
+        cliente_tipo: order.customerType || 'NORMAL',
+        plano_pagamento_codigo: planCode,
+        plano_pagamento_descricao: planDescription || '',
+        parcelas: planInstallments || 1,
+        dias_entre_parcelas: planDaysBetween || 0,
+        valor_minimo: planMinValue || 0,
         observacao: order.notes || '',
         vendedor_id: order.sellerId || this.getSellerId() || '',
         vendedor_nome: order.sellerName || this.getUsername() || '',
@@ -954,6 +991,7 @@ class ApiService {
             if (currentSellerId) {
                 local = local.filter(c => c.sellerId === currentSellerId);
             }
+            local = local.filter(c => c.type !== 'TEMPORARIO');
             if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
          }
 
@@ -980,11 +1018,100 @@ class ApiService {
          if (res.ok) {
              const data = await res.json();
              const list = Array.isArray(data) ? data : data.data || [];
-             return [WALK_IN_CUSTOMER, ...list.map((c: any) => this.mapCustomer(c))];
+             const mapped = list.map((c: any) => this.mapCustomer(c)).filter(c => c.type !== 'TEMPORARIO');
+             return [WALK_IN_CUSTOMER, ...mapped];
          }
       } catch(e) {}
       
       return [WALK_IN_CUSTOMER];
+  }
+
+  async getCustomerByCnpj(cnpj: string): Promise<Customer | null> {
+      const res = await this.fetchWithAuth(`/api/clientes/cnpj/${encodeURIComponent(cnpj)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) {
+          const msg = await res.text();
+          try {
+              const data = JSON.parse(msg);
+              throw new Error(data.message || 'Erro ao consultar cliente.');
+          } catch (e) {
+              throw new Error(msg || 'Erro ao consultar cliente.');
+          }
+      }
+      const data = await res.json();
+      return this.mapCustomer(data);
+  }
+
+  async lookupSefazByCnpj(cnpj: string): Promise<{ razaoSocial: string; nomeFantasia: string; situacao: string; endereco: string; uf: string; municipio: string }> {
+      const res = await this.fetchWithAuth(`/api/externo/sefaz/cnpj/${encodeURIComponent(cnpj)}`);
+      if (!res.ok) {
+          const msg = await res.text();
+          try {
+              const data = JSON.parse(msg);
+              throw new Error(data.message || 'Falha na consulta SEFAZ.');
+          } catch (e) {
+              throw new Error(msg || 'Falha na consulta SEFAZ.');
+          }
+      }
+      const data = await res.json();
+      return {
+          razaoSocial: data.razao_social || data.razaoSocial || '',
+          nomeFantasia: data.nome_fantasia || data.nomeFantasia || '',
+          situacao: data.situacao_cadastral || data.situacao || '',
+          endereco: data.endereco || '',
+          uf: data.uf || '',
+          municipio: data.municipio || ''
+      };
+  }
+
+  async createTempCustomer(payload: { cnpj: string; razaoSocial: string; nomeFantasia: string; endereco: string; uf: string; municipio: string; vendedorId?: string | null }): Promise<Customer> {
+      const res = await this.fetchWithAuth(`/api/clientes/temp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+              cnpj: payload.cnpj,
+              razao_social: payload.razaoSocial,
+              nome_fantasia: payload.nomeFantasia,
+              endereco: payload.endereco,
+              uf: payload.uf,
+              municipio: payload.municipio,
+              vendedor_id: payload.vendedorId || undefined
+          })
+      });
+      if (!res.ok) {
+          const msg = await res.text();
+          try {
+              const data = JSON.parse(msg);
+              throw new Error(data.message || 'Erro ao criar cliente temporario.');
+          } catch (e) {
+              throw new Error(msg || 'Erro ao criar cliente temporario.');
+          }
+      }
+      const data = await res.json();
+      return this.mapCustomer(data);
+  }
+
+  async getPaymentPlansForCustomer(customerId: string): Promise<PaymentPlan[]> {
+      const res = await this.fetchWithAuth(`/api/planos-pagamento-cliente/${encodeURIComponent(customerId)}`);
+      if (res.status === 404) return [];
+      if (!res.ok) {
+          const msg = await res.text();
+          try {
+              const data = JSON.parse(msg);
+              throw new Error(data.message || 'Erro ao buscar planos de pagamento.');
+          } catch (e) {
+              throw new Error(msg || 'Erro ao buscar planos de pagamento.');
+          }
+      }
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data.data || []);
+      return list.map((p: any) => ({
+          code: String(p.plano_codigo || p.codigo || p.code),
+          description: p.plano_descricao || p.descricao || p.description || '',
+          installments: Number(p.parcelas ?? p.installments ?? 1),
+          daysBetweenInstallments: Number(p.dias_entre_parcelas ?? p.days_between_installments ?? 0),
+          minValue: Number(p.valor_minimo ?? p.min_value ?? 0)
+      }));
   }
 
   async syncCustomers(onProgress: (c: number) => void): Promise<{ success: boolean, count: number, message?: string }> {
@@ -1022,6 +1149,8 @@ class ApiService {
           name: c.cliente_razao_social || c.nome || c.name || 'Cliente',
           fantasyName: c.cliente_nome_fantasia || c.fantasy_name || c.nome_fantasia || '',
           document: c.cliente_cnpj_cpf || c.documento || c.document || '',
+          type: c.cliente_tipo || (c.cliente_status === 'TEMPORARIO' || c.status === 'TEMPORARIO' ? 'TEMPORARIO' : 'NORMAL'),
+          origin: c.cliente_origem || c.origin || '',
           
           address: c.cliente_endereco || c.endereco || c.address || '',
           addressNumber: c.cliente_numero || '',

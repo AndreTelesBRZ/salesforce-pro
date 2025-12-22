@@ -191,32 +191,56 @@ async function initDb() {
             fantasy_name TEXT,
             document TEXT,
             address TEXT,
+            address_number TEXT,
+            neighborhood TEXT,
             phone TEXT,
             city TEXT,
-            seller_id TEXT 
+            state TEXT,
+            zip TEXT,
+            status TEXT,
+            origin TEXT,
+            seller_id TEXT
         )`);
 
         // Migração: adicionar seller_id se não existir
         try {
             await db.run("ALTER TABLE customers ADD COLUMN seller_id TEXT");
         } catch (e) {}
+        try { await db.run("ALTER TABLE customers ADD COLUMN address_number TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE customers ADD COLUMN neighborhood TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE customers ADD COLUMN state TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE customers ADD COLUMN zip TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE customers ADD COLUMN status TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE customers ADD COLUMN origin TEXT"); } catch (e) {}
 
         // Tabela de Pedidos
         await db.run(`CREATE TABLE IF NOT EXISTS orders (
             id ${idType} PRIMARY KEY ${autoInc},
             customer_id TEXT, 
+            customer_type TEXT,
             total REAL,
             status TEXT,
             created_at TEXT,
             seller_id TEXT,
             seller_name TEXT,
-            notes TEXT
+            notes TEXT,
+            payment_plan_code TEXT,
+            payment_plan_description TEXT,
+            payment_installments INTEGER,
+            payment_days_between INTEGER,
+            payment_min_value REAL
         )`);
 
         // Migração: adicionar campos de vendedor/observações em orders (caso já exista)
         try { await db.run("ALTER TABLE orders ADD COLUMN seller_id TEXT"); } catch (e) {}
         try { await db.run("ALTER TABLE orders ADD COLUMN seller_name TEXT"); } catch (e) {}
         try { await db.run("ALTER TABLE orders ADD COLUMN notes TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN customer_type TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN payment_plan_code TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN payment_plan_description TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN payment_installments INTEGER"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN payment_days_between INTEGER"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN payment_min_value REAL"); } catch (e) {}
 
         // Tabela de Itens do Pedido
         await db.run(`CREATE TABLE IF NOT EXISTS order_items (
@@ -226,6 +250,22 @@ async function initDb() {
             quantity REAL,
             unit_price REAL,
             FOREIGN KEY(order_id) REFERENCES orders(id)
+        )`);
+
+        // Tabelas de Planos de Pagamento
+        await db.run(`CREATE TABLE IF NOT EXISTS payment_plans (
+            code TEXT PRIMARY KEY,
+            description TEXT,
+            installments INTEGER,
+            days_between_installments INTEGER,
+            min_value REAL
+        )`);
+
+        await db.run(`CREATE TABLE IF NOT EXISTS customer_payment_plans (
+            id ${idType} PRIMARY KEY ${autoInc},
+            customer_id TEXT,
+            plan_code TEXT,
+            FOREIGN KEY(plan_code) REFERENCES payment_plans(code)
         )`);
 
         // Seed Inicial
@@ -262,6 +302,31 @@ async function initDb() {
              } catch(e) { console.log("Info: Cliente padrão não criado"); }
         }
 
+        // Normaliza status de clientes existentes
+        try { await db.run("UPDATE customers SET status = 'NORMAL' WHERE status IS NULL"); } catch (e) {}
+
+        // Seed de Plano de Pagamento padrão
+        const planCount = await db.get("SELECT count(*) as count FROM payment_plans");
+        if (planCount && parseInt(planCount.count) === 0) {
+            await db.run(
+                "INSERT INTO payment_plans (code, description, installments, days_between_installments, min_value) VALUES (?, ?, ?, ?, ?)",
+                ["01", "A VISTA", 1, 0, 0]
+            );
+        }
+
+        // Se não houver vínculos, cria padrão para clientes existentes
+        const planLinkCount = await db.get("SELECT count(*) as count FROM customer_payment_plans");
+        if (planLinkCount && parseInt(planLinkCount.count) === 0) {
+            const existingCustomers = await db.query("SELECT id, status FROM customers");
+            for (const cust of existingCustomers) {
+                if (cust.status === 'TEMPORARIO') continue;
+                await db.run(
+                    "INSERT INTO customer_payment_plans (customer_id, plan_code) VALUES (?, ?)",
+                    [String(cust.id), "01"]
+                );
+            }
+        }
+
         // Tabela de Dados da Loja (Store Info)
         await db.run(`CREATE TABLE IF NOT EXISTS store_info (
             id INTEGER PRIMARY KEY ${autoInc},
@@ -296,6 +361,65 @@ async function initDb() {
 }
 
 initDb();
+
+const normalizeDocument = (value) => String(value || '').replace(/\D/g, '');
+
+const isValidCnpj = (value) => {
+    const cnpj = normalizeDocument(value);
+    if (cnpj.length !== 14) return false;
+    if (/^(\d)\1{13}$/.test(cnpj)) return false;
+
+    const calcDigit = (base) => {
+        let sum = 0;
+        let pos = base.length - 7;
+        for (let i = 0; i < base.length; i++) {
+            sum += parseInt(base.charAt(i), 10) * pos--;
+            if (pos < 2) pos = 9;
+        }
+        const mod = sum % 11;
+        return mod < 2 ? 0 : 11 - mod;
+    };
+
+    const base12 = cnpj.substring(0, 12);
+    const digit13 = calcDigit(base12);
+    if (digit13 !== parseInt(cnpj.charAt(12), 10)) return false;
+
+    const base13 = cnpj.substring(0, 13);
+    const digit14 = calcDigit(base13);
+    return digit14 === parseInt(cnpj.charAt(13), 10);
+};
+
+const mapCustomerPayload = (c) => ({
+    cliente_codigo: c.id,
+    cliente_razao_social: c.name,
+    cliente_nome_fantasia: c.fantasy_name,
+    cliente_cnpj_cpf: c.document,
+    cliente_endereco: c.address,
+    cliente_numero: c.address_number || '',
+    cliente_bairro: c.neighborhood || '',
+    cliente_cidade: c.city,
+    cliente_uf: c.state || '',
+    cliente_cep: c.zip || '',
+    cliente_telefone1: c.phone || '',
+    cliente_email: '',
+    vendedor_nome: '',
+    vendedor_codigo: c.seller_id || '',
+    cliente_status: c.status || 'NORMAL',
+    cliente_tipo: c.status === 'TEMPORARIO' ? 'TEMPORARIO' : 'NORMAL',
+    cliente_origem: c.origin || ''
+});
+
+const buildSefazMock = (cnpj) => {
+    const normalized = normalizeDocument(cnpj);
+    return {
+        razao_social: `Empresa ${normalized}`,
+        nome_fantasia: `Fantasia ${normalized.slice(-4)}`,
+        situacao_cadastral: 'ATIVA',
+        endereco: 'Rua das Flores, 100',
+        uf: 'SP',
+        municipio: 'Sao Paulo'
+    };
+};
 
 // --- ROTAS DE AUTENTICAÇÃO ---
 // Healthcheck simples para orquestradores (Portainer/Swarm)
@@ -653,11 +777,12 @@ app.get('/api/clientes', verifyToken, async (req, res) => {
         let query = "SELECT * FROM customers";
         const params = [];
 
-        // Filtra por vendedor se fornecido
+        const where = ["(status IS NULL OR status != 'TEMPORARIO')"];
         if (vendedorId) {
-            query += " WHERE seller_id = ?";
+            where.push("seller_id = ?");
             params.push(vendedorId);
         }
+        if (where.length > 0) query += ` WHERE ${where.join(' AND ')}`;
         
         query += " ORDER BY name";
 
@@ -671,21 +796,7 @@ app.get('/api/clientes', verifyToken, async (req, res) => {
 
         const rows = await db.query(query, params);
         const mapped = rows.map(c => ({
-            cliente_codigo: c.id,
-            cliente_razao_social: c.name,
-            cliente_nome_fantasia: c.fantasy_name,
-            cliente_cnpj_cpf: c.document,
-            cliente_endereco: c.address,
-            cliente_numero: 'S/N', // Mock
-            cliente_bairro: 'Centro', // Mock
-            cliente_cidade: c.city,
-            cliente_uf: 'UF', // Mock
-            cliente_cep: '00000-000', // Mock
-            cliente_telefone1: c.phone,
-            cliente_email: '',
-            // MOCKS PARA OS NOVOS CAMPOS
-            vendedor_nome: 'ANDRE', // Mock fixo para teste
-            vendedor_codigo: c.seller_id || '',
+            ...mapCustomerPayload(c),
             ultima_venda_data: new Date().toISOString().split('T')[0],
             ultima_venda_valor: 150.00
         }));
@@ -695,9 +806,156 @@ app.get('/api/clientes', verifyToken, async (req, res) => {
     }
 });
 
+// Buscar Cliente por CNPJ
+app.get('/api/clientes/cnpj/:cnpj', verifyToken, async (req, res) => {
+    const raw = req.params.cnpj || '';
+    if (!isValidCnpj(raw)) {
+        return res.status(400).json({ message: 'CNPJ inválido.' });
+    }
+
+    const normalized = normalizeDocument(raw);
+    try {
+        const query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = $1 LIMIT 1"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ? LIMIT 1";
+        const row = await db.get(query, [normalized]);
+        if (!row) return res.status(404).json({ message: 'Cliente não encontrado.' });
+        return res.json(mapCustomerPayload(row));
+    } catch (e) {
+        return res.status(500).json({ message: e.message });
+    }
+});
+
+// Consulta SEFAZ (proxy interno)
+app.get('/api/externo/sefaz/cnpj/:cnpj', verifyToken, async (req, res) => {
+    const raw = req.params.cnpj || '';
+    if (!isValidCnpj(raw)) {
+        return res.status(400).json({ message: 'CNPJ inválido.' });
+    }
+    if (process.env.SEFAZ_DISABLED === 'true') {
+        return res.status(503).json({ message: 'SEFAZ indisponível.' });
+    }
+    const payload = buildSefazMock(raw);
+    return res.json(payload);
+});
+
+// Criar Cliente Temporário
+app.post('/api/clientes/temp', verifyToken, async (req, res) => {
+    const {
+        cnpj,
+        razao_social,
+        nome_fantasia,
+        endereco,
+        uf,
+        municipio,
+        vendedor_id
+    } = req.body || {};
+
+    if (!isValidCnpj(cnpj)) {
+        return res.status(400).json({ message: 'CNPJ inválido.' });
+    }
+    if (!razao_social || !endereco || !uf || !municipio) {
+        return res.status(400).json({ message: 'Dados insuficientes para cadastro temporário.' });
+    }
+
+    const normalized = normalizeDocument(cnpj);
+    try {
+        const query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = $1 LIMIT 1"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ? LIMIT 1";
+        const existing = await db.get(query, [normalized]);
+        if (existing) {
+            return res.json(mapCustomerPayload(existing));
+        }
+
+        const insert = isPostgres
+            ? "INSERT INTO customers (name, fantasy_name, document, address, city, state, status, origin, seller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
+            : "INSERT INTO customers (name, fantasy_name, document, address, city, state, status, origin, seller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        const result = await db.run(insert, [
+            razao_social,
+            nome_fantasia || razao_social,
+            normalized,
+            endereco,
+            municipio,
+            uf,
+            'TEMPORARIO',
+            'SEFAZ',
+            vendedor_id || null
+        ]);
+
+        const newId = result.lastID;
+        const row = await db.get("SELECT * FROM customers WHERE id = ?", [newId]);
+
+        // Garante plano padrão para temporário
+        if (row) {
+            const link = await db.get(
+                "SELECT id FROM customer_payment_plans WHERE customer_id = ? LIMIT 1",
+                [String(row.id)]
+            );
+            if (!link) {
+                await db.run(
+                    "INSERT INTO customer_payment_plans (customer_id, plan_code) VALUES (?, ?)",
+                    [String(row.id), "01"]
+                );
+            }
+        }
+
+        return res.status(201).json(mapCustomerPayload(row));
+    } catch (e) {
+        return res.status(500).json({ message: e.message });
+    }
+});
+
+// Planos de Pagamento por Cliente
+app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req, res) => {
+    const { cliente_codigo } = req.params;
+    if (!cliente_codigo) return res.status(400).json({ message: 'Cliente obrigatório.' });
+
+    try {
+        const customer = await db.get("SELECT id, status FROM customers WHERE id = ?", [String(cliente_codigo)]);
+        if (!customer) return res.status(404).json({ message: 'Cliente não encontrado.' });
+
+        const plans = await db.query(
+            `SELECT p.code as plano_codigo, p.description as plano_descricao,
+                    p.installments as parcelas, p.days_between_installments as dias_entre_parcelas,
+                    p.min_value as valor_minimo
+             FROM customer_payment_plans cpp
+             JOIN payment_plans p ON p.code = cpp.plan_code
+             WHERE cpp.customer_id = ?`,
+            [String(cliente_codigo)]
+        );
+
+        if (plans.length === 0 && customer.status === 'TEMPORARIO') {
+            const fallback = await db.get(
+                "SELECT code as plano_codigo, description as plano_descricao, installments as parcelas, days_between_installments as dias_entre_parcelas, min_value as valor_minimo FROM payment_plans WHERE code = ?",
+                ["01"]
+            );
+            if (fallback) return res.json([fallback]);
+        }
+
+        return res.json(plans);
+    } catch (e) {
+        return res.status(500).json({ message: e.message });
+    }
+});
+
 // Salvar Pedido
 app.post('/api/pedidos', verifyToken, async (req, res) => {
-  const { cliente_id, total, data_criacao, itens, observacao, vendedor_id, vendedor_nome } = req.body;
+  const {
+      cliente_id,
+      total,
+      data_criacao,
+      itens,
+      observacao,
+      vendedor_id,
+      vendedor_nome,
+      cliente_tipo,
+      plano_pagamento_codigo,
+      plano_pagamento_descricao,
+      parcelas,
+      dias_entre_parcelas,
+      valor_minimo
+  } = req.body;
 
   // DEBUG: Log do payload recebido
   console.log(`\n[ORDER_DEBUG] Novo pedido recebido de UserID: ${req.userId}`);
@@ -715,11 +973,22 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'Sem itens.' });
   }
 
+  if (!plano_pagamento_codigo) {
+      console.log('[ORDER_DEBUG] Erro: Plano de pagamento ausente.');
+      return res.status(400).json({ message: 'Plano de pagamento obrigatório.' });
+  }
+
   try {
       // Nota: customer_id agora é TEXT no CREATE TABLE para aceitar UUIDs do frontend
       const orderRes = isPostgres 
-        ? await db.run("INSERT INTO orders (customer_id, total, status, created_at, seller_id, seller_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id", [String(cliente_id), total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null])
-        : await db.run("INSERT INTO orders (customer_id, total, status, created_at, seller_id, seller_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?)", [String(cliente_id), total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null]);
+        ? await db.run(
+            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0]
+          )
+        : await db.run(
+            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0]
+          );
       
       const orderId = orderRes.lastID; // No PG adaptado, lastID pega o id retornado
       console.log(`[ORDER_DEBUG] Pedido criado com ID: ${orderId}`);

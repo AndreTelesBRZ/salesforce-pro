@@ -15,6 +15,8 @@ export interface Customer {
   name: string; // Razão Social
   fantasyName?: string; // Nome Fantasia
   document: string; // CPF/CNPJ
+  type?: 'NORMAL' | 'TEMPORARIO';
+  origin?: string;
   
   // Endereço detalhado
   address: string; // Logradouro
@@ -44,6 +46,12 @@ export interface Order {
   customerId?: string;
   customerName?: string;
   customerDoc?: string;
+  customerType?: 'NORMAL' | 'TEMPORARIO';
+  paymentPlanCode?: string;
+  paymentPlanDescription?: string;
+  paymentInstallments?: number;
+  paymentDaysBetween?: number;
+  paymentMinValue?: number;
   items: CartItem[];
   total: number;
   status: 'pending' | 'synced';
@@ -69,4 +77,12 @@ export interface AppConfig {
   // Quando verdadeiro, a listagem de clientes ignora o cache local e
   // consulta sempre o backend com limit=-1 (todos os clientes)
   alwaysFetchCustomers?: boolean;
+}
+
+export interface PaymentPlan {
+  code: string;
+  description: string;
+  installments: number;
+  daysBetweenInstallments: number;
+  minValue: number;
 }

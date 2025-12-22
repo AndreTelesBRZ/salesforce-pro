@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { CartItem, Order, Customer } from '../types';
-import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2 } from 'lucide-react';
+import { CartItem, Order, Customer, PaymentPlan } from '../types';
+import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 
@@ -174,6 +174,202 @@ const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialV
   );
 };
 
+interface SefazData {
+  razaoSocial: string;
+  nomeFantasia: string;
+  situacao: string;
+  endereco: string;
+  uf: string;
+  municipio: string;
+}
+
+interface AddCustomerModalProps {
+  onClose: () => void;
+  onSelectCustomer: (customer: Customer) => void;
+}
+
+const normalizeCnpj = (value: string) => value.replace(/\D/g, '');
+
+const isValidCnpj = (value: string) => {
+  const cnpj = normalizeCnpj(value);
+  if (cnpj.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(cnpj)) return false;
+
+  const calcDigit = (base: string) => {
+    let sum = 0;
+    let pos = base.length - 7;
+    for (let i = 0; i < base.length; i++) {
+      sum += Number(base.charAt(i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    const mod = sum % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+
+  const base12 = cnpj.substring(0, 12);
+  if (calcDigit(base12) !== Number(cnpj.charAt(12))) return false;
+  const base13 = cnpj.substring(0, 13);
+  return calcDigit(base13) === Number(cnpj.charAt(13));
+};
+
+const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ onClose, onSelectCustomer }) => {
+  const [cnpj, setCnpj] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [existingCustomer, setExistingCustomer] = useState<Customer | null>(null);
+  const [sefazData, setSefazData] = useState<SefazData | null>(null);
+
+  const handleConsultar = async () => {
+    const normalized = normalizeCnpj(cnpj);
+    if (!isValidCnpj(normalized)) {
+      setError('CNPJ invalido.');
+      setExistingCustomer(null);
+      setSefazData(null);
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setExistingCustomer(null);
+    setSefazData(null);
+
+    try {
+      const existing = await apiService.getCustomerByCnpj(normalized);
+      if (existing) {
+        setExistingCustomer(existing);
+        return;
+      }
+
+      const sefaz = await apiService.lookupSefazByCnpj(normalized);
+      setSefazData(sefaz);
+    } catch (e: any) {
+      setError(e.message || 'Falha na consulta.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectExisting = () => {
+    if (!existingCustomer) return;
+    onSelectCustomer(existingCustomer);
+    onClose();
+  };
+
+  const handleCreateTemp = async () => {
+    if (!sefazData) return;
+    setLoading(true);
+    setError('');
+    try {
+      const temp = await apiService.createTempCustomer({
+        cnpj: normalizeCnpj(cnpj),
+        razaoSocial: sefazData.razaoSocial,
+        nomeFantasia: sefazData.nomeFantasia || sefazData.razaoSocial,
+        endereco: sefazData.endereco,
+        uf: sefazData.uf,
+        municipio: sefazData.municipio,
+        vendedorId: apiService.getSellerId()
+      });
+      onSelectCustomer(temp);
+      onClose();
+    } catch (e: any) {
+      setError(e.message || 'Falha ao criar cliente temporario.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-xl shadow-2xl overflow-hidden">
+        <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+          <div>
+            <h3 className="font-bold text-lg">Adicionar Cliente</h3>
+            <p className="text-xs text-slate-300">Consulta por CNPJ via API</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-white/80 hover:text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase">CNPJ</label>
+            <div className="mt-1 flex gap-2">
+              <input
+                type="text"
+                value={cnpj}
+                onChange={(e) => setCnpj(e.target.value)}
+                placeholder="00.000.000/0000-00"
+                className="flex-1 p-2 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+              />
+              <button
+                onClick={handleConsultar}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-70"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Consultar
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">
+              {error}
+            </div>
+          )}
+
+          {existingCustomer && (
+            <div className="p-4 rounded-lg border border-emerald-200 bg-emerald-50">
+              <div className="flex items-center gap-2 text-emerald-700 font-semibold">
+                <CheckCircle className="w-4 h-4" />
+                Cliente ja cadastrado
+              </div>
+              <div className="mt-2 text-sm text-emerald-900">
+                <div><strong>Razao Social:</strong> {existingCustomer.name}</div>
+                <div><strong>Codigo:</strong> {existingCustomer.id}</div>
+                <div><strong>Vendedor:</strong> {existingCustomer.sellerId || 'Nao informado'}</div>
+              </div>
+              <button
+                onClick={handleSelectExisting}
+                className="mt-3 px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700"
+              >
+                Prosseguir com este cliente
+              </button>
+            </div>
+          )}
+
+          {sefazData && (
+            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+              <div className="text-sm text-slate-700 font-semibold">Dados SEFAZ</div>
+              <div className="mt-2 text-sm text-slate-800 space-y-1">
+                <div><strong>Razao Social:</strong> {sefazData.razaoSocial}</div>
+                <div><strong>Nome Fantasia:</strong> {sefazData.nomeFantasia}</div>
+                <div><strong>Situacao:</strong> {sefazData.situacao}</div>
+                <div><strong>Endereco:</strong> {sefazData.endereco}</div>
+                <div><strong>UF / Municipio:</strong> {sefazData.uf} / {sefazData.municipio}</div>
+              </div>
+              <button
+                onClick={handleCreateTemp}
+                disabled={loading}
+                className="mt-3 px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 disabled:opacity-70"
+              >
+                Cadastrar temporario
+              </button>
+            </div>
+          )}
+
+          {!existingCustomer && !sefazData && !error && (
+            <div className="text-xs text-slate-500">
+              Informe o CNPJ e clique em consultar para validar cliente.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear }) => {
   const [submitting, setSubmitting] = useState(false);
@@ -185,6 +381,12 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [searchTerm, setSearchTerm] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [notes, setNotes] = useState('');
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+
+  const [paymentPlans, setPaymentPlans] = useState<PaymentPlan[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState<PaymentPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState('');
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
@@ -202,10 +404,39 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       });
   }, []);
 
+  useEffect(() => {
+      if (!selectedCustomer) return;
+
+      setPlanLoading(true);
+      setPlanError('');
+      setPaymentPlans([]);
+      setSelectedPlan(null);
+
+      apiService.getPaymentPlansForCustomer(selectedCustomer.id)
+        .then((plans) => {
+            setPaymentPlans(plans);
+            if (plans.length > 0) {
+                setSelectedPlan(plans[0]);
+            } else {
+                setPlanError('Cliente sem plano de pagamento cadastrado.');
+            }
+        })
+        .catch((e: any) => {
+            setPlanError(e.message || 'Erro ao buscar planos de pagamento.');
+        })
+        .finally(() => {
+            setPlanLoading(false);
+        });
+  }, [selectedCustomer?.id]);
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (!selectedCustomer) {
         alert('Por favor, selecione um cliente para o pedido.');
+        return;
+    }
+    if (!selectedPlan) {
+        alert('Selecione uma forma de pagamento para o pedido.');
         return;
     }
 
@@ -213,6 +444,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     
     // GERAÇÃO DE ID SEQUENCIAL SEGURO
     const nextId = await dbService.generateNextOrderId();
+
+    const isTemporary = selectedCustomer.type === 'TEMPORARIO';
+    const sellerId = isTemporary ? (apiService.getSellerId() || undefined) : (selectedCustomer.sellerId || apiService.getSellerId() || undefined);
+    const sellerName = isTemporary ? (apiService.getUsername() || undefined) : (selectedCustomer.sellerName || apiService.getUsername() || undefined);
 
     const order: Order = {
       id: crypto.randomUUID(),
@@ -222,8 +457,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
       customerDoc: selectedCustomer.document,
-      sellerId: apiService.getSellerId() || undefined,
-      sellerName: apiService.getUsername() || undefined,
+      customerType: isTemporary ? 'TEMPORARIO' : 'NORMAL',
+      paymentPlanCode: selectedPlan.code,
+      paymentPlanDescription: selectedPlan.description,
+      paymentInstallments: selectedPlan.installments,
+      paymentDaysBetween: selectedPlan.daysBetweenInstallments,
+      paymentMinValue: selectedPlan.minValue,
+      sellerId,
+      sellerName,
       notes,
       status: 'pending', // Sempre pendente inicialmente
       createdAt: new Date().toISOString()
@@ -362,16 +603,34 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         />
       )}
 
+      {showAddCustomer && (
+        <AddCustomerModal
+          onClose={() => setShowAddCustomer(false)}
+          onSelectCustomer={(customer) => {
+            setSelectedCustomer(customer);
+            setShowCustomerSearch(false);
+          }}
+        />
+      )}
+
       {/* Customer Selection */}
       <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
         <div className="flex justify-between items-center mb-3">
              <h2 className="text-lg font-bold text-slate-800 dark:text-white">Cliente</h2>
-             <button 
-                onClick={() => setShowClearConfirm(true)}
-                className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-             >
-                <Trash2 className="w-3.5 h-3.5" /> Limpar
-             </button>
+             <div className="flex items-center gap-2">
+                <button
+                    onClick={() => setShowAddCustomer(true)}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                >
+                    <Plus className="w-3.5 h-3.5" /> Adicionar Cliente
+                </button>
+                <button 
+                    onClick={() => setShowClearConfirm(true)}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                >
+                    <Trash2 className="w-3.5 h-3.5" /> Limpar
+                </button>
+             </div>
         </div>
         
         {!selectedCustomer ? (
@@ -397,7 +656,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                            </div>
                         )}
                         <div>
-                            <p className="font-bold text-blue-900 dark:text-blue-100">{selectedCustomer.name}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-bold text-blue-900 dark:text-blue-100">{selectedCustomer.name}</p>
+                                {selectedCustomer.type === 'TEMPORARIO' && (
+                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-orange-200 text-orange-800">
+                                        Temporario
+                                    </span>
+                                )}
+                            </div>
                             <p className="text-xs text-blue-700 dark:text-blue-300">{selectedCustomer.document}</p>
                         </div>
                     </div>
@@ -440,6 +706,55 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                      </div>
                  )}
             </div>
+        )}
+      </div>
+
+      {/* Payment Plan Selection */}
+      <div className="p-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2 mb-3">
+          <CreditCard className="w-5 h-5 text-blue-600" />
+          <h3 className="text-sm font-bold text-slate-800 dark:text-white">Forma de Pagamento</h3>
+        </div>
+
+        {!selectedCustomer && (
+          <div className="text-sm text-slate-500">Selecione um cliente para ver os planos.</div>
+        )}
+
+        {planLoading && (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Carregando planos...
+          </div>
+        )}
+
+        {!selectedCustomer ? null : !planLoading && planError && (
+          <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded">
+            {planError}
+          </div>
+        )}
+
+        {!selectedCustomer ? null : !planLoading && !planError && (
+          <div className="space-y-2">
+            <select
+              value={selectedPlan?.code || ''}
+              onChange={(e) => {
+                const plan = paymentPlans.find(p => p.code === e.target.value) || null;
+                setSelectedPlan(plan);
+              }}
+              className="w-full p-2 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+            >
+              {paymentPlans.map(plan => (
+                <option key={plan.code} value={plan.code}>
+                  {plan.description} ({plan.installments}x)
+                </option>
+              ))}
+            </select>
+            {selectedPlan && (
+              <div className="text-xs text-slate-500">
+                Parcelas: {selectedPlan.installments} • Dias entre parcelas: {selectedPlan.daysBetweenInstallments} • Valor minimo: R$ {selectedPlan.minValue.toFixed(2)}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -545,7 +860,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
             <button
               onClick={handleCheckout}
-              disabled={submitting}
+              disabled={submitting || !selectedCustomer || !selectedPlan || planLoading || !!planError}
               className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
             >
               {submitting ? (
