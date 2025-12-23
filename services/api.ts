@@ -375,6 +375,24 @@ class ApiService {
       return ''; 
   }
 
+  private normalizeSellerId(value?: string | number | null): string {
+      if (value === null || value === undefined) return '';
+      const raw = String(value).trim();
+      return raw;
+  }
+
+  private isSameSeller(a?: string | number | null, b?: string | number | null): boolean {
+      const left = this.normalizeSellerId(a);
+      const right = this.normalizeSellerId(b);
+      if (!left || !right) return false;
+      if (left === right) return true;
+      const leftNorm = left.replace(/^0+/, '');
+      const rightNorm = right.replace(/^0+/, '');
+      if (!leftNorm || !rightNorm) return false;
+      if (leftNorm === rightNorm) return true;
+      return leftNorm.padStart(6, '0') === rightNorm.padStart(6, '0');
+  }
+
   private resolveImageUrl(value?: string): string | undefined {
       if (!value) return undefined;
       const raw = String(value).trim();
@@ -1064,8 +1082,8 @@ class ApiService {
          if (!this.config.alwaysFetchCustomers) {
             let local = await dbService.getLocalCustomers();
             // Filtro estrito: se houver vendedor logado, lista SOMENTE clientes vinculados a ele
-            if (currentSellerId) {
-                local = local.filter(c => c.sellerId === currentSellerId);
+          if (currentSellerId) {
+                local = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
             }
             local = local.filter(c => c.type !== 'TEMPORARIO');
             if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
@@ -1097,7 +1115,10 @@ class ApiService {
              const mapped = list
                  .filter((item: any) => item?.type !== 'TEMPORARIO')
                  .map((item: any) => this.mapCustomer(item));
-             return [WALK_IN_CUSTOMER, ...mapped];
+             const filtered = currentSellerId
+                 ? mapped.filter((c) => this.isSameSeller(c.sellerId, currentSellerId))
+                 : mapped;
+             return [WALK_IN_CUSTOMER, ...filtered];
          }
       } catch(e) {}
       
@@ -1211,10 +1232,13 @@ class ApiService {
         
         await dbService.clearCustomers();
         const mapped = list.map((c: any) => this.mapCustomer(c));
-        await dbService.bulkAddCustomers(mapped);
+        const filtered = savedSellerId
+            ? mapped.filter((c) => this.isSameSeller(c.sellerId, savedSellerId))
+            : mapped;
+        await dbService.bulkAddCustomers(filtered);
         
-        onProgress(mapped.length);
-        return { success: true, count: mapped.length };
+        onProgress(filtered.length);
+        return { success: true, count: filtered.length };
     } catch (e: any) {
         return { success: false, count: 0, message: e.message };
     }
@@ -1242,7 +1266,7 @@ class ApiService {
 
           // Novos Campos de Vendas
           sellerName: c.vendedor_nome || c.seller_name || '',
-          sellerId: c.vendor_code || c.vendedor_codigo || c.seller_id || '',
+          sellerId: c.vendor_code || c.vendedor_codigo || c.seller_id || c.vendedor_id || c.vendedorId || c.sellerId || '',
           lastSaleDate: c.ultima_venda_data || '',
           lastSaleValue: Number(c.ultima_venda_valor) || 0
       };
