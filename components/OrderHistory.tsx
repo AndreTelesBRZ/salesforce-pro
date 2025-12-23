@@ -193,6 +193,10 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
       {/* Estilos de Impressão (Só aplica quando CTRL+P é acionado) */}
       <style>{`
         @media print {
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
           body * {
             visibility: hidden;
           }
@@ -203,7 +207,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
             position: absolute;
             left: 0;
             top: 0;
-            width: 100%;
+            width: 210mm;
+            min-height: 297mm;
             height: auto;
             background: white;
             color: black;
@@ -211,6 +216,10 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
             padding: 0;
             margin: 0;
             overflow: visible;
+          }
+          .print-page {
+            width: 100%;
+            min-height: 297mm;
           }
           .no-print {
             display: none !important;
@@ -228,7 +237,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
       {/* --- MODAL DE RECIBO (VISUALIZAÇÃO) --- */}
       {viewingReceipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-            <div id="receipt-modal" className="bg-white w-full max-w-md rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div id="receipt-modal" className="bg-white w-full max-w-[820px] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 
                 {/* Header de Ações (Não Imprime) */}
                 <div className="bg-slate-900 p-4 flex justify-between items-center no-print shrink-0">
@@ -242,82 +251,104 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
 
                 {/* Conteúdo do Recibo (Imprimível) */}
                 <div className="p-8 bg-white text-slate-900 print-content overflow-y-auto flex-1">
-                    <div className="border-b-2 border-slate-800 pb-4 mb-4">
-                        <h1 className="text-2xl font-bold uppercase tracking-wide">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
-                        <p className="text-sm text-slate-600">{headerStore?.legal_name}</p>
-                        {headerStore?.document && (
-                          <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
-                        )}
-                        {(headerStore?.street || headerStore?.city) && (
-                          <p className="text-xs text-slate-500">
-                            {headerStore?.street || ''} {headerStore?.number || ''} {headerStore?.neighborhood ? `- ${headerStore.neighborhood}` : ''} {headerStore?.city ? `• ${headerStore.city}/${headerStore.state || ''}` : ''} {headerStore?.zip ? `• ${headerStore.zip}` : ''}
-                          </p>
-                        )}
-                        {headerStore?.phone && (
-                          <p className="text-xs text-slate-500">Fone: {headerStore.phone}</p>
-                        )}
-                        <p className="text-sm text-slate-500 mt-2">Comprovante de Pedido</p>
-                    </div>
-
-                    <div className="flex justify-between items-end mb-6">
-                        <div>
-                            <p className="text-xs text-slate-500 uppercase font-bold">Pedido</p>
-                            <p className="text-xl font-mono font-bold">#{viewingReceipt.displayId}</p>
+                    <div className="print-page">
+                        <div className="flex justify-between items-start border-b-2 border-slate-800 pb-4">
+                            <div>
+                                <h1 className="text-2xl font-bold uppercase tracking-wide">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
+                                <p className="text-sm text-slate-600">{headerStore?.legal_name}</p>
+                                {headerStore?.document && (
+                                  <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
+                                )}
+                                {(headerStore?.street || headerStore?.city) && (
+                                  <p className="text-xs text-slate-500">
+                                    {headerStore?.street || ''} {headerStore?.number || ''} {headerStore?.neighborhood ? `- ${headerStore.neighborhood}` : ''} {headerStore?.city ? `• ${headerStore.city}/${headerStore.state || ''}` : ''} {headerStore?.zip ? `• ${headerStore.zip}` : ''}
+                                  </p>
+                                )}
+                                {headerStore?.phone && (
+                                  <p className="text-xs text-slate-500">Fone: {headerStore.phone}</p>
+                                )}
+                                <p className="text-xs text-slate-500 mt-2">Comprovante de Pedido</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[10px] text-slate-500 uppercase font-bold">Pedido</p>
+                                <p className="text-xl font-mono font-bold">#{viewingReceipt.displayId}</p>
+                                <p className="text-[10px] text-slate-500 uppercase font-bold mt-2">Data</p>
+                                <p className="font-medium">{new Date(viewingReceipt.createdAt).toLocaleDateString()}</p>
+                            </div>
                         </div>
-                        <div className="text-right">
-                            <p className="text-xs text-slate-500 uppercase font-bold">Data</p>
-                            <p className="font-medium">{new Date(viewingReceipt.createdAt).toLocaleDateString()}</p>
+
+                        <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+                            <div className="border border-slate-200 p-3 rounded">
+                                <p className="text-[10px] text-slate-500 uppercase font-bold">Cliente</p>
+                                <p className="font-bold text-sm leading-tight">{viewingReceipt.customerName}</p>
+                                <p className="text-[11px] text-slate-600 font-mono mt-1">Doc: {viewingReceipt.customerDoc || 'N/A'}</p>
+                            </div>
+                            <div className="border border-slate-200 p-3 rounded">
+                                <p className="text-[10px] text-slate-500 uppercase font-bold">Vendedor</p>
+                                <p className="font-bold text-sm">
+                                    {viewingReceipt.sellerName || '—'} {viewingReceipt.sellerId ? `(${viewingReceipt.sellerId})` : ''}
+                                </p>
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="bg-slate-50 border border-slate-200 p-3 rounded mb-6">
-                        <p className="text-xs text-slate-500 uppercase font-bold mb-1">Cliente</p>
-                        <p className="font-bold text-lg leading-tight">{viewingReceipt.customerName}</p>
-                        <p className="text-sm text-slate-600 font-mono mt-1">Doc: {viewingReceipt.customerDoc || 'N/A'}</p>
-                        {(viewingReceipt.sellerName || viewingReceipt.sellerId) && (
-                          <p className="text-xs text-slate-500 mt-2">
-                            Vendedor: {viewingReceipt.sellerName || '—'} {viewingReceipt.sellerId ? `(${viewingReceipt.sellerId})` : ''}
-                          </p>
-                        )}
-                        {viewingReceipt.notes && (
-                          <p className="text-xs text-slate-500 mt-2">Obs: {viewingReceipt.notes}</p>
-                        )}
-                    </div>
-
-                    <table className="w-full text-sm mb-6">
-                        <thead>
-                            <tr className="border-b border-slate-300">
-                                <th className="text-left py-2 font-bold text-slate-600">Qtd x Unit.</th>
-                                <th className="text-left py-2 font-bold text-slate-600">Item</th>
-                                <th className="text-right py-2 font-bold text-slate-600">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody className="font-mono text-slate-700">
-                            {viewingReceipt.items.map((item, idx) => (
-                                <tr key={idx} className="border-b border-slate-100">
-                                    <td className="py-2 align-top w-40">
-                                        {item.quantity} {item.unit} x R$ {item.price.toFixed(2)}
-                                    </td>
-                                    <td className="py-2 align-top">
-                                        <div className="font-bold text-slate-900">{item.name}</div>
-                                        <div className="text-[10px] text-slate-500">{item.id}</div>
-                                    </td>
-                                    <td className="py-2 align-top text-right font-bold">
-                                        R$ {(item.quantity * item.price).toFixed(2)}
-                                    </td>
+                        <table className="w-full text-xs mt-6 border-t border-slate-300">
+                            <thead>
+                                <tr className="border-b border-slate-300">
+                                    <th className="text-left py-2 font-bold text-slate-600 w-12">Qtd</th>
+                                    <th className="text-left py-2 font-bold text-slate-600 w-12">Un</th>
+                                    <th className="text-left py-2 font-bold text-slate-600">Descrição</th>
+                                    <th className="text-right py-2 font-bold text-slate-600 w-20">Unit</th>
+                                    <th className="text-right py-2 font-bold text-slate-600 w-20">Total</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="font-mono text-slate-700">
+                                {viewingReceipt.items.map((item, idx) => (
+                                    <tr key={idx} className="border-b border-slate-100">
+                                        <td className="py-2 align-top">{item.quantity}</td>
+                                        <td className="py-2 align-top">{item.unit}</td>
+                                        <td className="py-2 align-top">
+                                            <div className="font-bold text-slate-900">{item.name}</div>
+                                            <div className="text-[10px] text-slate-500">{item.id}</div>
+                                        </td>
+                                        <td className="py-2 align-top text-right">R$ {item.price.toFixed(2)}</td>
+                                        <td className="py-2 align-top text-right font-bold">R$ {(item.quantity * item.price).toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
 
-                    <div className="flex justify-between items-center border-t-2 border-slate-800 pt-4 mb-8">
-                        <span className="text-lg font-bold uppercase">Total Geral</span>
-                        <span className="text-2xl font-bold">R$ {viewingReceipt.total.toFixed(2)}</span>
-                    </div>
+                        <div className="mt-4">
+                            <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Observações</p>
+                            <div className="border border-slate-200 rounded p-2 text-xs text-slate-700 min-h-[48px]">
+                                {viewingReceipt.notes || '—'}
+                            </div>
+                        </div>
 
-                    <div className="text-center text-xs text-slate-400 mt-auto pt-8 border-t border-dashed border-slate-300">
-                        <p>Emitido via SalesForce App</p>
-                        <p>{new Date().toLocaleString()}</p>
+                        <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+                            <div className="border border-slate-200 rounded p-3">
+                                <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Forma de Pagamento</p>
+                                <p className="font-semibold">{viewingReceipt.paymentMethod || '—'}</p>
+                                {viewingReceipt.paymentPlanDescription && (
+                                    <p className="text-[11px] text-slate-500 mt-1">
+                                        Plano: {viewingReceipt.paymentPlanDescription} {viewingReceipt.paymentInstallments ? `(${viewingReceipt.paymentInstallments}x)` : ''}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="border border-slate-200 rounded p-3">
+                                <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Tipo de Frete</p>
+                                <p className="font-semibold">{viewingReceipt.shippingMethod || '—'}</p>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-center border-t-2 border-slate-800 pt-4 mt-6">
+                            <span className="text-sm font-bold uppercase">Total Geral</span>
+                            <span className="text-xl font-bold">R$ {viewingReceipt.total.toFixed(2)}</span>
+                        </div>
+
+                        <div className="text-center text-xs text-slate-400 mt-6 pt-6 border-t border-dashed border-slate-300">
+                            <p>Emitido via SalesForce App</p>
+                            <p>{new Date().toLocaleString()}</p>
+                        </div>
                     </div>
                 </div>
 
@@ -344,9 +375,14 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                               id: viewingReceipt.id,
                               displayId: viewingReceipt.displayId,
                               customer: viewingReceipt.customerName,
+                              customerDoc: viewingReceipt.customerDoc,
                               sellerName: viewingReceipt.sellerName,
                               sellerId: viewingReceipt.sellerId,
                               notes: viewingReceipt.notes,
+                              paymentMethod: viewingReceipt.paymentMethod,
+                              shippingMethod: viewingReceipt.shippingMethod,
+                              paymentPlanDescription: viewingReceipt.paymentPlanDescription,
+                              paymentInstallments: viewingReceipt.paymentInstallments,
                               items: viewingReceipt.items,
                               total: viewingReceipt.total,
                               store: headerStore
@@ -363,8 +399,14 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                             const a = document.createElement('a');
                             a.href = url;
                             a.download = `pedido-${viewingReceipt.displayId}.pdf`;
+                            a.target = '_blank';
+                            a.rel = 'noreferrer';
                             document.body.appendChild(a);
-                            a.click();
+                            if (typeof a.download === 'string') {
+                              a.click();
+                            } else {
+                              window.open(url, '_blank', 'noopener');
+                            }
                             setTimeout(() => {
                               URL.revokeObjectURL(url);
                               a.remove();

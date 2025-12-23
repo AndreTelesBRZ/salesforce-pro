@@ -9,8 +9,9 @@ import { CustomerList } from './components/CustomerList';
 import { OrderHistory } from './components/OrderHistory';
 import { SyncData } from './components/SyncData';
 import { apiService } from './services/api';
+import { dbService } from './services/db';
 import { Product, CartItem, ThemeMode } from './types';
-import { ArrowLeft, LogOut, User, Menu, Loader2, Store } from 'lucide-react';
+import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart } from 'lucide-react';
 
 type View = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send';
 
@@ -61,17 +62,27 @@ export default function App() {
   // Carrega rascunho de carrinho ao navegar para Cart (duplicar pedido)
   useEffect(() => {
     if (currentView === 'cart') {
-       try {
-          const raw = localStorage.getItem('cartDraft');
-          if (raw) {
+       const loadDraft = async () => {
+          try {
+            const raw = localStorage.getItem('cartDraft');
+            if (!raw) return;
             const items: CartItem[] = JSON.parse(raw);
             // Ignora se carrinho já tem itens (não sobrescreve pedido atual)
             if (cart.length === 0 && Array.isArray(items) && items.length > 0) {
-               setCart(items.map(i => ({ ...i, quantity: Number(i.quantity) || 1, price: Number(i.price) || 0 })));
+               const hydrated = await Promise.all(items.map(async (item) => {
+                  let basePrice = item.basePrice ?? Number(item.price) || 0;
+                  try {
+                    const product = await dbService.getProductById(item.id);
+                    if (product?.price) basePrice = product.price;
+                  } catch {}
+                  return { ...item, quantity: Number(item.quantity) || 1, price: Number(item.price) || 0, basePrice };
+               }));
+               setCart(hydrated);
             }
             localStorage.removeItem('cartDraft');
-          }
-       } catch {}
+          } catch {}
+       };
+       loadDraft();
     }
   }, [currentView]);
 
@@ -118,12 +129,21 @@ export default function App() {
           item.id === product.id ? { ...item, quantity: finalQty } : item
         );
       }
-      return [...prev, { ...product, quantity: product.unit.toLowerCase() === 'cto' ? 1.00 : 1 }];
+      return [...prev, { ...product, quantity: product.unit.toLowerCase() === 'cto' ? 1.00 : 1, basePrice: product.price }];
     });
   };
 
   const removeFromCart = (id: string) => {
     setCart((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const toggleCartProduct = (product: Product) => {
+    const exists = cart.find(i => i.id === product.id);
+    if (exists) {
+      removeFromCart(product.id);
+    } else {
+      addToCart(product);
+    }
   };
 
   const updateQuantity = (id: string, newQuantity: number) => {
@@ -241,6 +261,19 @@ export default function App() {
                   </div>
               )}
 
+              <button
+                onClick={() => setCurrentView('cart')}
+                className="relative p-2 hover:bg-blue-800 rounded-full text-blue-200 hover:text-white transition-colors"
+                title="Carrinho"
+              >
+                <ShoppingCart className="w-5 h-5" />
+                {cart.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border border-blue-900">
+                    {cart.reduce((a, b) => a + b.quantity, 0)}
+                  </span>
+                )}
+              </button>
+
               <button 
                 onClick={handleLogout} 
                 className="p-2 hover:bg-blue-800 rounded-full text-blue-200 hover:text-white transition-colors" 
@@ -258,7 +291,7 @@ export default function App() {
             <Dashboard onNavigate={(v) => setCurrentView(v as View)} cartCount={cart.reduce((a, b) => a + b.quantity, 0)} />
           )}
           {currentView === 'products' && (
-            <ProductList onAddToCart={addToCart} cart={cart} />
+            <ProductList onAddToCart={addToCart} onRemoveFromCart={removeFromCart} onToggleCart={toggleCartProduct} cart={cart} />
           )}
           {currentView === 'cart' && (
             <Cart 
@@ -268,8 +301,8 @@ export default function App() {
                  if (newPrice <= 0 || isNaN(newPrice)) return;
                  setCart(prev => prev.map(i => {
                    if (i.id !== id) return i;
-                   // Nunca permitir reduzir o preço abaixo do atual
-                   if (newPrice < i.price) return i;
+                   const floor = i.basePrice ?? i.price;
+                   if (newPrice < floor) return i;
                    return { ...i, price: newPrice };
                  }));
               }}

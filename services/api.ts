@@ -782,7 +782,13 @@ class ApiService {
           return { success: false, message: 'Plano de pagamento obrigatório.' };
       }
 
-      const backendOrder = {
+      const extraNotes = [
+        order.notes || '',
+        order.paymentMethod ? `Pagamento: ${order.paymentMethod}` : '',
+        order.shippingMethod ? `Frete: ${order.shippingMethod}` : ''
+      ].filter(Boolean).join(' | ');
+
+      const backendOrder: Record<string, any> = {
         data_criacao: order.createdAt,
         total: order.total,
         cliente_id: order.customerId, 
@@ -792,7 +798,7 @@ class ApiService {
         parcelas: planInstallments || 1,
         dias_entre_parcelas: planDaysBetween || 0,
         valor_minimo: planMinValue || 0,
-        observacao: order.notes || '',
+        observacao: extraNotes,
         vendedor_id: order.sellerId || this.getSellerId() || '',
         vendedor_nome: order.sellerName || this.getUsername() || '',
         itens: order.items.map(item => ({ 
@@ -801,6 +807,11 @@ class ApiService {
             valor_unitario: item.price 
         }))
       };
+
+      if (!this.getBaseUrl()) {
+        backendOrder.payment_method = order.paymentMethod || '';
+        backendOrder.shipping_method = order.shippingMethod || '';
+      }
       
       this.addLog(`Enviando Pedido #${order.displayId} (Itens: ${order.items.length})`, 'info');
       

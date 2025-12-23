@@ -228,7 +228,9 @@ async function initDb() {
             payment_plan_description TEXT,
             payment_installments INTEGER,
             payment_days_between INTEGER,
-            payment_min_value REAL
+            payment_min_value REAL,
+            payment_method TEXT,
+            shipping_method TEXT
         )`);
 
         // Migração: adicionar campos de vendedor/observações em orders (caso já exista)
@@ -241,6 +243,8 @@ async function initDb() {
         try { await db.run("ALTER TABLE orders ADD COLUMN payment_installments INTEGER"); } catch (e) {}
         try { await db.run("ALTER TABLE orders ADD COLUMN payment_days_between INTEGER"); } catch (e) {}
         try { await db.run("ALTER TABLE orders ADD COLUMN payment_min_value REAL"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN payment_method TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE orders ADD COLUMN shipping_method TEXT"); } catch (e) {}
 
         // Tabela de Itens do Pedido
         await db.run(`CREATE TABLE IF NOT EXISTS order_items (
@@ -954,7 +958,9 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
       plano_pagamento_descricao,
       parcelas,
       dias_entre_parcelas,
-      valor_minimo
+      valor_minimo,
+      payment_method,
+      shipping_method
   } = req.body;
 
   // DEBUG: Log do payload recebido
@@ -982,12 +988,12 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
       // Nota: customer_id agora é TEXT no CREATE TABLE para aceitar UUIDs do frontend
       const orderRes = isPostgres 
         ? await db.run(
-            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0]
+            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value, payment_method, shipping_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0, payment_method || null, shipping_method || null]
           )
         : await db.run(
-            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0]
+            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value, payment_method, shipping_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0, payment_method || null, shipping_method || null]
           );
       
       const orderId = orderRes.lastID; // No PG adaptado, lastID pega o id retornado
@@ -1114,6 +1120,94 @@ app.post('/api/ai/pitch', verifyToken, async (req, res) => {
   }
 });
 
+const formatMoney = (value) => `R$ ${Number(value || 0).toFixed(2)}`;
+
+const renderReceiptPDF = (doc, receipt, store) => {
+  const marginLeft = doc.page.margins.left;
+  const marginRight = doc.page.margins.right;
+  const pageWidth = doc.page.width - marginLeft - marginRight;
+  const safeDate = receipt.createdAt ? new Date(receipt.createdAt) : new Date();
+
+  doc.fontSize(16).text(store?.trade_name || 'SalesForce Pro', marginLeft, doc.y);
+  if (store?.legal_name) doc.fontSize(9).text(store.legal_name);
+  if (store?.document) doc.text(`CNPJ/CPF: ${store.document}`);
+  const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip]
+    .filter(Boolean)
+    .join(' - ');
+  if (addr) doc.text(addr);
+  if (store?.phone) doc.text(`Fone: ${store.phone}`);
+
+  doc.moveDown(0.5);
+  const infoY = doc.y;
+  doc.fontSize(10).text(`Pedido: #${receipt.displayId || ''}`, marginLeft, infoY, { width: pageWidth, align: 'right' });
+  doc.text(`Data: ${safeDate.toLocaleDateString()}`, marginLeft, infoY + 12, { width: pageWidth, align: 'right' });
+  doc.moveDown(2);
+
+  doc.fontSize(10).text(`Cliente: ${receipt.customer || ''}`);
+  if (receipt.customerDoc) doc.text(`Documento: ${receipt.customerDoc}`);
+  if (receipt.sellerName || receipt.sellerId) {
+    doc.text(`Vendedor: ${receipt.sellerName || ''}${receipt.sellerId ? ` (${receipt.sellerId})` : ''}`);
+  }
+  doc.moveDown();
+
+  // Itens (tabela)
+  doc.fontSize(10).text('Itens', { underline: true });
+  doc.moveDown(0.5);
+
+  const colQty = marginLeft;
+  const colUnit = marginLeft + 40;
+  const colDesc = marginLeft + 70;
+  const colUnitPrice = marginLeft + pageWidth - 140;
+  const colTotal = marginLeft + pageWidth - 60;
+  const descWidth = colUnitPrice - colDesc - 10;
+
+  doc.fontSize(9).text('Qtd', colQty, doc.y, { width: 35 });
+  doc.text('Un', colUnit, doc.y, { width: 30 });
+  doc.text('Descrição', colDesc, doc.y, { width: descWidth });
+  doc.text('Unit', colUnitPrice, doc.y, { width: 60, align: 'right' });
+  doc.text('Total', colTotal, doc.y, { width: 60, align: 'right' });
+  doc.moveDown(0.6);
+  doc.moveTo(marginLeft, doc.y).lineTo(marginLeft + pageWidth, doc.y).strokeColor('#cbd5f5').stroke();
+  doc.moveDown(0.4);
+
+  doc.fontSize(9);
+  (receipt.items || []).forEach((it) => {
+    const rowY = doc.y;
+    const quantity = Number(it.quantity || 0);
+    const unitPrice = Number(it.price || 0);
+    const total = quantity * unitPrice;
+    const desc = String(it.name || '');
+    const descHeight = doc.heightOfString(desc, { width: descWidth });
+    const rowHeight = Math.max(descHeight, 12);
+
+    doc.text(String(quantity), colQty, rowY, { width: 35 });
+    doc.text(String(it.unit || ''), colUnit, rowY, { width: 30 });
+    doc.text(desc, colDesc, rowY, { width: descWidth });
+    doc.text(formatMoney(unitPrice), colUnitPrice, rowY, { width: 60, align: 'right' });
+    doc.text(formatMoney(total), colTotal, rowY, { width: 60, align: 'right' });
+    doc.y = rowY + rowHeight + 4;
+  });
+
+  doc.moveDown();
+  doc.fontSize(10).text('Observações', { underline: true });
+  doc.fontSize(9).text(receipt.notes || '—');
+
+  doc.moveDown();
+  doc.fontSize(10).text('Forma de Pagamento', { underline: true });
+  doc.fontSize(9).text(receipt.paymentMethod || '—');
+  if (receipt.paymentPlanDescription) {
+    doc.text(`Plano: ${receipt.paymentPlanDescription}${receipt.paymentInstallments ? ` (${receipt.paymentInstallments}x)` : ''}`);
+  }
+
+  doc.moveDown();
+  doc.fontSize(10).text('Tipo de Frete', { underline: true });
+  doc.fontSize(9).text(receipt.shippingMethod || '—');
+
+  doc.moveDown(1.2);
+  doc.fontSize(12).text(`Total Geral: ${formatMoney(receipt.total)}`, { align: 'right' });
+  doc.moveDown().fontSize(8).text('Emitido via SalesForce App');
+};
+
 // --- GERAR PDF DE RECIBO (SERVER-SIDE) ---
 // POST /api/recibo/pdf  -> Body: { id, displayId, customer, items:[{name,quantity,unit,price}], total, store? }
 app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
@@ -1129,40 +1223,9 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=pedido-${receipt.displayId || 'recibo'}.pdf`);
 
-    const doc = new PDFDocument({ margin: 40 });
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
     doc.pipe(res);
-
-    // Cabeçalho
-    doc.fontSize(18).text(store?.trade_name || 'SalesForce Pro', { continued: false });
-    if (store?.legal_name) doc.fontSize(10).text(store.legal_name);
-    if (store?.document) doc.text(`CNPJ/CPF: ${store.document}`);
-    const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip].filter(Boolean).join(' - ');
-    if (addr) doc.text(addr);
-    if (store?.phone) doc.text(`Fone: ${store.phone}`);
-    doc.moveDown();
-
-    doc.fontSize(12).text(`Comprovante de Pedido`, { align: 'left' });
-    doc.text(`Pedido: #${receipt.displayId || ''}`);
-    doc.text(`Data: ${new Date().toLocaleString()}`);
-    if (receipt.customer) doc.text(`Cliente: ${receipt.customer}`);
-    if (receipt.sellerName || receipt.sellerId) {
-      doc.text(`Vendedor: ${receipt.sellerName || ''} ${receipt.sellerId ? `(${receipt.sellerId})` : ''}`);
-    }
-    if (receipt.notes) doc.text(`Obs: ${receipt.notes}`);
-    doc.moveDown();
-
-    // Tabela simples
-    doc.fontSize(10).text('Qtd x Unit.   Item                                      Total', { underline: true });
-    (receipt.items || []).forEach((it) => {
-      const left = `${it.quantity} ${it.unit} x R$ ${Number(it.price).toFixed(2)}`.padEnd(14);
-      const name = String(it.name || '').slice(0, 35).padEnd(38);
-      const total = `R$ ${(Number(it.quantity) * Number(it.price)).toFixed(2)}`;
-      doc.text(`${left} ${name} ${total}`);
-    });
-    doc.moveDown();
-    doc.fontSize(12).text(`Total Geral: R$ ${Number(receipt.total || 0).toFixed(2)}`, { align: 'right' });
-
-    doc.moveDown().fontSize(8).text('Emitido via SalesForce App');
+    renderReceiptPDF(doc, receipt, store);
     doc.end();
 
   } catch (e) {
@@ -1183,38 +1246,9 @@ app.post('/api/recibo/pdf/public', async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=pedido-${receipt.displayId || 'recibo'}.pdf`);
 
-    const doc = new PDFDocument({ margin: 40 });
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
     doc.pipe(res);
-
-    doc.fontSize(18).text(store?.trade_name || 'SalesForce Pro', { continued: false });
-    if (store?.legal_name) doc.fontSize(10).text(store.legal_name);
-    if (store?.document) doc.text(`CNPJ/CPF: ${store.document}`);
-    const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip].filter(Boolean).join(' - ');
-    if (addr) doc.text(addr);
-    if (store?.phone) doc.text(`Fone: ${store.phone}`);
-    doc.moveDown();
-
-    doc.fontSize(12).text(`Comprovante de Pedido`, { align: 'left' });
-    doc.text(`Pedido: #${receipt.displayId || ''}`);
-    doc.text(`Data: ${new Date().toLocaleString()}`);
-    if (receipt.customer) doc.text(`Cliente: ${receipt.customer}`);
-    if (receipt.sellerName || receipt.sellerId) {
-      doc.text(`Vendedor: ${receipt.sellerName || ''} ${receipt.sellerId ? `(${receipt.sellerId})` : ''}`);
-    }
-    if (receipt.notes) doc.text(`Obs: ${receipt.notes}`);
-    doc.moveDown();
-
-    doc.fontSize(10).text('Qtd x Unit.   Item                                      Total', { underline: true });
-    (receipt.items || []).forEach((it) => {
-      const left = `${it.quantity} ${it.unit} x R$ ${Number(it.price).toFixed(2)}`.padEnd(14);
-      const name = String(it.name || '').slice(0, 35).padEnd(38);
-      const total = `R$ ${(Number(it.quantity) * Number(it.price)).toFixed(2)}`;
-      doc.text(`${left} ${name} ${total}`);
-    });
-    doc.moveDown();
-    doc.fontSize(12).text(`Total Geral: R$ ${Number(receipt.total || 0).toFixed(2)}`, { align: 'right' });
-
-    doc.moveDown().fontSize(8).text('Emitido via SalesForce App');
+    renderReceiptPDF(doc, receipt, store);
     doc.end();
   } catch (e) {
     console.error('[PDF_PUBLIC_ERROR]', e);

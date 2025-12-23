@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CartItem, Order, Customer, PaymentPlan } from '../types';
-import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 
@@ -387,12 +387,27 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [selectedPlan, setSelectedPlan] = useState<PaymentPlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('pix');
+  const [shippingMethod, setShippingMethod] = useState('retirada');
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
   const [editingPrice, setEditingPrice] = useState<{ id: string, name: string, price: number, unit: string } | null>(null);
 
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const paymentOptions = [
+    { id: 'pix', label: 'PIX', icon: QrCode },
+    { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
+    { id: 'cartao', label: 'Cartão', icon: CreditCard },
+    { id: 'boleto', label: 'Boleto', icon: FileText },
+  ];
+  const shippingOptions = [
+    { id: 'retirada', label: 'Retirada', icon: Store },
+    { id: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
+    { id: 'transportadora', label: 'Transportadora', icon: Package },
+  ];
+  const paymentLabel = paymentOptions.find(option => option.id === paymentMethod)?.label || '';
+  const shippingLabel = shippingOptions.find(option => option.id === shippingMethod)?.label || '';
 
   useEffect(() => {
       apiService.getCustomers().then(apiData => {
@@ -439,6 +454,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         alert('Selecione uma forma de pagamento para o pedido.');
         return;
     }
+    if (!paymentLabel) {
+        alert('Selecione uma forma de pagamento.');
+        return;
+    }
+    if (!shippingLabel) {
+        alert('Selecione um tipo de frete.');
+        return;
+    }
 
     setSubmitting(true);
     
@@ -463,6 +486,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       paymentInstallments: selectedPlan.installments,
       paymentDaysBetween: selectedPlan.daysBetweenInstallments,
       paymentMinValue: selectedPlan.minValue,
+      paymentMethod: paymentLabel,
+      shippingMethod: shippingLabel,
       sellerId,
       sellerName,
       notes,
@@ -713,7 +738,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       <div className="p-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center gap-2 mb-3">
           <CreditCard className="w-5 h-5 text-blue-600" />
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white">Forma de Pagamento</h3>
+          <h3 className="text-sm font-bold text-slate-800 dark:text-white">Plano de Pagamento</h3>
         </div>
 
         {!selectedCustomer && (
@@ -756,6 +781,64 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             )}
           </div>
         )}
+      </div>
+
+      {/* Payment Method + Shipping */}
+      <div className="p-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 space-y-6">
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <CreditCard className="w-5 h-5 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white">Forma de Pagamento</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {paymentOptions.map(option => {
+              const Icon = option.icon;
+              const active = paymentMethod === option.id;
+              return (
+                <button
+                  key={option.id}
+                  onClick={() => setPaymentMethod(option.id)}
+                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                    active
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                  type="button"
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Truck className="w-5 h-5 text-orange-600" />
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white">Tipo de Frete</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {shippingOptions.map(option => {
+              const Icon = option.icon;
+              const active = shippingMethod === option.id;
+              return (
+                <button
+                  key={option.id}
+                  onClick={() => setShippingMethod(option.id)}
+                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                    active
+                      ? 'bg-orange-600 text-white border-orange-600'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                  type="button"
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

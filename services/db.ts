@@ -185,6 +185,17 @@ class DatabaseService {
     });
   }
 
+  async getProductById(id: string): Promise<Product | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_PRODUCTS], 'readonly');
+      const store = transaction.objectStore(STORE_PRODUCTS);
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   async countProducts(): Promise<number> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {

@@ -38,6 +38,8 @@ export interface Customer {
 
 export interface CartItem extends Product {
   quantity: number;
+  // Preço base de tabela para limitar redução
+  basePrice?: number;
 }
 
 export interface Order {
@@ -64,6 +66,9 @@ export interface Order {
   // Vendedor vinculado ao pedido
   sellerId?: string;
   sellerName?: string;
+  // Condições comerciais
+  paymentMethod?: string;
+  shippingMethod?: string;
   createdAt: string;
 }
 

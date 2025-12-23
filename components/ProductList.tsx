@@ -7,10 +7,12 @@ import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff
 
 interface ProductListProps {
   onAddToCart: (product: Product) => void;
+  onRemoveFromCart: (id: string) => void;
+  onToggleCart: (product: Product) => void;
   cart: CartItem[];
 }
 
-export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, cart }) => {
+export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveFromCart, onToggleCart, cart }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -451,7 +453,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, cart }) =
                         <span className="text-xl font-bold text-blue-800 dark:text-blue-400">R$ {product.price.toFixed(2)}</span>
                     </div>
                     <button 
-                        onClick={() => onAddToCart(product)}
+                        onClick={() => onToggleCart(product)}
                         className={`p-3 rounded-lg shadow-lg active:scale-95 transition-all flex items-center gap-2 ${
                             isInCart
                             ? 'bg-orange-700 text-white shadow-orange-600/30 ring-2 ring-orange-300 dark:ring-orange-900'
@@ -459,7 +461,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, cart }) =
                         }`}
                     >
                         <ShoppingCart className="w-5 h-5" />
-                        {isInCart && <span className="text-xs font-bold">Adicionar Mais</span>}
+                        {isInCart ? <span className="text-xs font-bold">Adicionado ({qtyDisplay})</span> : <span className="text-xs font-bold">Adicionar</span>}
                     </button>
                  </div>
                  
@@ -520,7 +522,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, cart }) =
                   </div>
                   <div className="flex gap-2">
                   <button 
-                    onClick={() => onAddToCart(product)}
+                    onClick={() => onToggleCart(product)}
                     className={`p-2 rounded-lg transition-colors ${
                         isInCart
                         ? 'bg-orange-600 text-white hover:bg-orange-700'
