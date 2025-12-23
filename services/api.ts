@@ -39,13 +39,28 @@ class ApiService {
   // Decodifica o token JWT e tenta extrair nome/código do vendedor
   private decodeToken(token: string): { name?: string; sellerId?: string } {
       try {
-          const parts = token.split('.')
+          const parts = token.split('.');
           if (parts.length < 2) return {};
           const payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
           // Vários backends: user.vendor_name / vendor_code ou campos diretos
           const user = payload.user || payload;
-          const name = user.vendor_name || user.name || user.username || user.user_name;
-          const sellerId = user.vendor_code || user.seller_id || user.sellerId || user.vendedor_codigo;
+          const name =
+            user.vendor_name ||
+            user.name ||
+            user.nome ||
+            user.username ||
+            user.user_name ||
+            user.preferred_username ||
+            user.email ||
+            user.login;
+          const sellerId =
+            user.vendor_code ||
+            user.seller_id ||
+            user.sellerId ||
+            user.vendedor_codigo ||
+            user.codigo_vendedor ||
+            user.vendedor_id ||
+            user.vendorId;
           return { name, sellerId };
       } catch { return {}; }
   }
@@ -154,27 +169,45 @@ class ApiService {
 
   // Busca dados atualizados do perfil no servidor
   async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
-      try {
-          // 1) Primeiro tenta o servidor local (Node)
-          let res = await this.fetchLocal('/api/me');
-          if (!res.ok) {
-              // 2) Tenta múltiplos endpoints comuns no ERP
-              const endpoints = ['/api/me','/me','/api/user/me','/api/usuarios/me','/api/profile','/api/auth/me'];
-              for (const ep of endpoints) {
-                  const r = await this.fetchWithAuth(ep).catch(()=>null as any);
-                  if (r && r.ok) { res = r; break; }
-              }
-          }
-          if (res.ok) {
+      const endpoints = [
+          '/api/me',
+          '/me',
+          '/api/user/me',
+          '/api/usuario/me',
+          '/api/usuarios/me',
+          '/api/profile',
+          '/api/auth/me',
+          '/api/usuario/logado',
+          '/api/usuarios/logado'
+      ];
+      let lastError: any = null;
+
+      for (const ep of endpoints) {
+          try {
+              const res = await this.fetchWithAuth(ep);
+              if (!res.ok) continue;
               const contentType = res.headers.get('content-type') || '';
               if (!contentType.includes('application/json')) {
                   this.addLog('Perfil: resposta não é JSON.', 'warning');
-                  return null;
+                  continue;
               }
               const data = await res.json();
               const profile = data.user || data; 
-              const name = profile.vendor_name || profile.name || profile.username;
-              const sellerId = profile.vendor_code || profile.seller_id || profile.sellerId || profile.codigo_vendedor;
+              const name =
+                profile.vendor_name ||
+                profile.name ||
+                profile.nome ||
+                profile.username ||
+                profile.user_name ||
+                profile.usuario ||
+                profile.email;
+              const sellerId =
+                profile.vendor_code ||
+                profile.seller_id ||
+                profile.sellerId ||
+                profile.codigo_vendedor ||
+                profile.vendedor_codigo ||
+                profile.vendedor_id;
 
               if (name) {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
@@ -182,9 +215,23 @@ class ApiService {
                   if (sellerId) localStorage.setItem('sellerId', String(sellerId));
                   return { name, seller_id: sellerId };
               }
+          } catch (e: any) {
+              lastError = e;
           }
-      } catch(e: any) {
-          this.addLog(`Erro ao buscar perfil: ${e.message}`, 'warning');
+      }
+
+      const tokenToDecode = this.token || this.config.apiToken;
+      if (tokenToDecode) {
+          const decoded = this.decodeToken(tokenToDecode);
+          if (decoded.name) {
+              localStorage.setItem('username', decoded.name);
+              if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
+              return { name: decoded.name, seller_id: decoded.sellerId };
+          }
+      }
+
+      if (lastError?.message) {
+          this.addLog(`Erro ao buscar perfil: ${lastError.message}`, 'warning');
       }
       return null;
   }
@@ -326,6 +373,20 @@ class ApiService {
           return this.config.backendUrl.trim().replace(/\/$/, "");
       }
       return ''; 
+  }
+
+  private resolveImageUrl(value?: string): string | undefined {
+      if (!value) return undefined;
+      const raw = String(value).trim();
+      if (!raw) return undefined;
+      if (raw.startsWith('data:')) return raw;
+      if (/^https?:\/\//i.test(raw)) return raw;
+      const baseUrl = this.getBaseUrl();
+      if (baseUrl) {
+          if (raw.startsWith('/')) return `${baseUrl}${raw}`;
+          return `${baseUrl}/${raw}`;
+      }
+      return raw;
   }
 
   private getAuthHeaders() {
@@ -989,7 +1050,7 @@ class ApiService {
         // AJUSTE: Prioriza estoque_disponivel
         stock: Number(item.estoque_disponivel ?? item.estoque ?? item.stock ?? 0),
         unit: item.unidade || item.unit || 'un',
-        imageUrl: item.imagem_url || item.image_url
+        imageUrl: this.resolveImageUrl(item.imagem_url || item.image_url || item.imagemUrl || item.imageUrl)
       };
   }
 
