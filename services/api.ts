@@ -1116,7 +1116,7 @@ class ApiService {
                  .filter((item: any) => item?.type !== 'TEMPORARIO')
                  .map((item: any) => this.mapCustomer(item));
              const filtered = currentSellerId
-                 ? mapped.filter((c) => this.isSameSeller(c.sellerId, currentSellerId))
+                 ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
                  : mapped;
              return [WALK_IN_CUSTOMER, ...filtered];
          }
@@ -1233,7 +1233,7 @@ class ApiService {
         await dbService.clearCustomers();
         const mapped = list.map((c: any) => this.mapCustomer(c));
         const filtered = savedSellerId
-            ? mapped.filter((c) => this.isSameSeller(c.sellerId, savedSellerId))
+            ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, savedSellerId))
             : mapped;
         await dbService.bulkAddCustomers(filtered);
         
