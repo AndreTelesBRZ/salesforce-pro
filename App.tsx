@@ -70,7 +70,7 @@ export default function App() {
             // Ignora se carrinho já tem itens (não sobrescreve pedido atual)
             if (cart.length === 0 && Array.isArray(items) && items.length > 0) {
                const hydrated = await Promise.all(items.map(async (item) => {
-                  let basePrice = item.basePrice ?? Number(item.price) || 0;
+                  let basePrice = item.basePrice ?? (Number(item.price) || 0);
                   try {
                     const product = await dbService.getProductById(item.id);
                     if (product?.price) basePrice = product.price;
