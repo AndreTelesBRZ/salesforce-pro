@@ -779,7 +779,11 @@ class ApiService {
       }
 
       if (!planCode) {
-          return { success: false, message: 'Plano de pagamento obrigatório.' };
+          planCode = '';
+          planDescription = '';
+          planInstallments = 1;
+          planDaysBetween = 0;
+          planMinValue = 0;
       }
 
       const extraNotes = [
@@ -793,7 +797,7 @@ class ApiService {
         total: order.total,
         cliente_id: order.customerId, 
         cliente_tipo: order.customerType || 'NORMAL',
-        plano_pagamento_codigo: planCode,
+        plano_pagamento_codigo: planCode || '',
         plano_pagamento_descricao: planDescription || '',
         parcelas: planInstallments || 1,
         dias_entre_parcelas: planDaysBetween || 0,

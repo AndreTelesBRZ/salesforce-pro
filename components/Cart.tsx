@@ -450,10 +450,6 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         alert('Por favor, selecione um cliente para o pedido.');
         return;
     }
-    if (!selectedPlan) {
-        alert('Selecione uma forma de pagamento para o pedido.');
-        return;
-    }
     if (!paymentLabel) {
         alert('Selecione uma forma de pagamento.');
         return;
@@ -481,11 +477,11 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       customerName: selectedCustomer.name,
       customerDoc: selectedCustomer.document,
       customerType: isTemporary ? 'TEMPORARIO' : 'NORMAL',
-      paymentPlanCode: selectedPlan.code,
-      paymentPlanDescription: selectedPlan.description,
-      paymentInstallments: selectedPlan.installments,
-      paymentDaysBetween: selectedPlan.daysBetweenInstallments,
-      paymentMinValue: selectedPlan.minValue,
+      paymentPlanCode: selectedPlan?.code,
+      paymentPlanDescription: selectedPlan?.description,
+      paymentInstallments: selectedPlan?.installments,
+      paymentDaysBetween: selectedPlan?.daysBetweenInstallments,
+      paymentMinValue: selectedPlan?.minValue,
       paymentMethod: paymentLabel,
       shippingMethod: shippingLabel,
       sellerId,
@@ -754,7 +750,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
         {!selectedCustomer ? null : !planLoading && planError && (
           <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded">
-            {planError}
+            {planError} (opcional)
           </div>
         )}
 
@@ -768,6 +764,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               }}
               className="w-full p-2 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
             >
+              <option value="">Sem plano (opcional)</option>
               {paymentPlans.map(plan => (
                 <option key={plan.code} value={plan.code}>
                   {plan.description} ({plan.installments}x)
@@ -943,7 +940,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
             <button
               onClick={handleCheckout}
-              disabled={submitting || !selectedCustomer || !selectedPlan || planLoading || !!planError}
+              disabled={submitting || !selectedCustomer || planLoading}
               className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
             >
               {submitting ? (

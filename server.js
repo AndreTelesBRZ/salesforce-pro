@@ -979,21 +979,22 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'Sem itens.' });
   }
 
-  if (!plano_pagamento_codigo) {
-      console.log('[ORDER_DEBUG] Erro: Plano de pagamento ausente.');
-      return res.status(400).json({ message: 'Plano de pagamento obrigatório.' });
-  }
+  const planCode = plano_pagamento_codigo || '';
+  const planDescription = plano_pagamento_descricao || '';
+  const planInstallments = parcelas || 1;
+  const planDays = dias_entre_parcelas || 0;
+  const planMin = valor_minimo || 0;
 
   try {
       // Nota: customer_id agora é TEXT no CREATE TABLE para aceitar UUIDs do frontend
       const orderRes = isPostgres 
         ? await db.run(
             "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value, payment_method, shipping_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0, payment_method || null, shipping_method || null]
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, planCode, planDescription, planInstallments, planDays, planMin, payment_method || null, shipping_method || null]
           )
         : await db.run(
             "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value, payment_method, shipping_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, plano_pagamento_codigo, plano_pagamento_descricao || '', parcelas || 1, dias_entre_parcelas || 0, valor_minimo || 0, payment_method || null, shipping_method || null]
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, planCode, planDescription, planInstallments, planDays, planMin, payment_method || null, shipping_method || null]
           );
       
       const orderId = orderRes.lastID; // No PG adaptado, lastID pega o id retornado
