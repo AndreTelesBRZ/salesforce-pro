@@ -211,7 +211,7 @@ export default function App() {
 
   const getHeaderTitle = () => {
     switch (currentView) {
-      case 'dashboard': return 'Visão Geral';
+      case 'dashboard': return 'Início';
       case 'products': return 'Catálogo';
       case 'cart': return 'Carrinho';
       case 'orders': return 'Meus Pedidos';

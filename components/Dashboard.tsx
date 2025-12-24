@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, BarChart2, Award, Star } from 'lucide-react';
+import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 
@@ -28,8 +28,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   // KPIs simples gerados localmente para demonstração
   const [todayTotal, setTodayTotal] = useState<number>(0);
   const [monthGoal] = useState<number>(50000); // meta fixa de demonstração
-  const [ticket, setTicket] = useState<number>(0);
   const [topCustomers, setTopCustomers] = useState<{name:string,total:number}[]>([]);
+  const [delinquencyTotal, setDelinquencyTotal] = useState<number>(0);
+  const [delinquencyCustomers, setDelinquencyCustomers] = useState<number>(0);
+  const [inactiveCustomers, setInactiveCustomers] = useState<number>(0);
 
   useEffect(() => {
      (async () => {
@@ -38,7 +40,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         const todayOrders = all.filter(o => new Date(o.createdAt).toDateString() === today);
         const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
         setTodayTotal(todaySum);
-        setTicket(todayOrders.length > 0 ? todaySum / todayOrders.length : 0);
+
+        const delinquencyCutoff = new Date();
+        delinquencyCutoff.setDate(delinquencyCutoff.getDate() - 15);
+        const overdueOrders = all.filter((o) => {
+          const orderDate = new Date(o.createdAt);
+          return o.status === 'pending' && orderDate < delinquencyCutoff;
+        });
+        const overdueTotal = overdueOrders.reduce((s, o) => s + o.total, 0);
+        const overdueCustomers = new Set(
+          overdueOrders.map((o) => o.customerId || o.customerDoc || o.customerName || o.id)
+        );
+        setDelinquencyTotal(overdueTotal);
+        setDelinquencyCustomers(overdueCustomers.size);
+
+        const lastSaleByCustomer: Record<string, Date> = {};
+        all.forEach((o) => {
+          const key = o.customerId || o.customerDoc || o.customerName || o.id;
+          const orderDate = new Date(o.createdAt);
+          if (Number.isNaN(orderDate.getTime())) return;
+          if (!lastSaleByCustomer[key] || orderDate > lastSaleByCustomer[key]) {
+            lastSaleByCustomer[key] = orderDate;
+          }
+        });
+        const inactiveCutoff = new Date();
+        inactiveCutoff.setDate(inactiveCutoff.getDate() - 30);
+        const inactive = Object.values(lastSaleByCustomer).filter((date) => date < inactiveCutoff);
+        setInactiveCustomers(inactive.length);
         
         // Top clientes simples pelos pedidos salvos
         const map: Record<string, number> = {};
@@ -79,6 +107,55 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     dbService.getPendingOrders().then(orders => setPendingCount(orders.length)).catch(() => setPendingCount(0));
   };
 
+  const formatCurrency = (value: number) =>
+    value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const routineItems = [
+    {
+      id: 'delinquency',
+      title: 'Inadimplência na carteira',
+      description:
+        delinquencyCustomers > 0
+          ? `${delinquencyCustomers} cliente${delinquencyCustomers > 1 ? 's' : ''} em carteira com parcelas vencidas`
+          : 'Nenhum cliente inadimplente na carteira',
+      meta: `R$ ${formatCurrency(delinquencyTotal)}`,
+      tone: 'danger' as const,
+      icon: AlertTriangle,
+      metaClassName: 'text-rose-600 dark:text-rose-400',
+    },
+    {
+      id: 'pending',
+      title: 'Pedidos pendentes de envio',
+      description:
+        pendingCount > 0
+          ? `${pendingCount} pedido${pendingCount > 1 ? 's' : ''} aguardando sincronização`
+          : 'Nenhum pedido aguardando envio',
+      meta: pendingCount > 0 ? `${pendingCount} pendente${pendingCount > 1 ? 's' : ''}` : 'Tudo em dia',
+      tone: pendingCount > 0 ? ('warning' as const) : ('success' as const),
+      icon: UploadCloud,
+      metaClassName: pendingCount > 0 ? 'text-orange-600' : 'text-emerald-600',
+    },
+    {
+      id: 'inactive',
+      title: 'Clientes sem compra há 30 dias',
+      description:
+        inactiveCustomers > 0
+          ? `${inactiveCustomers} cliente${inactiveCustomers > 1 ? 's' : ''} sem compra no mês`
+          : 'Carteira ativa nos últimos 30 dias',
+      meta: inactiveCustomers > 0 ? `${inactiveCustomers} cliente${inactiveCustomers > 1 ? 's' : ''}` : 'Em dia',
+      tone: inactiveCustomers > 0 ? ('neutral' as const) : ('success' as const),
+      icon: User,
+      metaClassName: inactiveCustomers > 0 ? 'text-slate-600 dark:text-slate-300' : 'text-emerald-600',
+    },
+  ];
+
+  const toneStyles: Record<'danger' | 'warning' | 'success' | 'neutral', string> = {
+    danger: 'bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
+    warning: 'bg-orange-100 text-orange-600 dark:bg-orange-500/10 dark:text-orange-300',
+    success: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
+    neutral: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200',
+  };
+
   const menuItems = [
     { id: 'cart', label: 'Novo Pedido', icon: ShoppingCart, color: 'text-blue-700', badge: cartCount },
     { id: 'customers', label: 'Clientes', icon: User, color: 'text-blue-700' },
@@ -90,43 +167,84 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   ];
 
   return (
-    <div className="p-4 pt-8 pb-20">
-      {/* KPIs de Vendas */}
-      <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-500">Vendido Hoje</span>
-                <BarChart2 className="w-4 h-4 text-blue-600" />
+    <div className="p-4 pt-6 pb-20">
+      <div className="max-w-md mx-auto space-y-4">
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300 flex items-center justify-center">
+              <DollarSign className="w-5 h-5" />
             </div>
-            <div className="text-2xl font-bold mt-1 text-blue-900 dark:text-blue-300">R$ {todayTotal.toFixed(2)}</div>
-         </div>
-         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-500">Meta Mensal</span>
-                <Award className="w-4 h-4 text-orange-600" />
+            <div>
+              <p className="text-xs font-semibold text-slate-500">VENDAS HOJE</p>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">R$ {formatCurrency(todayTotal)}</p>
             </div>
-            <div className="mt-2">
-               <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded">
-                  <div className="h-3 bg-orange-500 rounded" style={{width: `${Math.min(100, (todayTotal/ monthGoal)*100).toFixed(0)}%`}} />
-               </div>
-               <div className="flex justify-between text-xs text-slate-500 mt-1">
-                  <span>R$ 0</span>
-                  <span>R$ {monthGoal.toLocaleString('pt-BR')}</span>
-               </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-rose-200 dark:border-rose-900/60">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-rose-100 text-rose-500 dark:bg-rose-500/10 dark:text-rose-300 flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5" />
             </div>
-         </div>
-         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-500">Ticket Médio (Hoje)</span>
-                <Star className="w-4 h-4 text-yellow-500" />
+            <div>
+              <p className="text-xs font-semibold text-rose-500">INADIMPLÊNCIA</p>
+              <p className="text-xl font-bold text-rose-600 dark:text-rose-400">R$ {formatCurrency(delinquencyTotal)}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Total na sua carteira</p>
             </div>
-            <div className="text-2xl font-bold mt-1 text-blue-900 dark:text-blue-300">R$ {ticket.toFixed(2)}</div>
-         </div>
+          </div>
+        </div>
+
+        <div className="bg-blue-900 text-white p-4 rounded-2xl shadow-sm border border-blue-800">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-blue-100 uppercase">Meta Mensal</p>
+            <Award className="w-4 h-4 text-orange-400" />
+          </div>
+          <div className="mt-3">
+            <div className="w-full h-2 bg-blue-800/70 rounded-full">
+              <div
+                className="h-2 bg-orange-500 rounded-full"
+                style={{ width: `${Math.min(100, (todayTotal / monthGoal) * 100).toFixed(0)}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-blue-200 mt-2">
+              <span>R$ 0</span>
+              <span>R$ {monthGoal.toLocaleString('pt-BR')}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-md mx-auto mt-6 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-800 dark:text-white">Rotina de eventos</h3>
+          <span className="text-[10px] font-semibold text-slate-400 uppercase">Hoje</span>
+        </div>
+        <div className="mt-4 space-y-3">
+          {routineItems.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-3"
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${toneStyles[item.tone]}`}>
+                  <item.icon className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{item.title}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{item.description}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className={`text-sm font-bold ${item.metaClassName}`}>{item.meta}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
       
       {/* ALERTA DE BANCO DE DADOS (PERSISTÊNCIA) */}
       {!isStoragePersisted && !permissionRequested && (
-          <div className="max-w-4xl mx-auto mb-6 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4 shadow-sm animate-in slide-in-from-top-2">
+          <div className="max-w-md mx-auto mt-6 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4 shadow-sm animate-in slide-in-from-top-2">
               <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                   <div className="flex gap-3">
                       <div className="p-2 bg-orange-100 dark:bg-orange-800 rounded-full h-fit">
@@ -151,7 +269,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
       )}
 
       {/* Database Status Banner */}
-      <div className="max-w-4xl mx-auto mb-6 bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
+      <div className="max-w-md mx-auto mt-6 bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
              <div className="flex items-center gap-4">
                  <div className="flex items-center gap-2">
@@ -186,7 +304,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
       </div>
 
       {/* Grid de Menu */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-4xl mx-auto">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-4xl mx-auto mt-6">
         {menuItems.map((item) => (
           <button
             key={item.id}
