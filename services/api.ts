@@ -841,7 +841,12 @@ class ApiService {
         
         return { success: false, message: `Erro HTTP ${response.status}` };
       } catch (e: any) {
-        return { success: false, message: 'Sem conexão.' };
+        const rawMessage = typeof e?.message === 'string' && e.message.trim() ? e.message.trim() : 'Erro desconhecido';
+        const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
+          ? 'Falha no fetch (possível CORS ou servidor indisponível).'
+          : rawMessage;
+        this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
+        return { success: false, message: `Sem conexão. ${friendlyDetail}` };
       }
   }
 
