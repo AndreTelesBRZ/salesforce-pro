@@ -32,6 +32,28 @@ const SMTP_PASSWORD = process.env.SMTP_PASSWORD || '';
 const SMTP_TLS      = (process.env.SMTP_ENABLE_STARTTLS_AUTO || 'true') === 'true';
 const MAILER_FROM   = process.env.MAILER_SENDER_EMAIL || 'SalesForce <no-reply@salesforce.pro>';
 
+const DEFAULT_STORE_ID = 1;
+const STORE_HOST_MAP = {
+  'vendas.edsondosparafusos.app.br': 1,
+  'vendas.llfix.app.br': 3
+};
+
+const normalizeHost = (value) => {
+  const raw = String(value || '').split(',')[0].trim().toLowerCase();
+  if (!raw) return '';
+  const noProto = raw.replace(/^https?:\/\//, '');
+  return noProto.replace(/:\d+$/, '');
+};
+
+const getRequestHost = (req) => {
+  const forwarded = req.headers['x-forwarded-host'];
+  const rawHost = Array.isArray(forwarded) ? forwarded[0] : forwarded || req.headers.host || '';
+  return normalizeHost(rawHost);
+};
+
+const resolveStoreIdFromHost = (host) => STORE_HOST_MAP[host] || DEFAULT_STORE_ID;
+const getStoreIdFromRequest = (req) => resolveStoreIdFromHost(getRequestHost(req));
+
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 let genAI = null;
 if (GEMINI_API_KEY) {
@@ -143,6 +165,18 @@ class DatabaseAdapter {
 }
 
 const db = new DatabaseAdapter();
+
+const ensureStoreInfoRow = async (storeId) => {
+    try {
+        const existing = await db.get("SELECT id FROM store_info WHERE id = ?", [storeId]);
+        if (!existing) {
+            await db.run(
+                `INSERT INTO store_info (id, legal_name, trade_name, document, email, phone, street, number, neighborhood, city, state, zip, updated_at) VALUES (?, '', '', '', '', '', '', '', '', '', '', '', ?)`,
+                [storeId, new Date().toISOString()]
+            );
+        }
+    } catch (e) {}
+};
 
 async function initDb() {
     try {
@@ -351,11 +385,10 @@ async function initDb() {
             updated_at TEXT
         )`);
 
-        // Garante um registro único (id=1)
+        // Garante registros por loja (00001 e 00003)
         try {
-            const s = await db.get("SELECT id FROM store_info WHERE id = ?", [1]);
-            if (!s) {
-                await db.run(`INSERT INTO store_info (id, legal_name, trade_name, document, email, phone, street, number, neighborhood, city, state, zip, updated_at) VALUES (1, '', '', '', '', '', '', '', '', '', '', '', ?)`, [new Date().toISOString()]);
+            for (const storeId of [1, 3]) {
+                await ensureStoreInfoRow(storeId);
             }
         } catch (e) {}
 
@@ -1032,7 +1065,9 @@ app.put('/api/pedidos/:id/status', verifyToken, async (req, res) => {
 // Dados da Loja (privado)
 app.get('/api/store', verifyToken, async (req, res) => {
   try {
-    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
     res.json(row || {});
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1048,11 +1083,13 @@ app.put('/api/store', verifyToken, async (req, res) => {
   data.updated_at = new Date().toISOString();
   
   try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
     // Monta SET dinâmico
     const setCols = Object.keys(data).map(k => `${k} = ?`).join(', ');
     const params = Object.values(data);
-    await db.run(`UPDATE store_info SET ${setCols} WHERE id = 1`, params);
-    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    await db.run(`UPDATE store_info SET ${setCols} WHERE id = ?`, [...params, storeId]);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
     res.json(row);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1062,7 +1099,9 @@ app.put('/api/store', verifyToken, async (req, res) => {
 // Dados da Loja (público) — usado pelo PWA em produção
 app.get('/api/store/public', async (req, res) => {
   try {
-    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
     res.json(row || {});
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1078,10 +1117,12 @@ app.put('/api/store/public', async (req, res) => {
   data.updated_at = new Date().toISOString();
 
   try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
     const setCols = Object.keys(data).map(k => `${k} = ?`).join(', ');
     const params = Object.values(data);
-    await db.run(`UPDATE store_info SET ${setCols} WHERE id = 1`, params);
-    const row = await db.get("SELECT * FROM store_info WHERE id = 1", []);
+    await db.run(`UPDATE store_info SET ${setCols} WHERE id = ?`, [...params, storeId]);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
     res.json(row);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1214,11 +1255,15 @@ const renderReceiptPDF = (doc, receipt, store) => {
 app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
   try {
     const receipt = req.body || {};
+    const storeId = getStoreIdFromRequest(req);
 
     // Busca store_info para cabeçalho caso não venha no body
     let store = receipt.store;
     if (!store) {
-      try { store = await db.get("SELECT * FROM store_info WHERE id = 1", []); } catch {}
+      try {
+        await ensureStoreInfoRow(storeId);
+        store = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+      } catch {}
     }
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -1239,9 +1284,13 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
 app.post('/api/recibo/pdf/public', async (req, res) => {
   try {
     const receipt = req.body || {};
+    const storeId = getStoreIdFromRequest(req);
     let store = receipt.store;
     if (!store) {
-      try { store = await db.get("SELECT * FROM store_info WHERE id = 1", []); } catch {}
+      try {
+        await ensureStoreInfoRow(storeId);
+        store = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+      } catch {}
     }
 
     res.setHeader('Content-Type', 'application/pdf');

@@ -1,6 +1,7 @@
 
 import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan } from '../types';
 import { dbService } from './db';
+import { getStoreCodeForCurrentHost, isLlfixHostForCurrent } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -250,7 +251,8 @@ class ApiService {
           const payload = await r.json();
           const data = Array.isArray(payload) ? payload : (payload.data || []);
           if (!data || data.length === 0) return;
-          const loja = data.find((l:any)=> String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0') === '000001') || data[0];
+          const targetStoreCode = getStoreCodeForCurrentHost();
+          const loja = data.find((l:any)=> String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0') === targetStoreCode) || data[0];
           if (!loja) return;
           const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
           const findBy = (obj:any, regex:RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
@@ -373,6 +375,31 @@ class ApiService {
           return this.config.backendUrl.trim().replace(/\/$/, "");
       }
       return ''; 
+  }
+
+  private shouldUseLlfixProductsEndpoint(): boolean {
+      return isLlfixHostForCurrent();
+  }
+
+  private buildProductsEndpoint(params: { page?: number; limit?: number; includeSeller?: boolean } = {}): string {
+      const { page, limit, includeSeller } = params;
+      if (this.shouldUseLlfixProductsEndpoint()) {
+          const query = new URLSearchParams();
+          query.set('loja', getStoreCodeForCurrentHost());
+          if (page !== undefined) query.set('page', String(page));
+          if (limit !== undefined && limit >= 0) query.set('limit', String(limit));
+          return `/api/produtos-sync/?${query.toString()}`;
+      }
+
+      const query = new URLSearchParams();
+      if (page !== undefined) query.set('page', String(page));
+      if (limit !== undefined) query.set('limit', String(limit));
+      if (includeSeller) {
+          const seller = this.getSellerId();
+          if (seller) query.set('vendedor_id', seller);
+      }
+      const queryString = query.toString();
+      return `/api/products${queryString ? `?${queryString}` : ''}`;
   }
 
   private normalizeSellerId(value?: string | number | null): string {
@@ -789,11 +816,8 @@ class ApiService {
       // Preferimos /api/me para validar permissão do token, pois alguns backends
       // exigem vendedor_id nas rotas de produtos e retornam 403.
       const meEndpoint = targetUrl ? `${targetUrl}/api/me` : `/api/me`;
-      const productsBase = targetUrl ? `${targetUrl}/api/products?limit=1` : `/api/products?limit=1`;
-      
-      // Anexa vendedor_id se já estiver salvo (alguns backends exigem)
-      const seller = this.getSellerId();
-      const endpoint = seller ? `${productsBase}&vendedor_id=${encodeURIComponent(seller)}` : productsBase;
+      const productEndpoint = this.buildProductsEndpoint({ limit: 1, includeSeller: true });
+      const endpoint = targetUrl ? `${targetUrl}${productEndpoint}` : productEndpoint;
       
       this.addLog(`Testando: ${meEndpoint} ou ${endpoint}`, 'info');
       
@@ -1012,10 +1036,7 @@ class ApiService {
 
   private async fetchProductsFromNetwork(page: number, limit: number): Promise<Product[]> {
     try {
-      // Alguns backends exigem vendedor_id para listar produtos
-      const seller = this.getSellerId();
-      const extra = seller ? `&vendedor_id=${encodeURIComponent(seller)}` : '';
-      const response = await this.fetchWithAuth(`/api/products?page=${page}&limit=${limit}${extra}`);
+      const response = await this.fetchWithAuth(this.buildProductsEndpoint({ page, limit, includeSeller: true }));
       if (!response.ok) return [];
       
       const data = await response.json();
@@ -1030,9 +1051,7 @@ class ApiService {
   async syncFullCatalog(onProgress: (current: number, total: number | null) => void): Promise<{ success: boolean, count: number, message?: string }> {
     try {
         // CORREÇÃO: limit=-1 garante que o backend envie todos os produtos sem paginação
-        const seller = this.getSellerId();
-        const extra = seller ? `&vendedor_id=${encodeURIComponent(seller)}` : '';
-        const response = await this.fetchWithAuth(`/api/products?limit=-1${extra}`);
+        const response = await this.fetchWithAuth(this.buildProductsEndpoint({ limit: -1, includeSeller: true }));
         
         if (!response.ok) throw new Error(`Erro ${response.status}`);
         

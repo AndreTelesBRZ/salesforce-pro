@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService, LogEntry } from '../services/api';
+import { getStoreCodeForCurrentHost, isLlfixHostForCurrent } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 
@@ -24,6 +25,32 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [erpStores, setErpStores] = useState<any[]>([]);
   const [selectStoreOpen, setSelectStoreOpen] = useState(false);
   const [selectedStoreIndex, setSelectedStoreIndex] = useState<number>(0);
+  const storeSelectionLocked = isLlfixHostForCurrent();
+
+  const applyStoreFromERP = async (loja: any) => {
+    if (!loja) return;
+    const pick = (obj: any, keys: string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
+    const findBy = (obj: any, regex: RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
+    const mapped = {
+      legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA','Razao Social','Razão Social']),
+      trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA','Nome Fantasia']),
+      document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC','CNPJ/CPF']),
+      municipal_registration: pick(loja, ['INSC_MUN','INSC_MUNICIPAL','Insc. Mun.']),
+      email: pick(loja, ['AGEMAIL','EMAIL','E-mail']) || findBy(loja, /email/i),
+      // Ignora AGETEL2 e AGECPL conforme solicitado
+      phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETELF','AGETELEFONE','AGETELE','AGECELP','CELULAR','TELEFONE','Telefone']) || findBy(loja, /(tel|fone|cel)/i),
+      street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA','Endereco','Endereço']),
+      number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM','Numero']),
+      neighborhood: pick(loja, ['AGEBAI','BAIRRO','Bairro']),
+      city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO','Cidade']),
+      state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
+      zip: pick(loja, ['AGECEP','CEP']),
+    };
+    setStoreForm((prev: any) => ({ ...prev, ...mapped }));
+    await (await apiService.fetchWithAuth('/api/store', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(mapped) })).json();
+    alert('Dados da loja importados com sucesso!');
+  };
+
   const importFromERP = async () => {
     try {
       // Busca lista de lojas na API do ERP
@@ -40,8 +67,14 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
       }
 
       setErpStores(data);
-      const idx = data.findIndex((l: any) => String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0') === '000001');
-      setSelectedStoreIndex(idx >= 0 ? idx : 0);
+      const targetStoreCode = getStoreCodeForCurrentHost();
+      const idx = data.findIndex((l: any) => String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0') === targetStoreCode);
+      const resolvedIndex = idx >= 0 ? idx : 0;
+      if (storeSelectionLocked) {
+        await applyStoreFromERP(data[resolvedIndex]);
+        return;
+      }
+      setSelectedStoreIndex(resolvedIndex);
       setSelectStoreOpen(true);
     } catch (e) {
       alert('Falha ao importar dados da API.');
@@ -52,27 +85,8 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     try {
       const loja = erpStores[selectedStoreIndex];
       if (!loja) { setSelectStoreOpen(false); return; }
-      const pick = (obj: any, keys: string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
-      const findBy = (obj: any, regex: RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
-      const mapped = {
-        legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA','Razao Social','Razão Social']),
-        trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA','Nome Fantasia']),
-        document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC','CNPJ/CPF']),
-        municipal_registration: pick(loja, ['INSC_MUN','INSC_MUNICIPAL','Insc. Mun.']),
-        email: pick(loja, ['AGEMAIL','EMAIL','E-mail']) || findBy(loja, /email/i),
-        // Ignora AGETEL2 e AGECPL conforme solicitado
-        phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETELF','AGETELEFONE','AGETELE','AGECELP','CELULAR','TELEFONE','Telefone']) || findBy(loja, /(tel|fone|cel)/i),
-        street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA','Endereco','Endereço']),
-        number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM','Numero']),
-        neighborhood: pick(loja, ['AGEBAI','BAIRRO','Bairro']),
-        city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO','Cidade']),
-        state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
-        zip: pick(loja, ['AGECEP','CEP']),
-      };
-      setStoreForm((prev: any) => ({ ...prev, ...mapped }));
-      await (await apiService.fetchWithAuth('/api/store', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(mapped) })).json();
+      await applyStoreFromERP(loja);
       setSelectStoreOpen(false);
-      alert('Dados da loja importados com sucesso!');
     } catch (e) {
       alert('Falha ao importar dados da API.');
     }
