@@ -252,7 +252,8 @@ class ApiService {
           const data = Array.isArray(payload) ? payload : (payload.data || []);
           if (!data || data.length === 0) return;
           const targetStoreCode = getStoreCodeForCurrentHost();
-          const loja = data.find((l:any)=> String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6,'0') === targetStoreCode) || data[0];
+          const storeCodeLength = targetStoreCode.length;
+          const loja = data.find((l:any)=> String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(storeCodeLength, '0') === targetStoreCode) || data[0];
           if (!loja) return;
           const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
           const findBy = (obj:any, regex:RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
