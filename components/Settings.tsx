@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService, LogEntry } from '../services/api';
-import { getStoreCodeForCurrentHost, isStoreSelectionLockedForCurrent } from '../services/storeHost';
+import { getStoreCodeForCurrentHost, isStoreSelectionLockedForCurrent, normalizeStoreCode } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 
@@ -26,7 +26,6 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [selectStoreOpen, setSelectStoreOpen] = useState(false);
   const [selectedStoreIndex, setSelectedStoreIndex] = useState<number>(0);
   const storeSelectionLocked = isStoreSelectionLockedForCurrent();
-  const storeCodeLength = getStoreCodeForCurrentHost().length;
 
   const applyStoreFromERP = async (loja: any) => {
     if (!loja) return;
@@ -68,8 +67,8 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
       }
 
       setErpStores(data);
-      const targetStoreCode = getStoreCodeForCurrentHost();
-      const idx = data.findIndex((l: any) => String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(storeCodeLength, '0') === targetStoreCode);
+      const targetStoreCode = normalizeStoreCode(getStoreCodeForCurrentHost());
+      const idx = data.findIndex((l: any) => normalizeStoreCode(l.LOJCOD || l.lojcod || l.codigo || '') === targetStoreCode);
       const resolvedIndex = idx >= 0 ? idx : 0;
       if (storeSelectionLocked) {
         await applyStoreFromERP(data[resolvedIndex]);
@@ -239,7 +238,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                 className="w-full p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700"
               >
                 {erpStores.map((l:any, idx:number)=>{
-                  const code = String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(storeCodeLength, '0');
+                  const code = String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6, '0');
                   const name = String(l.AGEFAN || l.FANTASIA || l.NOME_FANTASIA || l.AGEEMP || l.RAZAO || 'Loja');
                   return <option key={idx} value={idx}>{code} - {name}</option>;
                 })}

@@ -37,7 +37,17 @@ export const isStoreSelectionLockedForCurrent = (): boolean => {
   return isLlfixHost(host) || isEdsonHost(host);
 };
 
+export const normalizeStoreCode = (value?: string | number | null): string => {
+  const raw = String(value ?? '').replace(/\D/g, '');
+  const trimmed = raw.replace(/^0+/, '');
+  return trimmed === '' ? '0' : trimmed;
+};
+
 export const getStoreCodeForCurrentHost = (): string => {
   if (typeof window === 'undefined') return DEFAULT_STORE_CODE;
   return resolveStoreCodeFromHost(window.location.hostname);
+};
+
+export const getStoreCodeForApi = (): string => {
+  return getStoreCodeForCurrentHost().padStart(6, '0');
 };

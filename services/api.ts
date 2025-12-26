@@ -1,7 +1,7 @@
 
 import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan } from '../types';
 import { dbService } from './db';
-import { getStoreCodeForCurrentHost, isLlfixHostForCurrent } from './storeHost';
+import { getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -251,9 +251,8 @@ class ApiService {
           const payload = await r.json();
           const data = Array.isArray(payload) ? payload : (payload.data || []);
           if (!data || data.length === 0) return;
-          const targetStoreCode = getStoreCodeForCurrentHost();
-          const storeCodeLength = targetStoreCode.length;
-          const loja = data.find((l:any)=> String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(storeCodeLength, '0') === targetStoreCode) || data[0];
+          const targetStoreCode = normalizeStoreCode(getStoreCodeForCurrentHost());
+          const loja = data.find((l:any)=> normalizeStoreCode(l.LOJCOD || l.lojcod || l.codigo || '') === targetStoreCode) || data[0];
           if (!loja) return;
           const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
           const findBy = (obj:any, regex:RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
@@ -373,9 +372,31 @@ class ApiService {
 
   private getBaseUrl(): string {
       if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
-          return this.config.backendUrl.trim().replace(/\/$/, "");
+          const trimmed = this.config.backendUrl.trim().replace(/\/$/, "");
+          // Evita duplicar "/api" quando o usuário salva a URL completa do endpoint.
+          return trimmed.replace(/\/api$/i, "");
       }
       return ''; 
+  }
+
+  private getTenantHeaders(): Record<string, string> {
+      if (typeof window === 'undefined') return {};
+      const baseUrl = this.getBaseUrl();
+      if (!baseUrl) return {};
+      const appHost = window.location.hostname;
+      if (!appHost) return {};
+      let backendHost = '';
+      try {
+          backendHost = new URL(baseUrl).hostname;
+      } catch {
+          backendHost = '';
+      }
+      if (backendHost && backendHost === appHost) return {};
+      const proto = window.location.protocol.replace(':', '');
+      return {
+          'X-Forwarded-Host': appHost,
+          'X-Forwarded-Proto': proto
+      };
   }
 
   private shouldUseLlfixProductsEndpoint(): boolean {
@@ -386,7 +407,7 @@ class ApiService {
       const { page, limit, includeSeller } = params;
       if (this.shouldUseLlfixProductsEndpoint()) {
           const query = new URLSearchParams();
-          query.set('loja', getStoreCodeForCurrentHost());
+          query.set('loja', getStoreCodeForApi());
           if (page !== undefined) query.set('page', String(page));
           if (limit !== undefined && limit >= 0) query.set('limit', String(limit));
           return `/api/produtos-sync/?${query.toString()}`;
@@ -437,7 +458,8 @@ class ApiService {
 
   private getAuthHeaders() {
     const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...this.getTenantHeaders()
     };
     const tokenToUse = this.token || this.config.apiToken;
     
@@ -530,6 +552,41 @@ class ApiService {
       return 'Erro de conexão.';
   }
 
+  private async ensureJsonResponse(res: Response, context: string): Promise<{ ok: boolean; message?: string }> {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) return { ok: true };
+      const text = await res.text();
+      const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 120);
+      const detail = snippet ? `Resposta: ${snippet}` : 'Resposta vazia.';
+      const message = `Resposta não-JSON em ${context}. ${detail}`;
+      this.addLog(message, 'error');
+      return { ok: false, message };
+  }
+
+  private async validateStoreForCurrentHost(): Promise<{ success: boolean; message?: string }> {
+      if (!isStoreSelectionLockedForCurrent()) return { success: true };
+      const targetStoreCode = normalizeStoreCode(getStoreCodeForCurrentHost());
+      try {
+          const res = await this.fetchWithAuth('/api/lojas');
+          if (!res.ok) {
+              return { success: false, message: `Falha ao validar loja (HTTP ${res.status}).` };
+          }
+          const jsonCheck = await this.ensureJsonResponse(res, '/api/lojas');
+          if (!jsonCheck.ok) return { success: false, message: jsonCheck.message };
+
+          const payload = await res.json();
+          const data = Array.isArray(payload) ? payload : (payload.data || []);
+          const found = data.some((l: any) => normalizeStoreCode(l.LOJCOD || l.lojcod || l.codigo || '') === targetStoreCode);
+          if (!found) {
+              return { success: false, message: `Loja ${getStoreCodeForCurrentHost()} não encontrada no ERP.` };
+          }
+          return { success: true };
+      } catch (e: any) {
+          const msg = typeof e?.message === 'string' && e.message.trim() ? e.message.trim() : 'Erro de rede';
+          return { success: false, message: `Falha ao validar loja. ${msg}` };
+      }
+  }
+
   // --- AUTENTICAÇÃO ---
 
   async login(username: string, password: string): Promise<{ success: boolean; message?: string }> {
@@ -537,26 +594,38 @@ class ApiService {
     
     try {
       const baseUrl = this.getBaseUrl();
-      const endpoint = '/api/login';
+      const endpoints = ['/api/login', '/auth/login'];
       
-      let response: Response;
+      let response: Response | null = null;
+      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
 
-      try {
-          if (baseUrl) {
-               response = await fetch(`${baseUrl}${endpoint}`, {
-                   method: 'POST',
-                   headers: { 'Content-Type': 'application/json' },
-                   body: JSON.stringify(payload)
-               });
-               if (!response.ok) throw new Error('Remote failed');
-          } else {
-               throw new Error('No remote');
+      if (baseUrl) {
+          for (const endpoint of endpoints) {
+              try {
+                  const res = await fetch(`${baseUrl}${endpoint}`, {
+                      method: 'POST',
+                      headers,
+                      body: JSON.stringify(payload)
+                  });
+                  if (res.ok) {
+                      response = res;
+                      break;
+                  }
+                  if (res.status === 404 || res.status === 405) {
+                      continue;
+                  }
+                  response = res;
+                  break;
+              } catch {
+                  // Tenta próximo endpoint ou fallback local
+              }
           }
-      } catch (e) {
-          response = await fetch(endpoint, {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify(payload)
+      }
+      if (!response) {
+          response = await fetch('/api/login', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payload)
           });
       }
 
@@ -614,6 +683,7 @@ class ApiService {
   async sendAccessCode(email: string): Promise<{ success: boolean; message?: string }> {
       const baseUrl = this.getBaseUrl();
       const endpoint = '/api/auth/send-code';
+      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
       
       try {
           let response: Response;
@@ -621,7 +691,7 @@ class ApiService {
               if (baseUrl) {
                   response = await fetch(`${baseUrl}${endpoint}`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers,
                       body: JSON.stringify({ email })
                   });
                   if (!response.ok && response.status !== 404) throw new Error('Remote failed');
@@ -631,7 +701,7 @@ class ApiService {
           } catch {
               response = await fetch(endpoint, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers,
                   body: JSON.stringify({ email })
               });
           }
@@ -646,6 +716,7 @@ class ApiService {
   async loginWithAccessCode(email: string, code: string): Promise<{ success: boolean; message?: string }> {
       const baseUrl = this.getBaseUrl();
       const endpoint = '/api/auth/verify-code';
+      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
       
       try {
           let response: Response;
@@ -653,7 +724,7 @@ class ApiService {
               if (baseUrl) {
                   response = await fetch(`${baseUrl}${endpoint}`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers,
                       body: JSON.stringify({ email, code })
                   });
                   if (!response.ok) throw new Error('Remote failed');
@@ -663,7 +734,7 @@ class ApiService {
           } catch {
               response = await fetch(endpoint, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers,
                   body: JSON.stringify({ email, code })
               });
           }
@@ -710,6 +781,7 @@ class ApiService {
     const payload = { credential };
     const baseUrl = this.getBaseUrl();
     const endpoint = '/api/auth/google';
+    const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
 
     try {
         let response: Response;
@@ -717,7 +789,7 @@ class ApiService {
             if (baseUrl) {
                  response = await fetch(`${baseUrl}${endpoint}`, {
                      method: 'POST',
-                     headers: { 'Content-Type': 'application/json' },
+                     headers,
                      body: JSON.stringify(payload)
                  });
                  if (!response.ok) throw new Error('Remote failed');
@@ -728,7 +800,7 @@ class ApiService {
             // Fallback para local
             response = await fetch(endpoint, {
                  method: 'POST',
-                 headers: { 'Content-Type': 'application/json' },
+                 headers,
                  body: JSON.stringify(payload)
             });
         }
@@ -764,6 +836,7 @@ class ApiService {
       const payload = { name, email, password };
       const endpoint = '/api/register';
       const baseUrl = this.getBaseUrl();
+      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
 
       try {
           let response: Response;
@@ -771,7 +844,7 @@ class ApiService {
               if (baseUrl) {
                   response = await fetch(`${baseUrl}${endpoint}`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers,
                       body: JSON.stringify(payload)
                   });
                   if (!response.ok) throw new Error('Remote failed');
@@ -781,7 +854,7 @@ class ApiService {
           } catch {
               response = await fetch(endpoint, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers,
                   body: JSON.stringify(payload)
               });
           }
@@ -829,7 +902,13 @@ class ApiService {
           headers: { ...this.getAuthHeaders() }
         });
 
-        if (response.ok) return { success: true, message: 'Conectado!' };
+        if (response.ok) {
+            const jsonCheck = await this.ensureJsonResponse(response, '/api/me');
+            if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
+            const storeCheck = await this.validateStoreForCurrentHost();
+            if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
+            return { success: true, message: 'Conectado!' };
+        }
         
         // 2) Fallback para produtos (com vendedor_id se houver)
         response = await fetch(endpoint, {
@@ -837,7 +916,13 @@ class ApiService {
           headers: { ...this.getAuthHeaders() }
         });
         
-        if (response.ok) return { success: true, message: 'Conectado!' };
+        if (response.ok) {
+            const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
+            if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
+            const storeCheck = await this.validateStoreForCurrentHost();
+            if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
+            return { success: true, message: 'Conectado!' };
+        }
         if (response.status === 401) return { success: false, message: 'Token Inválido' };
         
         return { success: false, message: `Erro HTTP ${response.status}` };
@@ -1060,7 +1145,8 @@ class ApiService {
         const response = await this.fetchWithAuth(this.buildProductsEndpoint({ limit: -1, includeSeller: true }));
         
         if (!response.ok) throw new Error(`Erro ${response.status}`);
-        
+        const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
+        if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
         const data = await response.json();
         const list = Array.isArray(data) ? data : (data.data || []);
         
@@ -1251,7 +1337,8 @@ class ApiService {
         
         const response = await this.fetchWithAuth(`/api/clientes?${queryParams}`);
         if (!response.ok) throw new Error(`Erro ${response.status}`);
-        
+        const jsonCheck = await this.ensureJsonResponse(response, 'Clientes');
+        if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
         const data = await response.json();
         const list = Array.isArray(data) ? data : (data.data || []);
         
