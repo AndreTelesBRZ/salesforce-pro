@@ -18,7 +18,7 @@ Aplicativo de força de vendas híbrido (Web/Mobile) com backend Node/Express e 
 
    `cp .env.example .env`
 
-   - Backend: `SECRET_KEY`, `MASTER_KEY`, `GOOGLE_CLIENT_ID`, `DATABASE_URL` (opcional), `GEMINI_API_KEY` (para IA)
+   - Backend: `SECRET_KEY`, `MASTER_KEY`, `APP_INTEGRATION_TOKEN`, `GOOGLE_CLIENT_ID`, `DATABASE_URL` (opcional), `GEMINI_API_KEY` (para IA)
 
 2) Instale dependências:
 

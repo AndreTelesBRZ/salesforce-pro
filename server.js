@@ -20,6 +20,7 @@ const PORT = process.env.PORT || 8080;
 const SECRET_KEY = process.env.SECRET_KEY || 'super-secret-key-change-this-in-production';
 // Master Key para acesso facilitado (Bypass de JWT)
 const MASTER_KEY = process.env.MASTER_KEY || 'salesforce-pro-token';
+const APP_INTEGRATION_TOKEN = process.env.APP_INTEGRATION_TOKEN || '';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 const DB_PATH = process.env.DB_PATH || './database.sqlite';
@@ -670,28 +671,64 @@ app.post('/api/auth/google', async (req, res) => {
     }
 });
 
+const getHeaderValue = (value) => {
+  if (!value) return '';
+  return Array.isArray(value) ? String(value[0] || '').trim() : String(value).trim();
+};
+
+const parseAuthHeader = (value) => {
+  const raw = getHeaderValue(value);
+  if (!raw) return { token: '', invalid: false };
+  const parts = raw.split(/\s+/);
+  if (parts.length === 1) return { token: parts[0], invalid: false };
+  if (parts.length === 2 && /^Bearer$/i.test(parts[0])) return { token: parts[1], invalid: false };
+  return { token: '', invalid: true };
+};
+
+const isIntegrationToken = (token) => {
+  if (!token) return false;
+  if (token === MASTER_KEY) return true;
+  return APP_INTEGRATION_TOKEN ? token === APP_INTEGRATION_TOKEN : false;
+};
+
 // Middleware de Verificação de Token
 const verifyToken = (req, res, next) => {
-  const tokenHeader = req.headers['authorization'];
-  if (!tokenHeader) {
-      console.log('[AUTH_FAIL] Token não fornecido no header Authorization');
+  const authInfo = parseAuthHeader(req.headers['authorization']);
+  const appToken = getHeaderValue(req.headers['x-app-token']);
+
+  if (!authInfo.token && !appToken) {
+      console.log('[AUTH_FAIL] Token não fornecido nos headers Authorization/X-App-Token');
       return res.status(403).json({ message: 'Token não fornecido.' });
   }
-  
-  const token = tokenHeader.split(' ')[1];
-  if (!token) {
+
+  // BYPASS: Token de integração (Master Key ou APP_INTEGRATION_TOKEN)
+  if (isIntegrationToken(authInfo.token) || isIntegrationToken(appToken)) {
+      if (authInfo.token === MASTER_KEY || appToken === MASTER_KEY) {
+          console.log('[AUTH_SUCCESS] Acesso via Master Key');
+          req.userId = 'master-admin';
+      } else {
+          console.log('[AUTH_SUCCESS] Acesso via App Integration Token');
+          req.userId = 'integration-token';
+      }
+      return next();
+  }
+
+  if (authInfo.invalid) {
       console.log('[AUTH_FAIL] Formato inválido de token');
       return res.status(403).json({ message: 'Formato inválido.' });
   }
 
-  // BYPASS: Se o token for a chave mestra, permite acesso como Admin
-  if (token === MASTER_KEY) {
-      console.log('[AUTH_SUCCESS] Acesso via Master Key');
-      req.userId = 'master-admin';
-      return next();
+  if (!authInfo.token && appToken) {
+      console.log('[AUTH_FAIL] X-App-Token inválido');
+      return res.status(401).json({ message: 'Token inválido.' });
   }
 
-  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+  if (!authInfo.token) {
+      console.log('[AUTH_FAIL] Token não fornecido no header Authorization');
+      return res.status(403).json({ message: 'Token não fornecido.' });
+  }
+
+  jwt.verify(authInfo.token, SECRET_KEY, (err, decoded) => {
     if (err) {
         console.log('[AUTH_FAIL] Token JWT inválido ou expirado:', err.message);
         return res.status(401).json({ message: 'Token inválido.' });
@@ -1381,5 +1418,8 @@ app.listen(PORT, '0.0.0.0', () => {
   if (process.env.NODE_ENV !== 'production') {
     const mask = (v) => (v && v.length > 8 ? `${v.slice(0,4)}…${v.slice(-4)}` : '(defina via env)');
     console.log(`🔑 Master Key (mascarada): ${mask(MASTER_KEY)}\n`);
+    if (APP_INTEGRATION_TOKEN) {
+      console.log(`🔐 App Integration Token (mascarado): ${mask(APP_INTEGRATION_TOKEN)}\n`);
+    }
   }
 });

@@ -487,6 +487,9 @@ class ApiService {
     if (tokenToUse) {
         headers['Authorization'] = `Bearer ${tokenToUse}`;
     }
+    if (this.config.apiToken) {
+        headers['X-App-Token'] = this.config.apiToken;
+    }
     return headers;
   }
 
