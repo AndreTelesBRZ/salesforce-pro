@@ -91,3 +91,20 @@ export interface PaymentPlan {
   daysBetweenInstallments: number;
   minValue: number;
 }
+
+export interface DelinquencyItem {
+  id: string;
+  storeCode?: string;
+  sellerId?: string;
+  titleNumber?: string;
+  customerCode?: string;
+  customerName?: string;
+  fantasyName?: string;
+  document?: string;
+  documentType?: string;
+  city?: string;
+  dueDate?: string;
+  dueDateReal?: string;
+  amount: number;
+  lastSync?: string;
+}

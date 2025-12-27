@@ -466,7 +466,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
     const isTemporary = selectedCustomer.type === 'TEMPORARIO';
     const sellerId = isTemporary ? (apiService.getSellerId() || undefined) : (selectedCustomer.sellerId || apiService.getSellerId() || undefined);
-    const sellerName = isTemporary ? (apiService.getUsername() || undefined) : (selectedCustomer.sellerName || apiService.getUsername() || undefined);
+    const loggedName = apiService.getUsername();
+    const hasLoggedName = loggedName && loggedName !== 'Vendedor' && loggedName !== 'Terminal Vinculado';
+    const fallbackName = selectedCustomer.sellerName && selectedCustomer.sellerName !== 'Loja' ? selectedCustomer.sellerName : undefined;
+    const sellerName = hasLoggedName ? loggedName : (fallbackName || loggedName || undefined);
 
     const order: Order = {
       id: crypto.randomUUID(),

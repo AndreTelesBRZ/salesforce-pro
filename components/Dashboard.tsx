@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle } from 'lucide-react';
+import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle, ChevronRight, X } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
+import { DelinquencyItem } from '../types';
 
 interface DashboardProps {
   onNavigate: (view: string) => void;
@@ -31,6 +32,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   const [topCustomers, setTopCustomers] = useState<{name:string,total:number}[]>([]);
   const [delinquencyTotal, setDelinquencyTotal] = useState<number>(0);
   const [delinquencyCustomers, setDelinquencyCustomers] = useState<number>(0);
+  const [delinquencyItems, setDelinquencyItems] = useState<DelinquencyItem[]>([]);
+  const [delinquencyLoading, setDelinquencyLoading] = useState<boolean>(false);
+  const [showDelinquencyModal, setShowDelinquencyModal] = useState<boolean>(false);
   const [inactiveCustomers, setInactiveCustomers] = useState<number>(0);
 
   useEffect(() => {
@@ -40,19 +44,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         const todayOrders = all.filter(o => new Date(o.createdAt).toDateString() === today);
         const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
         setTodayTotal(todaySum);
-
-        const delinquencyCutoff = new Date();
-        delinquencyCutoff.setDate(delinquencyCutoff.getDate() - 15);
-        const overdueOrders = all.filter((o) => {
-          const orderDate = new Date(o.createdAt);
-          return o.status === 'pending' && orderDate < delinquencyCutoff;
-        });
-        const overdueTotal = overdueOrders.reduce((s, o) => s + o.total, 0);
-        const overdueCustomers = new Set(
-          overdueOrders.map((o) => o.customerId || o.customerDoc || o.customerName || o.id)
-        );
-        setDelinquencyTotal(overdueTotal);
-        setDelinquencyCustomers(overdueCustomers.size);
 
         const lastSaleByCustomer: Record<string, Date> = {};
         all.forEach((o) => {
@@ -77,6 +68,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         const tops = Object.entries(map).map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total).slice(0,5);
         setTopCustomers(tops);
      })();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadDelinquency = async () => {
+      setDelinquencyLoading(true);
+      const items = await apiService.getDelinquency();
+      if (!isMounted) return;
+      setDelinquencyItems(items);
+      const total = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+      const customers = new Set(
+        items.map((item) => item.customerCode || item.document || item.customerName || item.id)
+      );
+      setDelinquencyTotal(total);
+      setDelinquencyCustomers(customers.size);
+      setDelinquencyLoading(false);
+    };
+    loadDelinquency();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const checkDeviceLink = () => {
@@ -110,15 +122,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   const formatCurrency = (value: number) =>
     value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  const formatDate = (value?: string) => {
+    if (!value) return '';
+    const raw = value.split('T')[0];
+    const parts = raw.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    return value;
+  };
+
+  const delinquencyDescription = delinquencyLoading
+    ? 'Atualizando inadimplência...'
+    : delinquencyCustomers > 0
+      ? `${delinquencyCustomers} cliente${delinquencyCustomers > 1 ? 's' : ''} em carteira com parcelas vencidas`
+      : 'Nenhum cliente inadimplente na carteira';
+  const delinquencyMeta = delinquencyLoading ? 'Atualizando' : `R$ ${formatCurrency(delinquencyTotal)}`;
+
   const routineItems = [
     {
       id: 'delinquency',
       title: 'Inadimplência na carteira',
-      description:
-        delinquencyCustomers > 0
-          ? `${delinquencyCustomers} cliente${delinquencyCustomers > 1 ? 's' : ''} em carteira com parcelas vencidas`
-          : 'Nenhum cliente inadimplente na carteira',
-      meta: `R$ ${formatCurrency(delinquencyTotal)}`,
+      description: delinquencyDescription,
+      meta: delinquencyMeta,
       tone: 'danger' as const,
       icon: AlertTriangle,
       metaClassName: 'text-rose-600 dark:text-rose-400',
@@ -166,6 +190,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     { id: 'settings', label: 'Configurações', icon: Settings, color: 'text-slate-600' },
   ];
 
+  const sortedDelinquency = [...delinquencyItems].sort((a, b) => {
+    const aDate = a.dueDate || a.dueDateReal || '';
+    const bDate = b.dueDate || b.dueDateReal || '';
+    return aDate.localeCompare(bDate);
+  });
+
   return (
     <div className="p-4 pt-6 pb-20">
       <div className="max-w-md mx-auto space-y-4">
@@ -188,7 +218,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
             </div>
             <div>
               <p className="text-xs font-semibold text-rose-500">INADIMPLÊNCIA</p>
-              <p className="text-xl font-bold text-rose-600 dark:text-rose-400">R$ {formatCurrency(delinquencyTotal)}</p>
+              <p className="text-xl font-bold text-rose-600 dark:text-rose-400">R$ {delinquencyLoading ? '...' : formatCurrency(delinquencyTotal)}</p>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Total na sua carteira</p>
             </div>
           </div>
@@ -220,25 +250,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           <span className="text-[10px] font-semibold text-slate-400 uppercase">Hoje</span>
         </div>
         <div className="mt-4 space-y-3">
-          {routineItems.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-3"
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${toneStyles[item.tone]}`}>
-                  <item.icon className="w-5 h-5" />
+          {routineItems.map((item) => {
+            const isDelinquency = item.id === 'delinquency';
+            const isClickable = isDelinquency && delinquencyItems.length > 0 && !delinquencyLoading;
+            const handleClick = () => {
+              if (isClickable) setShowDelinquencyModal(true);
+            };
+            const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+              if (!isClickable) return;
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setShowDelinquencyModal(true);
+              }
+            };
+            return (
+              <div
+                key={item.id}
+                onClick={handleClick}
+                onKeyDown={handleKeyDown}
+                role={isClickable ? 'button' : undefined}
+                tabIndex={isClickable ? 0 : undefined}
+                className={`flex items-center justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-3 py-3 ${isClickable ? 'cursor-pointer hover:bg-white dark:hover:bg-slate-900' : ''}`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${toneStyles[item.tone]}`}>
+                    <item.icon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{item.title}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{item.description}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{item.title}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{item.description}</p>
+                <div className="flex items-center gap-2 text-right">
+                  <p className={`text-sm font-bold ${item.metaClassName}`}>{item.meta}</p>
+                  {isClickable && <ChevronRight className="w-4 h-4 text-slate-400" />}
                 </div>
               </div>
-              <div className="text-right">
-                <p className={`text-sm font-bold ${item.metaClassName}`}>{item.meta}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       
@@ -342,6 +391,66 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
                   </li>
                ))}
             </ul>
+        </div>
+      )}
+
+      {showDelinquencyModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white">Inadimplencia na carteira</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {delinquencyItems.length} titulo{delinquencyItems.length !== 1 ? 's' : ''} • R$ {formatCurrency(delinquencyTotal)}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowDelinquencyModal(false)}
+                className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"
+                aria-label="Fechar"
+              >
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-4 overflow-auto space-y-3">
+              {delinquencyLoading ? (
+                <p className="text-sm text-slate-500">Carregando inadimplencia...</p>
+              ) : sortedDelinquency.length > 0 ? (
+                sortedDelinquency.map((item) => {
+                  const dueDate = formatDate(item.dueDate || item.dueDateReal);
+                  return (
+                    <div key={item.id} className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/40">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                            {item.customerName || item.fantasyName || 'Cliente'}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {item.document || item.customerCode || 'Documento nao informado'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-rose-600 dark:text-rose-400">
+                            R$ {formatCurrency(item.amount)}
+                          </p>
+                          {dueDate && (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Venc.: {dueDate}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                        {item.titleNumber && <span>Titulo: {item.titleNumber}</span>}
+                        {item.city && <span>{item.city}</span>}
+                        {item.documentType && <span>{item.documentType}</span>}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-slate-500">Nenhum titulo encontrado.</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

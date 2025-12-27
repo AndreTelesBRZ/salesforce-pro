@@ -1,5 +1,5 @@
 
-import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan } from '../types';
+import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem } from '../types';
 import { dbService } from './db';
 import { getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
@@ -20,7 +20,7 @@ const WALK_IN_CUSTOMER: Customer = {
   email: '',
   origin: '',
   sellerId: '',
-  sellerName: 'Loja',
+  sellerName: '',
   lastSaleDate: '',
   lastSaleValue: 0
 };
@@ -56,6 +56,8 @@ class ApiService {
             user.login;
           const sellerId =
             user.vendor_code ||
+            user.cod_vendedor ||
+            user.cod_vend ||
             user.seller_id ||
             user.sellerId ||
             user.vendedor_codigo ||
@@ -204,6 +206,8 @@ class ApiService {
                 profile.email;
               const sellerId =
                 profile.vendor_code ||
+                profile.cod_vendedor ||
+                profile.cod_vend ||
                 profile.seller_id ||
                 profile.sellerId ||
                 profile.codigo_vendedor ||
@@ -257,15 +261,16 @@ class ApiService {
           const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
           const findBy = (obj:any, regex:RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
           const mapped = {
-              legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','NOME_RAZAO','EMPRESA','Razao Social','Razão Social']),
+              legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','RAZAO SOCIAL','RAZÃO SOCIAL','NOME_RAZAO','EMPRESA','Razao Social','Razão Social']),
               trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA','Nome Fantasia']),
-              document: pick(loja, ['AGECGC','CNPJ','CPF_CNPJ','CGC','CNPJ/CPF']),
+              document: pick(loja, ['AGECGC','AGECGCPF','CNPJ','CPF_CNPJ','CGC','CNPJ/CPF']),
+              state_registration: pick(loja, ['AGECGF','CGF','INSCR_ESTADUAL','INSCRICAO_ESTADUAL','IE']),
               municipal_registration: pick(loja, ['INSC_MUN','INSC_MUNICIPAL','Insc. Mun.']),
-              email: pick(loja, ['AGEMAIL','EMAIL','E-mail']) || findBy(loja, /email/i),
-              // Ignora AGETEL2 e AGECPL conforme solicitado
-              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETELF','AGETELEFONE','AGECELP','CELULAR','TELEFONE','Telefone']) || findBy(loja, /(tel|fone|cel)/i),
-              street: pick(loja, ['AGEEND','ENDERECO','LOGRADOURO','RUA','Endereco','Endereço']),
-              number: pick(loja, ['AGEBNU','NUMERO','NRO','NUM','Numero']),
+              email: pick(loja, ['AGEMAIL','AGECORELE','EMAIL','E-mail']) || findBy(loja, /email/i),
+              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETEL2','AGETELF','AGETELEFONE','AGECELP','TEL 1','TEL 2','TEL1','TEL2','CELULAR','TELEFONE','Telefone']) || findBy(loja, /(tel|fone|cel)/i),
+              street: pick(loja, ['AGEEND','ENDERECO','ENDEREÇO','LOGRADOURO','RUA','Endereco','Endereço']),
+              number: pick(loja, ['AGEBNU','AGENUM','NUMERO','NRO','NUM','Numero']),
+              complement: pick(loja, ['AGECPL','COMPLEMENTO','Complemento']),
               neighborhood: pick(loja, ['AGEBAI','BAIRRO','Bairro']),
               city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO','Cidade']),
               state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
@@ -367,7 +372,16 @@ class ApiService {
   
   // Recupera o ID do vendedor salvo no login
   getSellerId(): string | null {
-      return localStorage.getItem('sellerId');
+      const stored = localStorage.getItem('sellerId');
+      if (stored) return stored;
+      const tokenToDecode = this.token || this.config.apiToken;
+      if (!tokenToDecode) return null;
+      const decoded = this.decodeToken(tokenToDecode);
+      if (decoded.sellerId) {
+          localStorage.setItem('sellerId', String(decoded.sellerId));
+          return String(decoded.sellerId);
+      }
+      return null;
   }
 
   private getBaseUrl(): string {
@@ -647,14 +661,14 @@ class ApiService {
              // Extrair Vendor Name e Vendor Code
              if (data.user) {
                  displayName = data.user.vendor_name || data.user.username || username;
-                 sellerId = data.user.vendor_code || '';
+                 sellerId = data.user.vendor_code || data.user.cod_vendedor || data.user.cod_vend || data.user.vendedor_codigo || '';
              }
           } 
           // Caso 2: Estrutura Plana (API Legada / Local antiga)
           else if (data.token) {
              accessToken = data.token;
              displayName = data.name || username;
-             sellerId = data.sellerId || '';
+             sellerId = data.sellerId || data.seller_id || data.cod_vendedor || '';
           }
 
           if (accessToken) {
@@ -751,12 +765,12 @@ class ApiService {
                  accessToken = data.token.access_token;
                  if (data.user) {
                      displayName = data.user.vendor_name || data.user.username || email;
-                     sellerId = data.user.vendor_code || '';
+                     sellerId = data.user.vendor_code || data.user.cod_vendedor || data.user.cod_vend || data.user.vendedor_codigo || '';
                  }
               } else if (data.token) {
                  accessToken = data.token;
                  displayName = data.name || email;
-                 sellerId = data.sellerId || '';
+                 sellerId = data.sellerId || data.seller_id || data.cod_vendedor || '';
               }
 
               if (accessToken) {
@@ -1216,7 +1230,8 @@ class ApiService {
          let queryParams = `limit=-1`; 
          
          if (currentSellerId) {
-            queryParams += `&vendedor_id=${encodeURIComponent(currentSellerId)}`;
+            const encoded = encodeURIComponent(currentSellerId);
+            queryParams += `&vendedor_id=${encoded}&cod_vendedor=${encoded}`;
          }
 
          const res = await this.fetchWithAuth(`/api/clientes?${queryParams}`);
@@ -1324,6 +1339,30 @@ class ApiService {
       }));
   }
 
+  async getDelinquency(): Promise<DelinquencyItem[]> {
+      try {
+          const sellerId = this.getSellerId();
+          const query = new URLSearchParams();
+          if (sellerId) {
+              query.set('vendedor_id', sellerId);
+              query.set('cod_vendedor', sellerId);
+          }
+          const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
+          const res = await this.fetchWithAuth(endpoint);
+          if (!res.ok) return [];
+          const jsonCheck = await this.ensureJsonResponse(res, 'Inadimplência');
+          if (!jsonCheck.ok) return [];
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : (data.data || []);
+          const mapped: DelinquencyItem[] = list.map((item: any) => this.mapDelinquencyItem(item));
+          return sellerId
+              ? mapped.filter((item) => this.isSameSeller(item.sellerId, sellerId))
+              : mapped;
+      } catch {
+          return [];
+      }
+  }
+
   async syncCustomers(onProgress: (c: number) => void): Promise<{ success: boolean, count: number, message?: string }> {
      try {
         // CORREÇÃO: limit=-1 indica para o backend mandar tudo (sem paginação).
@@ -1332,7 +1371,8 @@ class ApiService {
         // RECUPERA SELLER ID DO LOGIN
         const savedSellerId = this.getSellerId();
         if (savedSellerId) {
-            queryParams += `&vendedor_id=${encodeURIComponent(savedSellerId)}`;
+            const encoded = encodeURIComponent(savedSellerId);
+            queryParams += `&vendedor_id=${encoded}&cod_vendedor=${encoded}`;
         }
         
         const response = await this.fetchWithAuth(`/api/clientes?${queryParams}`);
@@ -1378,9 +1418,46 @@ class ApiService {
 
           // Novos Campos de Vendas
           sellerName: c.vendedor_nome || c.seller_name || '',
-          sellerId: c.vendor_code || c.vendedor_codigo || c.seller_id || c.vendedor_id || c.vendedorId || c.sellerId || '',
+          sellerId: c.vendor_code || c.cod_vendedor || c.cod_vend || c.codigo_vendedor || c.vendedor_codigo || c.seller_id || c.vendedor_id || c.vendedorId || c.sellerId || '',
           lastSaleDate: c.ultima_venda_data || '',
           lastSaleValue: Number(c.ultima_venda_valor) || 0
+      };
+  }
+
+  private parseAmount(value: any): number {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'number') return value;
+      const raw = String(value).trim();
+      if (!raw) return 0;
+      const hasComma = raw.includes(',');
+      const hasDot = raw.includes('.');
+      let normalized = raw;
+      if (hasComma && hasDot) {
+          normalized = raw.replace(/\./g, '').replace(',', '.');
+      } else if (hasComma) {
+          normalized = raw.replace(',', '.');
+      }
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private mapDelinquencyItem(item: any): DelinquencyItem {
+      const fallbackId = `${item.cod_cliente || item.customer_code || item.cliente_codigo || '0'}-${item.num_titulo || item.titulo || item.numero_titulo || item.id || '0'}`;
+      return {
+          id: String(item.id || item.hash_registro || fallbackId),
+          storeCode: item.cod_loja || item.loja || item.store_code || item.storeCode,
+          sellerId: item.cod_vendedor || item.vendedor_id || item.vendedor_codigo || item.seller_id || item.sellerId,
+          titleNumber: String(item.num_titulo || item.numero_titulo || item.titulo || item.title_number || ''),
+          customerCode: String(item.cod_cliente || item.cliente_codigo || item.customer_code || ''),
+          customerName: item.razao_social || item.cliente_razao_social || item.cliente_nome || item.customer_name || '',
+          fantasyName: item.nome_fantasia || item.cliente_nome_fantasia || item.fantasy_name || '',
+          document: item.cpf_cnpj || item.documento || item.document || '',
+          documentType: item.documento_tipo || item.tipo_doc || item.document_type || '',
+          city: item.cidade || item.city || '',
+          dueDate: item.vencimento || item.due_date || '',
+          dueDateReal: item.vencimento_real || item.due_date_real || '',
+          amount: this.parseAmount(item.valor_devedor ?? item.valor ?? item.valor_devido ?? item.amount ?? 0),
+          lastSync: item.last_sync || item.lastSync
       };
   }
 }

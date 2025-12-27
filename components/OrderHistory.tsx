@@ -26,6 +26,14 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
   const [duplicating, setDuplicating] = useState<string | null>(null);
 
+  const resolveSellerName = (name?: string) => {
+    const trimmed = (name || '').trim();
+    if (trimmed && trimmed.toLowerCase() !== 'loja') return trimmed;
+    const loggedName = apiService.getUsername();
+    if (loggedName && loggedName !== 'Vendedor' && loggedName !== 'Terminal Vinculado') return loggedName;
+    return trimmed || loggedName || '—';
+  };
+
   useEffect(() => {
     loadOrders();
     // Se não estiver na aba pendente, tenta sincronizar histórico remoto
@@ -286,7 +294,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                             <div className="border border-slate-200 p-3 rounded">
                                 <p className="text-[10px] text-slate-500 uppercase font-bold">Vendedor</p>
                                 <p className="font-bold text-sm">
-                                    {viewingReceipt.sellerName || '—'} {viewingReceipt.sellerId ? `(${viewingReceipt.sellerId})` : ''}
+                                    {resolveSellerName(viewingReceipt.sellerName)} {viewingReceipt.sellerId ? `(${viewingReceipt.sellerId})` : ''}
                                 </p>
                             </div>
                         </div>
@@ -530,7 +538,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                                 </div>
                                 {(order.sellerName || order.sellerId) && (
                                     <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                                        Vendedor: {order.sellerName || '—'} {order.sellerId ? `(${order.sellerId})` : ''}
+                                        Vendedor: {resolveSellerName(order.sellerName)} {order.sellerId ? `(${order.sellerId})` : ''}
                                     </div>
                                 )}
                             </div>
