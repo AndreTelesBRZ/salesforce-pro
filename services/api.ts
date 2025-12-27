@@ -68,6 +68,20 @@ class ApiService {
       } catch { return {}; }
   }
 
+  private applyIdentityFromToken(token?: string | null): void {
+      if (!token) return;
+      const decoded = this.decodeToken(token);
+      if (decoded.name) {
+          const currentName = localStorage.getItem('username');
+          if (!currentName || currentName === 'Vendedor' || currentName === 'Terminal Vinculado') {
+              localStorage.setItem('username', decoded.name);
+          }
+      }
+      if (decoded.sellerId) {
+          localStorage.setItem('sellerId', String(decoded.sellerId));
+      }
+  }
+
   constructor() {
     // Configuração padrão: URL vazia significa "Usar o mesmo endereço do site" (Relativo)
     this.config = {
@@ -96,9 +110,7 @@ class ApiService {
     this.token = localStorage.getItem('authToken');
     // PRE-POPULA nome/código a partir do token salvo (melhora experiência offline)
     if (this.token) {
-        const info = this.decodeToken(this.token);
-        if (info.name && !localStorage.getItem('username')) localStorage.setItem('username', info.name);
-        if (info.sellerId && !localStorage.getItem('sellerId')) localStorage.setItem('sellerId', String(info.sellerId));
+        this.applyIdentityFromToken(this.token);
     }
     this.addLog('Sistema iniciado.', 'info');
   }
@@ -214,6 +226,10 @@ class ApiService {
                 profile.vendedor_codigo ||
                 profile.vendedor_id;
 
+              if (sellerId && !name) {
+                  localStorage.setItem('sellerId', String(sellerId));
+              }
+
               if (name) {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
                   localStorage.setItem('username', name);
@@ -315,12 +331,8 @@ class ApiService {
               localStorage.setItem('authToken', this.token);
 
               // Sempre tenta buscar perfil e loja (mesmo offline tentamos decode)
-              let prof = await this.fetchProfile();
-              if (!prof) {
-                 const decoded = this.decodeToken(this.token);
-                 if (decoded.name) localStorage.setItem('username', decoded.name);
-                 if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
-              }
+              await this.fetchProfile();
+              this.applyIdentityFromToken(this.token);
               await this.ensureStoreFromERP();
 
               if (!localStorage.getItem('username')) localStorage.setItem('username', 'Terminal Vinculado');
@@ -351,13 +363,8 @@ class ApiService {
 
           // Tenta pegar o nome real do dono do token
           const profile = await this.fetchProfile();
-          let userName = profile?.name;
-          if (!userName) {
-              const decoded = this.decodeToken(this.token);
-              if (decoded.name) localStorage.setItem('username', decoded.name);
-              if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
-              userName = decoded.name || 'Terminal Vinculado';
-          }
+          this.applyIdentityFromToken(this.token);
+          const userName = profile?.name || localStorage.getItem('username') || 'Terminal Vinculado';
           
           this.addLog(`Login forçado: ${userName}`, 'success');
           return { success: true };
@@ -683,6 +690,7 @@ class ApiService {
               } else {
                   localStorage.removeItem('sellerId');
               }
+              this.applyIdentityFromToken(this.token);
               
               return { success: true };
           }
@@ -777,7 +785,12 @@ class ApiService {
                   this.token = accessToken;
                   localStorage.setItem('authToken', this.token || '');
                   localStorage.setItem('username', displayName);
-                  if (sellerId) localStorage.setItem('sellerId', sellerId);
+                  if (sellerId) {
+                      localStorage.setItem('sellerId', sellerId);
+                  } else {
+                      localStorage.removeItem('sellerId');
+                  }
+                  this.applyIdentityFromToken(this.token);
                   
                   this.addLog(`Login com código: ${email}`, 'success');
                   return { success: true };
@@ -835,6 +848,7 @@ class ApiService {
                 } else {
                     localStorage.removeItem('sellerId');
                 }
+                this.applyIdentityFromToken(this.token);
               
                 return { success: true };
             }
@@ -1340,8 +1354,8 @@ class ApiService {
   }
 
   async getDelinquency(): Promise<DelinquencyItem[]> {
+      const sellerId = this.getSellerId();
       try {
-          const sellerId = this.getSellerId();
           const query = new URLSearchParams();
           if (sellerId) {
               query.set('vendedor_id', sellerId);
@@ -1349,18 +1363,59 @@ class ApiService {
           }
           const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
           const res = await this.fetchWithAuth(endpoint);
-          if (!res.ok) return [];
+          if (!res.ok) throw new Error(`Erro ${res.status}`);
           const jsonCheck = await this.ensureJsonResponse(res, 'Inadimplência');
-          if (!jsonCheck.ok) return [];
+          if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
           const data = await res.json();
           const list = Array.isArray(data) ? data : (data.data || []);
           const mapped: DelinquencyItem[] = list.map((item: any) => this.mapDelinquencyItem(item));
-          return sellerId
+          const filtered = sellerId
               ? mapped.filter((item) => this.isSameSeller(item.sellerId, sellerId))
               : mapped;
+          try {
+              await dbService.clearDelinquency();
+              await dbService.bulkAddDelinquency(filtered);
+          } catch {}
+          return filtered;
       } catch {
-          return [];
+          try {
+              const local = await dbService.getDelinquency();
+              return sellerId
+                  ? local.filter((item) => this.isSameSeller(item.sellerId, sellerId))
+                  : local;
+          } catch {
+              return [];
+          }
       }
+  }
+
+  async syncDelinquency(): Promise<{ success: boolean, count: number, message?: string }> {
+     try {
+        const sellerId = this.getSellerId();
+        const query = new URLSearchParams();
+        if (sellerId) {
+            query.set('vendedor_id', sellerId);
+            query.set('cod_vendedor', sellerId);
+        }
+        const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
+        const res = await this.fetchWithAuth(endpoint);
+        if (!res.ok) throw new Error(`Erro ${res.status}`);
+        const jsonCheck = await this.ensureJsonResponse(res, 'Inadimplência');
+        if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.data || []);
+        const mapped: DelinquencyItem[] = list.map((item: any) => this.mapDelinquencyItem(item));
+        const filtered = sellerId
+            ? mapped.filter((item) => this.isSameSeller(item.sellerId, sellerId))
+            : mapped;
+
+        await dbService.clearDelinquency();
+        await dbService.bulkAddDelinquency(filtered);
+
+        return { success: true, count: filtered.length };
+    } catch (e: any) {
+        return { success: false, count: 0, message: e.message };
+    }
   }
 
   async syncCustomers(onProgress: (c: number) => void): Promise<{ success: boolean, count: number, message?: string }> {

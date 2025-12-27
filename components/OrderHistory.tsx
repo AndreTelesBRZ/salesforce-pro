@@ -554,7 +554,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                     {/* Detalhes Expandidos (ou visíveis se selecionado não estiver ativo/modo seleção) */}
                     {(expandedOrder === order.id || (showCheckbox && isSelected)) && (
                         <div className="bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700 p-4 animate-in slide-in-from-top-1 cursor-auto" onClick={e => e.stopPropagation()}>
-                            <div className="flex justify-between items-start mb-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-4">
                                 <div className="text-xs text-slate-500">
                                     <p>ID: <span className="font-mono">{order.id.substring(0,8)}...</span></p>
                                     <p className="flex items-center gap-1 mt-1">
@@ -566,16 +566,16 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                                         )}
                                     </p>
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:justify-end">
                                     <button 
                                         onClick={() => handleOpenReceipt(order)}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-bold transition-colors shadow-sm"
+                                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-bold transition-colors shadow-sm"
                                     >
                                         <Printer className="w-3 h-3" /> Visualizar / PDF
                                     </button>
                                     <button
                                         onClick={() => duplicateOrder(order)}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white hover:bg-green-700 rounded text-xs font-bold transition-colors shadow-sm"
+                                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-3 py-1.5 bg-green-600 text-white hover:bg-green-700 rounded text-xs font-bold transition-colors shadow-sm"
                                         title="Duplicar pedido"
                                     >
                                         <Copy className="w-3 h-3" /> Duplicar
@@ -586,7 +586,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                                             const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
                                             window.open(url, '_blank');
                                         }}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 rounded text-xs font-bold transition-colors shadow-sm"
+                                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 rounded text-xs font-bold transition-colors shadow-sm"
                                         title="Compartilhar no WhatsApp"
                                     >
                                         <Share2 className="w-3 h-3" /> WhatsApp

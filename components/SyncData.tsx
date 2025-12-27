@@ -14,6 +14,7 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
   
   const [syncedCount, setSyncedCount] = useState(0);
   const [syncedCustomerCount, setSyncedCustomerCount] = useState(0);
+  const [syncedDelinquencyCount, setSyncedDelinquencyCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleSync = async (target: 'all' | 'products' | 'customers') => {
@@ -24,6 +25,7 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
     setErrorMessage('');
     setSyncedCount(0);
     setSyncedCustomerCount(0);
+    setSyncedDelinquencyCount(0);
 
     let hasError = false;
     let errorMsg = '';
@@ -51,6 +53,16 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
         if (!custResult.success) {
             hasError = true;
             errorMsg = custResult.message || 'Erro ao baixar clientes';
+        }
+    }
+
+    if (!hasError && (target === 'all' || target === 'customers')) {
+        const delinquencyResult = await apiService.syncDelinquency();
+        if (!delinquencyResult.success) {
+            hasError = true;
+            errorMsg = delinquencyResult.message || 'Erro ao baixar inadimplência';
+        } else {
+            setSyncedDelinquencyCount(delinquencyResult.count);
         }
     }
 
@@ -167,6 +179,12 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
                        <div className="flex justify-between w-full max-w-xs">
                            <span>Clientes:</span>
                            <span className="font-mono">{syncedCustomerCount} itens</span>
+                       </div>
+                   )}
+                   {(syncTarget === 'customers' || syncTarget === 'all') && (
+                       <div className="flex justify-between w-full max-w-xs">
+                           <span>Inadimplência:</span>
+                           <span className="font-mono">{syncedDelinquencyCount} itens</span>
                        </div>
                    )}
                    

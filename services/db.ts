@@ -1,12 +1,13 @@
 
-import { Product, Order, Customer, AppConfig } from '../types';
+import { Product, Order, Customer, AppConfig, DelinquencyItem } from '../types';
 
 const DB_NAME = 'SalesForceDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE_PRODUCTS = 'products';
 const STORE_ORDERS = 'orders';
 const STORE_CUSTOMERS = 'customers';
 const STORE_SETTINGS = 'settings';
+const STORE_DELINQUENCY = 'delinquency';
 
 class DatabaseService {
   private db: IDBDatabase | null = null;
@@ -50,6 +51,14 @@ class DatabaseService {
             const customerStore = db.createObjectStore(STORE_CUSTOMERS, { keyPath: 'id' });
             customerStore.createIndex('name', 'name', { unique: false });
             customerStore.createIndex('document', 'document', { unique: false });
+        }
+
+        // Store de Inadimplencia
+        if (!db.objectStoreNames.contains(STORE_DELINQUENCY)) {
+            const delinquencyStore = db.createObjectStore(STORE_DELINQUENCY, { keyPath: 'id' });
+            delinquencyStore.createIndex('sellerId', 'sellerId', { unique: false });
+            delinquencyStore.createIndex('customerCode', 'customerCode', { unique: false });
+            delinquencyStore.createIndex('dueDate', 'dueDate', { unique: false });
         }
 
         // Store de Configurações
@@ -319,6 +328,56 @@ class DatabaseService {
     return new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_CUSTOMERS], 'readonly');
       const store = transaction.objectStore(STORE_CUSTOMERS);
+      const request = store.count();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // --- MÉTODOS DE INADIMPLÊNCIA ---
+
+  async clearDelinquency(): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_DELINQUENCY], 'readwrite');
+      const store = transaction.objectStore(STORE_DELINQUENCY);
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async bulkAddDelinquency(items: DelinquencyItem[]): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_DELINQUENCY], 'readwrite');
+      const store = transaction.objectStore(STORE_DELINQUENCY);
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+
+      items.forEach(item => {
+        store.put(item);
+      });
+    });
+  }
+
+  async getDelinquency(): Promise<DelinquencyItem[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_DELINQUENCY], 'readonly');
+      const store = transaction.objectStore(STORE_DELINQUENCY);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async countDelinquency(): Promise<number> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_DELINQUENCY], 'readonly');
+      const store = transaction.objectStore(STORE_DELINQUENCY);
       const request = store.count();
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
