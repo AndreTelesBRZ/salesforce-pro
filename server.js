@@ -39,6 +39,8 @@ const STORE_HOST_MAP = {
   'vendas.llfix.app.br': 3
 };
 
+const isStoreHostLocked = (host) => Object.prototype.hasOwnProperty.call(STORE_HOST_MAP, host);
+
 const normalizeHost = (value) => {
   const raw = String(value || '').split(',')[0].trim().toLowerCase();
   if (!raw) return '';
@@ -54,6 +56,16 @@ const getRequestHost = (req) => {
 
 const resolveStoreIdFromHost = (host) => STORE_HOST_MAP[host] || DEFAULT_STORE_ID;
 const getStoreIdFromRequest = (req) => resolveStoreIdFromHost(getRequestHost(req));
+const getStoreIdForProducts = (req) => {
+  const host = getRequestHost(req);
+  if (isStoreHostLocked(host)) return STORE_HOST_MAP[host];
+  const raw = String(req.query.loja || '').trim();
+  if (raw) {
+    const parsed = parseInt(raw, 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return DEFAULT_STORE_ID;
+};
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 let genAI = null;
@@ -216,8 +228,10 @@ async function initDb() {
             stock INTEGER,
             category TEXT,
             unit TEXT,
-            image_url TEXT
+            image_url TEXT,
+            store_id INTEGER
         )`);
+        try { await db.run("ALTER TABLE products ADD COLUMN store_id INTEGER"); } catch (e) {}
 
         // Tabela de Clientes
         await db.run(`CREATE TABLE IF NOT EXISTS customers (
@@ -311,10 +325,10 @@ async function initDb() {
         const prodCount = await db.get("SELECT count(*) as count FROM products");
         if (prodCount && parseInt(prodCount.count) === 0) {
             console.log("Populando produtos iniciais...");
-            const insertProd = `INSERT INTO products (plu, name, description, price, stock, category, unit) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-            await db.run(insertProd, ["0002899", "PARAF FRANCES 1/4X3 ZB", "Parafuso Francês 1/4 x 3 Zincado Branco", 65.91, 100, "Fixadores", "CTO"]);
-            await db.run(insertProd, ["0000001", "Martelo Unha", "Martelo de aço forjado cabo de madeira", 45.50, 20, "Ferramentas", "UN"]);
-            await db.run(insertProd, ["0000002", "Chave Philips", "Chave Philips 3/16 x 4", 12.90, 50, "Ferramentas", "UN"]);
+            const insertProd = `INSERT INTO products (plu, name, description, price, stock, category, unit, store_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+            await db.run(insertProd, ["0002899", "PARAF FRANCES 1/4X3 ZB", "Parafuso Francês 1/4 x 3 Zincado Branco", 65.91, 100, "Fixadores", "CTO", DEFAULT_STORE_ID]);
+            await db.run(insertProd, ["0000001", "Martelo Unha", "Martelo de aço forjado cabo de madeira", 45.50, 20, "Ferramentas", "UN", DEFAULT_STORE_ID]);
+            await db.run(insertProd, ["0000002", "Chave Philips", "Chave Philips 3/16 x 4", 12.90, 50, "Ferramentas", "UN", DEFAULT_STORE_ID]);
         }
 
         // Criar ou Atualizar Admin
@@ -780,8 +794,9 @@ app.get('/api/products', verifyToken, async (req, res) => {
   const offset = limit > 0 ? (page - 1) * limit : 0;
 
   try {
-      let query = "SELECT * FROM products ORDER BY name";
-      let params = [];
+      const storeId = getStoreIdForProducts(req);
+      let query = "SELECT * FROM products WHERE (store_id = ? OR store_id IS NULL) ORDER BY name";
+      let params = [storeId];
 
       // Apenas adiciona paginação se limit for positivo.
       // Se limit for -1 ou 0, retorna tudo.
@@ -812,6 +827,49 @@ app.get('/api/products', verifyToken, async (req, res) => {
   }
 });
 
+// Listar Produtos (compatibilidade LLFIX /api/produtos-sync)
+app.get('/api/produtos-sync', verifyToken, async (req, res) => {
+  // Reaproveita a mesma logica de /api/products (ignora loja)
+  let limit = -1;
+  if (req.query.limit !== undefined) {
+      const parsed = parseInt(req.query.limit);
+      if (!isNaN(parsed)) limit = parsed;
+  }
+  const page = parseInt(req.query.page) || 1;
+  const offset = limit > 0 ? (page - 1) * limit : 0;
+
+  try {
+      const storeId = getStoreIdForProducts(req);
+      let query = "SELECT * FROM products WHERE (store_id = ? OR store_id IS NULL) ORDER BY name";
+      let params = [storeId];
+
+      if (limit > 0) {
+          query += " LIMIT ? OFFSET ?";
+          params.push(limit, offset);
+      } else {
+          console.log('[SERVER] Retornando produtos sem limites (Sync)');
+      }
+
+      const rows = await db.query(query, params);
+      const mapped = rows.map(p => ({
+         codigo: p.plu, 
+         id: p.plu,
+         plu: p.plu,
+         descricao_completa: p.description, 
+         nome: p.name,
+         preco: p.price,
+         estoque: p.stock,
+         estoque_disponivel: p.stock,
+         unidade: p.unit,
+         categoria: p.category,
+         imagem_url: p.image_url
+      }));
+      res.json(mapped);
+  } catch (e) {
+      res.status(500).json({ error: e.message });
+  }
+});
+
 // Adicionar Produto (Novo)
 app.post('/api/products', verifyToken, async (req, res) => {
     const { codigo, nome, descricao_completa, preco, estoque, categoria, unidade, imagem_url } = req.body;
@@ -821,10 +879,11 @@ app.post('/api/products', verifyToken, async (req, res) => {
     }
 
     try {
+        const storeId = getStoreIdForProducts(req);
         await db.run(
-            `INSERT INTO products (plu, name, description, price, stock, category, unit, image_url) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [codigo, nome, descricao_completa || '', preco, estoque || 0, categoria || 'Geral', unidade || 'UN', imagem_url || '']
+            `INSERT INTO products (plu, name, description, price, stock, category, unit, image_url, store_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [codigo, nome, descricao_completa || '', preco, estoque || 0, categoria || 'Geral', unidade || 'UN', imagem_url || '', storeId]
         );
         res.status(201).json({ success: true, message: 'Produto cadastrado.' });
     } catch (e) {
@@ -1013,8 +1072,7 @@ app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req
     }
 });
 
-// Salvar Pedido
-app.post('/api/pedidos', verifyToken, async (req, res) => {
+const handleSaveOrder = async (req, res) => {
   const {
       cliente_id,
       total,
@@ -1083,7 +1141,11 @@ app.post('/api/pedidos', verifyToken, async (req, res) => {
       console.error('[ORDER_ERROR] Erro ao gravar pedido:', e);
       res.status(500).json({ message: `Erro Interno: ${e.message}` });
   }
-});
+};
+
+// Salvar Pedido
+app.post('/api/pedidos', verifyToken, handleSaveOrder);
+app.post('/api/pedidos-venda', verifyToken, handleSaveOrder);
 
 // Atualizar status de negócio do pedido no servidor (mock / exemplo)
 // PUT /api/pedidos/:id/status  body: { status: 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado' }

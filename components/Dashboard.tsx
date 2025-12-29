@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle, ChevronRight, X } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
-import { DelinquencyItem } from '../types';
+import { Customer, DelinquencyItem } from '../types';
 
 interface DashboardProps {
   onNavigate: (view: string) => void;
@@ -35,39 +35,103 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   const [delinquencyItems, setDelinquencyItems] = useState<DelinquencyItem[]>([]);
   const [delinquencyLoading, setDelinquencyLoading] = useState<boolean>(false);
   const [showDelinquencyModal, setShowDelinquencyModal] = useState<boolean>(false);
-  const [inactiveCustomers, setInactiveCustomers] = useState<number>(0);
+  const [inactiveCustomersList, setInactiveCustomersList] = useState<{ customer: Customer; lastSale: Date | null }[]>([]);
+  const [inactiveLoading, setInactiveLoading] = useState<boolean>(false);
+  const [showInactiveModal, setShowInactiveModal] = useState<boolean>(false);
 
   useEffect(() => {
+     let isMounted = true;
+
+     const parseDateValue = (value?: string) => {
+        if (!value) return null;
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        const direct = new Date(trimmed);
+        if (!Number.isNaN(direct.getTime())) return direct;
+        const parts = trimmed.split(/[\/-]/);
+        if (parts.length === 3) {
+          const isYearFirst = parts[0].length === 4;
+          const year = Number(isYearFirst ? parts[0] : parts[2]);
+          const month = Number(parts[1]);
+          const day = Number(isYearFirst ? parts[2] : parts[0]);
+          if (!Number.isNaN(year) && !Number.isNaN(month) && !Number.isNaN(day)) {
+            const normalizedYear = year < 100 ? 2000 + year : year;
+            const parsed = new Date(normalizedYear, month - 1, day);
+            if (!Number.isNaN(parsed.getTime())) return parsed;
+          }
+        }
+        return null;
+     };
+
+     const setLatestDate = (map: Map<string, Date>, key: string | undefined, value: Date | null) => {
+        if (!key || !value) return;
+        const current = map.get(key);
+        if (!current || value > current) map.set(key, value);
+     };
+
      (async () => {
-        const all = await dbService.getOrders();
+        setInactiveLoading(true);
+        const allOrders = await dbService.getOrders();
+        let customers: Customer[] = [];
+        try {
+          customers = await apiService.getCustomers();
+        } catch {
+          customers = [];
+        }
+
+        if (!isMounted) return;
+
         const today = new Date().toDateString();
-        const todayOrders = all.filter(o => new Date(o.createdAt).toDateString() === today);
+        const todayOrders = allOrders.filter(o => new Date(o.createdAt).toDateString() === today);
         const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
         setTodayTotal(todaySum);
 
-        const lastSaleByCustomer: Record<string, Date> = {};
-        all.forEach((o) => {
-          const key = o.customerId || o.customerDoc || o.customerName || o.id;
-          const orderDate = new Date(o.createdAt);
-          if (Number.isNaN(orderDate.getTime())) return;
-          if (!lastSaleByCustomer[key] || orderDate > lastSaleByCustomer[key]) {
-            lastSaleByCustomer[key] = orderDate;
-          }
-        });
-        const inactiveCutoff = new Date();
-        inactiveCutoff.setDate(inactiveCutoff.getDate() - 30);
-        const inactive = Object.values(lastSaleByCustomer).filter((date) => date < inactiveCutoff);
-        setInactiveCustomers(inactive.length);
-        
         // Top clientes simples pelos pedidos salvos
         const map: Record<string, number> = {};
-        all.forEach(o => {
+        allOrders.forEach(o => {
            const key = o.customerName || 'Cliente';
            map[key] = (map[key] || 0) + o.total;
         });
         const tops = Object.entries(map).map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total).slice(0,5);
         setTopCustomers(tops);
+
+        const lastSaleById = new Map<string, Date>();
+        const lastSaleByDoc = new Map<string, Date>();
+        allOrders.forEach((o) => {
+          const orderDate = parseDateValue(o.createdAt);
+          if (!orderDate) return;
+          setLatestDate(lastSaleById, o.customerId, orderDate);
+          setLatestDate(lastSaleByDoc, o.customerDoc, orderDate);
+        });
+
+        const inactiveCutoff = new Date();
+        inactiveCutoff.setDate(inactiveCutoff.getDate() - 30);
+
+        const filteredCustomers = customers.filter((c) => c.id !== '0' && c.type !== 'TEMPORARIO');
+        const inactiveList = filteredCustomers
+          .map((customer) => {
+            const lastSale =
+              parseDateValue(customer.lastSaleDate) ||
+              lastSaleById.get(customer.id) ||
+              lastSaleByDoc.get(customer.document) ||
+              null;
+            return { customer, lastSale };
+          })
+          .filter(({ lastSale }) => !lastSale || lastSale < inactiveCutoff)
+          .sort((a, b) => {
+            if (!a.lastSale && !b.lastSale) return a.customer.name.localeCompare(b.customer.name);
+            if (!a.lastSale) return -1;
+            if (!b.lastSale) return 1;
+            return a.lastSale.getTime() - b.lastSale.getTime();
+          });
+
+        setInactiveCustomersList(inactiveList);
+        setInactiveLoading(false);
      })();
+
+     return () => {
+        isMounted = false;
+     };
   }, []);
 
   useEffect(() => {
@@ -129,6 +193,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
     return value;
   };
+  const formatDateLabel = (value: Date | null) => {
+    if (!value) return 'Sem compra';
+    return value.toLocaleDateString('pt-BR');
+  };
 
   const delinquencyDescription = delinquencyLoading
     ? 'Atualizando inadimplência...'
@@ -136,6 +204,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
       ? `${delinquencyCustomers} cliente${delinquencyCustomers > 1 ? 's' : ''} em carteira com parcelas vencidas`
       : 'Nenhum cliente inadimplente na carteira';
   const delinquencyMeta = delinquencyLoading ? 'Atualizando' : `R$ ${formatCurrency(delinquencyTotal)}`;
+  const inactiveCount = inactiveCustomersList.length;
+  const inactiveDescription = inactiveLoading
+    ? 'Atualizando carteira...'
+    : inactiveCount > 0
+      ? `${inactiveCount} cliente${inactiveCount > 1 ? 's' : ''} sem compra no mês`
+      : 'Carteira ativa nos últimos 30 dias';
+  const inactiveMeta = inactiveLoading ? 'Atualizando' : inactiveCount > 0 ? `${inactiveCount} cliente${inactiveCount > 1 ? 's' : ''}` : 'Em dia';
 
   const routineItems = [
     {
@@ -162,14 +237,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     {
       id: 'inactive',
       title: 'Clientes sem compra há 30 dias',
-      description:
-        inactiveCustomers > 0
-          ? `${inactiveCustomers} cliente${inactiveCustomers > 1 ? 's' : ''} sem compra no mês`
-          : 'Carteira ativa nos últimos 30 dias',
-      meta: inactiveCustomers > 0 ? `${inactiveCustomers} cliente${inactiveCustomers > 1 ? 's' : ''}` : 'Em dia',
-      tone: inactiveCustomers > 0 ? ('neutral' as const) : ('success' as const),
+      description: inactiveDescription,
+      meta: inactiveMeta,
+      tone: inactiveLoading ? ('neutral' as const) : inactiveCount > 0 ? ('neutral' as const) : ('success' as const),
       icon: User,
-      metaClassName: inactiveCustomers > 0 ? 'text-slate-600 dark:text-slate-300' : 'text-emerald-600',
+      metaClassName: inactiveLoading
+        ? 'text-slate-400'
+        : inactiveCount > 0
+          ? 'text-slate-600 dark:text-slate-300'
+          : 'text-emerald-600',
     },
   ];
 
@@ -252,15 +328,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         <div className="mt-4 space-y-3">
           {routineItems.map((item) => {
             const isDelinquency = item.id === 'delinquency';
-            const isClickable = isDelinquency && delinquencyItems.length > 0 && !delinquencyLoading;
+            const isInactive = item.id === 'inactive';
+            const isClickable =
+              (isDelinquency && delinquencyItems.length > 0 && !delinquencyLoading) ||
+              (isInactive && inactiveCustomersList.length > 0 && !inactiveLoading);
             const handleClick = () => {
-              if (isClickable) setShowDelinquencyModal(true);
+              if (!isClickable) return;
+              if (isDelinquency) setShowDelinquencyModal(true);
+              if (isInactive) setShowInactiveModal(true);
             };
             const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
               if (!isClickable) return;
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                setShowDelinquencyModal(true);
+                if (isDelinquency) setShowDelinquencyModal(true);
+                if (isInactive) setShowInactiveModal(true);
               }
             };
             return (
@@ -448,6 +530,59 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
                 })
               ) : (
                 <p className="text-sm text-slate-500">Nenhum titulo encontrado.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInactiveModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white">Clientes sem compra há 30 dias</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {inactiveCustomersList.length} cliente{inactiveCustomersList.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowInactiveModal(false)}
+                className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"
+                aria-label="Fechar"
+              >
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-4 overflow-auto space-y-3">
+              {inactiveLoading ? (
+                <p className="text-sm text-slate-500">Carregando clientes...</p>
+              ) : inactiveCustomersList.length > 0 ? (
+                inactiveCustomersList.map(({ customer, lastSale }) => (
+                  <div
+                    key={customer.id}
+                    className="border border-slate-100 dark:border-slate-700 rounded-xl p-3 flex items-start justify-between gap-4"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{customer.name}</p>
+                      {customer.fantasyName && customer.fantasyName !== customer.name && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{customer.fantasyName}</p>
+                      )}
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{customer.document || 'Documento não informado'}</p>
+                      {(customer.city || customer.state) && (
+                        <p className="text-xs text-slate-400">
+                          {customer.city || ''}{customer.state ? ` / ${customer.state}` : ''}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[10px] uppercase text-slate-400 font-semibold">Última compra</p>
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{formatDateLabel(lastSale)}</p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">Nenhum cliente sem compra há 30 dias.</p>
               )}
             </div>
           </div>

@@ -203,7 +203,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
         @media print {
           @page {
             size: A4;
-            margin: 12mm;
+            margin: 8mm;
           }
           body * {
             visibility: hidden;
@@ -215,8 +215,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
             position: absolute;
             left: 0;
             top: 0;
-            width: 210mm;
-            min-height: 297mm;
+            width: 100%;
+            min-height: auto;
             height: auto;
             background: white;
             color: black;
@@ -224,10 +224,11 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
             padding: 0;
             margin: 0;
             overflow: visible;
+            box-sizing: border-box;
           }
           .print-page {
             width: 100%;
-            min-height: 297mm;
+            min-height: auto;
           }
           .no-print {
             display: none !important;
@@ -238,6 +239,56 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
              color: black !important;
              border: none !important;
              box-shadow: none !important;
+             padding: 8mm !important;
+             overflow: visible !important;
+          }
+          .print-page table {
+             border-collapse: collapse;
+          }
+          .print-page tr {
+             page-break-inside: avoid;
+          }
+          .print-compact .text-2xl {
+             font-size: 18px !important;
+             line-height: 1.2 !important;
+          }
+          .print-compact .text-xl {
+             font-size: 16px !important;
+             line-height: 1.2 !important;
+          }
+          .print-compact .text-sm {
+             font-size: 11px !important;
+             line-height: 1.3 !important;
+          }
+          .print-compact .text-xs {
+             font-size: 10px !important;
+             line-height: 1.3 !important;
+          }
+          .print-compact .text-\\[10px\\] {
+             font-size: 9px !important;
+             line-height: 1.3 !important;
+          }
+          .print-compact .text-\\[11px\\] {
+             font-size: 10px !important;
+             line-height: 1.3 !important;
+          }
+          .print-compact .mt-6 {
+             margin-top: 12px !important;
+          }
+          .print-compact .mt-4 {
+             margin-top: 8px !important;
+          }
+          .print-compact .mt-2 {
+             margin-top: 4px !important;
+          }
+          .print-compact .pt-6 {
+             padding-top: 12px !important;
+          }
+          .print-compact .pt-4 {
+             padding-top: 8px !important;
+          }
+          .print-compact .pb-4 {
+             padding-bottom: 8px !important;
           }
         }
       `}</style>
@@ -259,7 +310,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
 
                 {/* Conteúdo do Recibo (Imprimível) */}
                 <div className="p-8 bg-white text-slate-900 print-content overflow-y-auto flex-1">
-                    <div className="print-page">
+                    <div className="print-page print-compact">
                         <div className="flex justify-between items-start border-b-2 border-slate-800 pb-4">
                             <div>
                                 <h1 className="text-2xl font-bold uppercase tracking-wide">{headerStore?.trade_name || 'SalesForce Pro'}</h1>

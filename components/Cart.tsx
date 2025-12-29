@@ -406,6 +406,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     { id: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
     { id: 'transportadora', label: 'Transportadora', icon: Package },
   ];
+  const isBoleto = paymentMethod === 'boleto';
   const paymentLabel = paymentOptions.find(option => option.id === paymentMethod)?.label || '';
   const shippingLabel = shippingOptions.find(option => option.id === shippingMethod)?.label || '';
 
@@ -422,6 +423,15 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   useEffect(() => {
       if (!selectedCustomer) return;
 
+      if (!isBoleto) {
+          setPlanLoading(false);
+          setPlanError('');
+          setPaymentPlans([]);
+          setSelectedPlan(null);
+          return;
+      }
+
+      let isActive = true;
       setPlanLoading(true);
       setPlanError('');
       setPaymentPlans([]);
@@ -429,6 +439,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
       apiService.getPaymentPlansForCustomer(selectedCustomer.id)
         .then((plans) => {
+            if (!isActive) return;
             setPaymentPlans(plans);
             if (plans.length > 0) {
                 setSelectedPlan(plans[0]);
@@ -437,12 +448,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             }
         })
         .catch((e: any) => {
+            if (!isActive) return;
             setPlanError(e.message || 'Erro ao buscar planos de pagamento.');
         })
         .finally(() => {
+            if (!isActive) return;
             setPlanLoading(false);
         });
-  }, [selectedCustomer?.id]);
+
+      return () => {
+          isActive = false;
+      };
+  }, [selectedCustomer?.id, isBoleto]);
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
@@ -753,7 +770,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
         {!selectedCustomer ? null : !planLoading && planError && (
           <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded">
-            {planError} (opcional)
+            {planError}{isBoleto ? '' : ' (opcional)'}
           </div>
         )}
 
@@ -767,7 +784,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               }}
               className="w-full p-2 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
             >
-              <option value="">Sem plano (opcional)</option>
+              {!isBoleto && <option value="">Sem plano (opcional)</option>}
               {paymentPlans.map(plan => (
                 <option key={plan.code} value={plan.code}>
                   {plan.description} ({plan.installments}x)
