@@ -52,8 +52,10 @@ export interface Order {
   paymentPlanCode?: string;
   paymentPlanDescription?: string;
   paymentInstallments?: number;
+  paymentFirstInstallmentDays?: number;
   paymentDaysBetween?: number;
   paymentMinValue?: number;
+  paymentDueDates?: string[];
   items: CartItem[];
   total: number;
   status: 'pending' | 'synced';
@@ -87,6 +89,12 @@ export interface AppConfig {
 export interface PaymentPlan {
   code: string;
   description: string;
+  legend?: string;
+  document?: string;
+  entryValue?: number;
+  firstInstallmentInterval?: number;
+  accrual?: number;
+  daysFirstInstallment?: number;
   installments: number;
   daysBetweenInstallments: number;
   minValue: number;

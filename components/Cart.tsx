@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CartItem, Order, Customer, PaymentPlan } from '../types';
 import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
@@ -387,6 +387,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [selectedPlan, setSelectedPlan] = useState<PaymentPlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
+  const [planValidationError, setPlanValidationError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('pix');
   const [shippingMethod, setShippingMethod] = useState('retirada');
   
@@ -409,6 +410,53 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const isBoleto = paymentMethod === 'boleto';
   const paymentLabel = paymentOptions.find(option => option.id === paymentMethod)?.label || '';
   const shippingLabel = shippingOptions.find(option => option.id === shippingMethod)?.label || '';
+  const formatPlanLabel = (plan: PaymentPlan) => {
+    let base = plan.description || plan.code || 'Plano';
+    if (plan.document === 'BOLETO' && !/boleto/i.test(base)) {
+      base = `Boleto ${base}`.trim();
+    }
+    if (plan.document === 'BOLETO' && plan.daysFirstInstallment && !/\d/.test(base)) {
+      base = `${base} ${plan.daysFirstInstallment} dias`;
+    }
+    if (plan.document === 'BOLETO' && plan.daysFirstInstallment && !/dias/i.test(base)) {
+      const numbers = base.match(/\d+/g) || [];
+      const hasMultiple = base.includes('/') || numbers.length > 1;
+      if (!hasMultiple && numbers.length === 1) {
+        base = `${base} dias`;
+      }
+    }
+    const suffix = `${plan.installments || 1}x`;
+    return `${base} (${suffix})`;
+  };
+  const formatMoney = (value?: number) => {
+    const numeric = Number(value || 0);
+    return `R$ ${numeric.toFixed(2)}`;
+  };
+  const isBoletoPlan = (plan: PaymentPlan) => {
+    const code = (plan.code || '').toLowerCase();
+    const description = (plan.description || '').toLowerCase();
+    const doc = (plan.document || '').toLowerCase();
+    return doc === 'boleto' || code.startsWith('boleto') || description.includes('boleto');
+  };
+  const buildPaymentSchedule = (plan: PaymentPlan) => {
+    const daysFirst = Number(plan.daysFirstInstallment || 0);
+    const interval = Number(plan.daysBetweenInstallments || 0);
+    const count = Math.max(1, Number(plan.installments || 1));
+    if (!Number.isFinite(daysFirst) || daysFirst <= 0) return [];
+    const base = new Date();
+    const dates: Date[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const offset = daysFirst + (i > 0 ? interval * i : 0);
+      const due = new Date(base);
+      due.setDate(due.getDate() + offset);
+      dates.push(due);
+    }
+    return dates;
+  };
+  const paymentSchedule = useMemo(() => {
+    if (!isBoleto || !selectedPlan) return [];
+    return buildPaymentSchedule(selectedPlan);
+  }, [isBoleto, selectedPlan]);
 
   useEffect(() => {
       apiService.getCustomers().then(apiData => {
@@ -426,6 +474,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       if (!isBoleto) {
           setPlanLoading(false);
           setPlanError('');
+          setPlanValidationError('');
           setPaymentPlans([]);
           setSelectedPlan(null);
           return;
@@ -440,11 +489,12 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       apiService.getPaymentPlansForCustomer(selectedCustomer.id)
         .then((plans) => {
             if (!isActive) return;
-            setPaymentPlans(plans);
-            if (plans.length > 0) {
-                setSelectedPlan(plans[0]);
+            const boletoPlans = plans.filter(isBoletoPlan);
+            setPaymentPlans(boletoPlans);
+            if (boletoPlans.length > 0) {
+                setSelectedPlan(boletoPlans[0]);
             } else {
-                setPlanError('Cliente sem plano de pagamento cadastrado.');
+                setPlanError('Cliente sem plano de pagamento boleto cadastrado.');
             }
         })
         .catch((e: any) => {
@@ -461,6 +511,26 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       };
   }, [selectedCustomer?.id, isBoleto]);
 
+  useEffect(() => {
+      if (!isBoleto || !selectedPlan) {
+          setPlanValidationError('');
+          return;
+      }
+      const minValue = Number(selectedPlan.minValue || 0);
+      if (minValue > 0 && total < minValue) {
+          setPlanValidationError(`Pedido abaixo do valor mínimo do plano (${formatMoney(minValue)}).`);
+          return;
+      }
+      const daysFirst = Number(selectedPlan.daysFirstInstallment || 0);
+      const installments = Number(selectedPlan.installments || 0);
+      const interval = Number(selectedPlan.daysBetweenInstallments || 0);
+      if (daysFirst <= 0 || installments <= 0 || (installments > 1 && interval <= 0)) {
+          setPlanValidationError('Plano boleto incompleto. Verifique dias e parcelas.');
+          return;
+      }
+      setPlanValidationError('');
+  }, [isBoleto, selectedPlan, total]);
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (!selectedCustomer) {
@@ -475,6 +545,24 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         alert('Selecione um tipo de frete.');
         return;
     }
+    if (isBoleto) {
+        if (!selectedPlan) {
+            alert('Selecione um plano de pagamento para boleto.');
+            return;
+        }
+        const minValue = Number(selectedPlan.minValue || 0);
+        if (minValue > 0 && total < minValue) {
+            alert(`Valor mínimo do plano: ${formatMoney(minValue)}.`);
+            return;
+        }
+        const daysFirst = Number(selectedPlan.daysFirstInstallment || 0);
+        const installments = Number(selectedPlan.installments || 0);
+        const interval = Number(selectedPlan.daysBetweenInstallments || 0);
+        if (daysFirst <= 0 || installments <= 0 || (installments > 1 && interval <= 0)) {
+            alert('Plano boleto incompleto. Verifique dias e parcelas.');
+            return;
+        }
+    }
 
     setSubmitting(true);
     
@@ -487,6 +575,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     const hasLoggedName = loggedName && loggedName !== 'Vendedor' && loggedName !== 'Terminal Vinculado';
     const fallbackName = selectedCustomer.sellerName && selectedCustomer.sellerName !== 'Loja' ? selectedCustomer.sellerName : undefined;
     const sellerName = hasLoggedName ? loggedName : (fallbackName || loggedName || undefined);
+    const dueDates = isBoleto && selectedPlan
+      ? buildPaymentSchedule(selectedPlan).map(date => date.toISOString())
+      : undefined;
 
     const order: Order = {
       id: crypto.randomUUID(),
@@ -500,8 +591,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       paymentPlanCode: selectedPlan?.code,
       paymentPlanDescription: selectedPlan?.description,
       paymentInstallments: selectedPlan?.installments,
+      paymentFirstInstallmentDays: selectedPlan?.daysFirstInstallment,
       paymentDaysBetween: selectedPlan?.daysBetweenInstallments,
       paymentMinValue: selectedPlan?.minValue,
+      paymentDueDates: dueDates,
       paymentMethod: paymentLabel,
       shippingMethod: shippingLabel,
       sellerId,
@@ -786,14 +879,26 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             >
               {!isBoleto && <option value="">Sem plano (opcional)</option>}
               {paymentPlans.map(plan => (
-                <option key={plan.code} value={plan.code}>
-                  {plan.description} ({plan.installments}x)
+                <option key={plan.code} value={plan.code} disabled={plan.minValue > 0 && total < plan.minValue}>
+                  {formatPlanLabel(plan)}
                 </option>
               ))}
             </select>
             {selectedPlan && (
               <div className="text-xs text-slate-500">
-                Parcelas: {selectedPlan.installments} • Dias entre parcelas: {selectedPlan.daysBetweenInstallments} • Valor minimo: R$ {selectedPlan.minValue.toFixed(2)}
+                <div className="text-[11px] text-slate-600">
+                  Parcelas: {selectedPlan.installments} • Dias 1ª parcela: {selectedPlan.daysFirstInstallment ?? 0} • Dias entre parcelas: {selectedPlan.daysBetweenInstallments ?? 0} • Valor mínimo: {formatMoney(selectedPlan.minValue)}
+                </div>
+                {paymentSchedule.length > 0 && (
+                  <div className="mt-2 text-[11px] text-slate-600">
+                    <span className="font-semibold text-slate-700">Vencimentos:</span> {paymentSchedule.map(date => date.toLocaleDateString('pt-BR')).join(' • ')}
+                  </div>
+                )}
+              </div>
+            )}
+            {planValidationError && (
+              <div className="mt-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
+                {planValidationError}
               </div>
             )}
           </div>

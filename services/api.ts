@@ -1353,12 +1353,38 @@ class ApiService {
       }
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data.data || []);
+      const parsePlanDays = (value: string): number[] => {
+          if (!value) return [];
+          const matches = value.match(/\d+/g);
+          if (!matches) return [];
+          return matches.map((m) => Number(m)).filter((n) => Number.isFinite(n) && n > 0);
+      };
       return list.map((p: any) => ({
-          code: String(p.plano_codigo || p.codigo || p.code),
-          description: p.plano_descricao || p.descricao || p.description || '',
-          installments: Number(p.parcelas ?? p.installments ?? 1),
-          daysBetweenInstallments: Number(p.dias_entre_parcelas ?? p.days_between_installments ?? 0),
-          minValue: Number(p.valor_minimo ?? p.min_value ?? 0)
+          code: String(p.plano_codigo || p.codigo || p.code || p.PLACOD || p.placod || ''),
+          description: p.plano_descricao || p.descricao || p.description || p.PLADES || p.plades || '',
+          legend: p.PLALEG || p.plaleg || p.legend || p.legenda || '',
+          document: (() => {
+              const raw = String(p.documento || p.document || p.tipo_documento || '').trim();
+              if (raw) return raw.toUpperCase();
+              const codeValue = String(p.plano_codigo || p.codigo || p.code || p.PLACOD || p.placod || '').trim();
+              if (codeValue) return codeValue.split('_')[0].toUpperCase();
+              return '';
+          })(),
+          entryValue: Number(p.PLAENT ?? p.plaent ?? p.entrada ?? 0),
+          firstInstallmentInterval: Number(p.PLAINTPRI ?? p.plaintpri ?? 0),
+          accrual: Number(p.PLAVLRACR ?? p.plavlracr ?? p.acrescimo ?? 0),
+          installments: Number(p.parcelas ?? p.installments ?? p.PLANUMPAR ?? p.planumpar ?? 1),
+          daysBetweenInstallments: Number(p.dias_entre_parcelas ?? p.days_between_installments ?? p.PLAINTPAR ?? p.plaintpar ?? 0),
+          minValue: Number(p.valor_minimo ?? p.min_value ?? p.PLAVLRMIN ?? p.plavlrmin ?? 0),
+          daysFirstInstallment: (() => {
+              const rawFirst = Number(p.PLAINTPRI ?? p.plaintpri ?? 0);
+              if (Number.isFinite(rawFirst) && rawFirst > 0) return rawFirst;
+              const desc = String(p.plano_descricao || p.descricao || p.description || p.PLADES || p.plades || '');
+              const days = parsePlanDays(desc);
+              if (days.length > 0) return days[0];
+              const interval = Number(p.dias_entre_parcelas ?? p.days_between_installments ?? p.PLAINTPAR ?? p.plaintpar ?? 0);
+              return Number.isFinite(interval) ? interval : 0;
+          })()
       }));
   }
 
