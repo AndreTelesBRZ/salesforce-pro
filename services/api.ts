@@ -82,6 +82,14 @@ class ApiService {
       }
   }
 
+  private normalizeBackendUrl(value: string): string {
+      const trimmed = value.trim().replace(/\/$/, "").replace(/\/api$/i, "");
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(trimmed)) {
+          return trimmed.replace(/^http:\/\//i, 'https://');
+      }
+      return trimmed;
+  }
+
   constructor() {
     // Configuração padrão: URL vazia significa "Usar o mesmo endereço do site" (Relativo)
     this.config = {
@@ -393,9 +401,7 @@ class ApiService {
 
   private getBaseUrl(): string {
       if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
-          const trimmed = this.config.backendUrl.trim().replace(/\/$/, "");
-          // Evita duplicar "/api" quando o usuário salva a URL completa do endpoint.
-          return trimmed.replace(/\/api$/i, "");
+          return this.normalizeBackendUrl(this.config.backendUrl);
       }
       return ''; 
   }
@@ -917,7 +923,7 @@ class ApiService {
   }
 
   async testConnection(url: string): Promise<{ success: boolean; message: string }> {
-      const targetUrl = url.trim() ? url.trim().replace(/\/$/, "") : '';
+      const targetUrl = url.trim() ? this.normalizeBackendUrl(url) : '';
       // Preferimos /api/me para validar permissão do token, pois alguns backends
       // exigem vendedor_id nas rotas de produtos e retornam 403.
       const meEndpoint = targetUrl ? `${targetUrl}/api/me` : `/api/me`;
