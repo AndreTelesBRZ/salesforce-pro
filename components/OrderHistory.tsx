@@ -190,7 +190,31 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
 
   const pendingCount = orders.filter(o => o.status === 'pending').length;
   const syncedCount = orders.filter(o => o.status === 'synced').length;
-  const preVendaCount = orders.filter(o => o.businessStatus === 'pre_venda').length;
+  const flowOrders = orders.filter(o => o.businessStatus && o.businessStatus !== 'entregue' && o.businessStatus !== 'cancelado');
+  const flowCount = flowOrders.length;
+
+  const businessStatusLegend = [
+    { key: 'orcamento', label: 'Orçamento', classes: 'bg-slate-100 text-slate-600 border border-slate-200' },
+    { key: 'pre_venda', label: 'Pré-venda', classes: 'bg-blue-100 text-blue-700 border border-blue-200' },
+    { key: 'separacao', label: 'Separação', classes: 'bg-amber-100 text-amber-700 border border-amber-200' },
+    { key: 'faturado', label: 'Faturado', classes: 'bg-green-100 text-green-700 border border-green-200' },
+    { key: 'entregue', label: 'Entregue', classes: 'bg-emerald-100 text-emerald-700 border border-emerald-200' },
+    { key: 'cancelado', label: 'Cancelado', classes: 'bg-red-100 text-red-700 border border-red-200' }
+  ];
+
+  const getBusinessStatusMeta = (status?: string) => {
+    const key = status || 'orcamento';
+    return businessStatusLegend.find(item => item.key === key) || businessStatusLegend[0];
+  };
+
+  const renderBusinessStatusBadge = (status?: string) => {
+    const meta = getBusinessStatusMeta(status);
+    return (
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${meta.classes}`}>
+        {meta.label}
+      </span>
+    );
+  };
 
   // --- RENDER ---
   
@@ -513,26 +537,29 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
              Enviados ({syncedCount})
           </button>
           <button onClick={() => setActiveTab('flow')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'flow' ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm' : 'text-slate-500'}`}>
-             Fluxo ({preVendaCount})
+             Fluxo ({flowCount})
           </button>
       </div>
 
       {activeTab === 'flow' ? (
         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
-           <h3 className="font-bold mb-3 text-slate-800 dark:text-white">Ações de Fluxo</h3>
-           <p className="text-sm mb-3 text-slate-600 dark:text-slate-300">Selecione um pedido enviado e altere a etapa do processo.</p>
-           {orders.filter(o => o.businessStatus && o.businessStatus !== 'entregue' && o.businessStatus !== 'cancelado').slice(0,10).map(order => (
-             <div key={order.id} className="flex items-center justify-between border-t py-2 first:border-t-0">
-               <div>
+           <h3 className="font-bold mb-2 text-slate-800 dark:text-white">Status do Fluxo</h3>
+           <p className="text-sm mb-3 text-slate-600 dark:text-slate-300">Exibição apenas informativa; alterações são feitas no ERP.</p>
+           <div className="flex flex-wrap gap-2 mb-4">
+             {businessStatusLegend.map(status => (
+               <span key={status.key} className={`px-2 py-1 text-xs font-semibold rounded-full ${status.classes}`}>
+                 {status.label}
+               </span>
+             ))}
+           </div>
+           {flowOrders.slice(0,10).map(order => (
+             <div key={order.id} className="flex items-center justify-between border-t py-2 first:border-t-0 gap-3">
+               <div className="min-w-0">
                  <div className="font-semibold">#{order.displayId} • {order.customerName}</div>
-                 <div className="text-xs text-slate-500">Etapa: {order.businessStatus || 'orcamento'}</div>
+                 <div className="text-xs text-slate-500">Status do fluxo</div>
                </div>
-               <div className="flex gap-2">
-                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'pre_venda').then(loadOrders)} className="px-2 py-1 text-xs bg-blue-600 text-white rounded">Pré‑venda</button>
-                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'separacao').then(loadOrders)} className="px-2 py-1 text-xs bg-amber-600 text-white rounded">Separação</button>
-                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'faturado').then(loadOrders)} className="px-2 py-1 text-xs bg-green-700 text-white rounded">Faturado</button>
-                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'entregue').then(loadOrders)} className="px-2 py-1 text-xs bg-emerald-600 text-white rounded">Entregue</button>
-                 <button onClick={() => apiService.updateOrderBusinessStatus(order,'cancelado').then(loadOrders)} className="px-2 py-1 text-xs bg-red-600 text-white rounded">Cancelar</button>
+               <div className="shrink-0">
+                 {renderBusinessStatusBadge(order.businessStatus)}
                </div>
              </div>
            ))}
