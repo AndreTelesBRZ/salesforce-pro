@@ -499,6 +499,38 @@ class ApiService {
     return headers;
   }
 
+  private isAuthDebugEnabled(): boolean {
+      if (typeof window === 'undefined') return false;
+      try {
+          return localStorage.getItem('debugAuth') === '1';
+      } catch {
+          return false;
+      }
+  }
+
+  private maskToken(token?: string | null): string {
+      const raw = typeof token === 'string' ? token.trim() : '';
+      if (!raw) return '(none)';
+      if (raw.length <= 8) return `${raw.slice(0, 2)}...${raw.slice(-2)}`;
+      return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
+  }
+
+  private maskAuthHeader(value?: string | null): string {
+      const raw = typeof value === 'string' ? value.trim() : '';
+      if (!raw) return '(none)';
+      const parts = raw.split(/\s+/);
+      const token = parts.length === 2 && /^Bearer$/i.test(parts[0]) ? parts[1] : raw;
+      return this.maskToken(token);
+  }
+
+  private describeAuthHeaders(headers: Record<string, string>): string {
+      const auth = headers.Authorization || headers.authorization || '';
+      const appToken = headers['X-App-Token'] || headers['x-app-token'] || '';
+      const fwdHost = headers['X-Forwarded-Host'] || headers['x-forwarded-host'] || '(none)';
+      const fwdProto = headers['X-Forwarded-Proto'] || headers['x-forwarded-proto'] || '(none)';
+      return `Authorization=${this.maskAuthHeader(auth)}; X-App-Token=${this.maskToken(appToken)}; X-Forwarded-Host=${fwdHost}; X-Forwarded-Proto=${fwdProto}`;
+  }
+
   // Força requisição ao mesmo host do app (ignora backendUrl) — útil para /api/store e geração de PDF
   async fetchLocal(endpoint: string, options: RequestInit = {}): Promise<Response> {
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
@@ -512,6 +544,7 @@ class ApiService {
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       const baseUrl = this.getBaseUrl();
       const hasRemoteConfig = baseUrl !== '';
+      const resolvedHeaders = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
       
       const doFetch = async (url: string) => {
            // Timeout Controller: Aborta se passar de 10s
@@ -522,7 +555,7 @@ class ApiService {
                const response = await fetch(url, { 
                   ...options, 
                   signal: controller.signal,
-                  headers: { ...this.getAuthHeaders(), ...options.headers } 
+                  headers: resolvedHeaders
                });
                clearTimeout(id);
                return response;
@@ -548,6 +581,9 @@ class ApiService {
               
               try {
                   const response = await doFetch(fullUrl);
+                  if (this.isAuthDebugEnabled() && (response.status === 401 || response.status === 403)) {
+                      this.addLog(`Auth debug (${response.status}) ${fullUrl}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
+                  }
                   if (response.ok || response.status === 401 || response.status === 400 || response.status === 500) {
                       return check401(response);
                   }
@@ -562,6 +598,9 @@ class ApiService {
           }
 
           const localResponse = await doFetch(cleanEndpoint);
+          if (this.isAuthDebugEnabled() && (localResponse.status === 401 || localResponse.status === 403)) {
+              this.addLog(`Auth debug (${localResponse.status}) ${cleanEndpoint}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
+          }
           return check401(localResponse);
 
       } catch (error: any) {
