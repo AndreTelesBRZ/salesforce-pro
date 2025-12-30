@@ -999,7 +999,9 @@ class ApiService {
             if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
             return { success: true, message: 'Conectado!' };
         }
-        if (response.status === 401) return { success: false, message: 'Token Inválido' };
+        if (response.status === 401 || response.status === 403) {
+            return { success: false, message: 'Token Inválido' };
+        }
         
         return { success: false, message: `Erro HTTP ${response.status}` };
       } catch (e: any) {
