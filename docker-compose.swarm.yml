@@ -30,7 +30,7 @@ services:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik_public"
         # Roteador HTTPS
-        - "traefik.http.routers.salesforce.rule=Host(`vendas.edsondosparafusos.app.br`,`vendas.llfix.app.br`)"
+        - "traefik.http.routers.salesforce.rule=Host(`edsondosparafusos.app.br`,`llfix.app.br`,`vendas.edsondosparafusos.app.br`,`vendas.llfix.app.br`)"
         - "traefik.http.routers.salesforce.entrypoints=websecure"
         - "traefik.http.routers.salesforce.tls=true"
         - "traefik.http.routers.salesforce.tls.certresolver=letsencryptresolver"
@@ -45,7 +45,7 @@ services:
         - "traefik.http.middlewares.salesforce-sec-headers.headers.browserXSSFilter=true"
         - "traefik.http.services.salesforce.loadbalancer.server.port=8080"
         # Roteador HTTP com redirecionamento para HTTPS
-        - "traefik.http.routers.salesforce-http.rule=Host(`vendas.edsondosparafusos.app.br`,`vendas.llfix.app.br`)"
+        - "traefik.http.routers.salesforce-http.rule=Host(`edsondosparafusos.app.br`,`llfix.app.br`,`vendas.edsondosparafusos.app.br`,`vendas.llfix.app.br`)"
         - "traefik.http.routers.salesforce-http.entrypoints=web"
         - "traefik.http.routers.salesforce-http.middlewares=salesforce-redirect-https"
         - "traefik.http.middlewares.salesforce-redirect-https.redirectscheme.scheme=https"

@@ -1,7 +1,7 @@
 
 import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem } from '../types';
 import { dbService } from './db';
-import { getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
+import { getBackendUrlForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -400,10 +400,12 @@ class ApiService {
   }
 
   private getBaseUrl(): string {
+      const hostBackend = getBackendUrlForCurrentHost();
+      if (hostBackend) return this.normalizeBackendUrl(hostBackend);
       if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
           return this.normalizeBackendUrl(this.config.backendUrl);
       }
-      return ''; 
+      return '';
   }
 
   private getTenantHeaders(): Record<string, string> {
@@ -961,8 +963,11 @@ class ApiService {
     localStorage.removeItem('sellerId');
   }
 
-  async testConnection(url: string): Promise<{ success: boolean; message: string }> {
-      const targetUrl = url.trim() ? this.normalizeBackendUrl(url) : '';
+  async testConnection(url: string = ''): Promise<{ success: boolean; message: string }> {
+      const hostBackend = getBackendUrlForCurrentHost();
+      const targetUrl = hostBackend
+        ? this.normalizeBackendUrl(hostBackend)
+        : (url.trim() ? this.normalizeBackendUrl(url) : this.getBaseUrl());
       // Preferimos /api/me para validar permissão do token, pois alguns backends
       // exigem vendedor_id nas rotas de produtos e retornam 403.
       const meEndpoint = targetUrl ? `${targetUrl}/api/me` : `/api/me`;

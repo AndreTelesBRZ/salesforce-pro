@@ -34,12 +34,12 @@ const SMTP_TLS      = (process.env.SMTP_ENABLE_STARTTLS_AUTO || 'true') === 'tru
 const MAILER_FROM   = process.env.MAILER_SENDER_EMAIL || 'SalesForce <no-reply@salesforce.pro>';
 
 const DEFAULT_STORE_ID = 1;
-const STORE_HOST_MAP = {
-  'vendas.edsondosparafusos.app.br': 1,
-  'vendas.llfix.app.br': 3
+const EDSON_DOMAIN = 'edsondosparafusos.app.br';
+const LLFIX_DOMAIN = 'llfix.app.br';
+const STORE_DOMAIN_MAP = {
+  [EDSON_DOMAIN]: 1,
+  [LLFIX_DOMAIN]: 3
 };
-
-const isStoreHostLocked = (host) => Object.prototype.hasOwnProperty.call(STORE_HOST_MAP, host);
 
 const normalizeHost = (value) => {
   const raw = String(value || '').split(',')[0].trim().toLowerCase();
@@ -48,17 +48,27 @@ const normalizeHost = (value) => {
   return noProto.replace(/:\d+$/, '');
 };
 
+const matchesDomain = (host, domain) => {
+  if (!host) return false;
+  return host === domain || host.endsWith(`.${domain}`);
+};
+
 const getRequestHost = (req) => {
   const forwarded = req.headers['x-forwarded-host'];
   const rawHost = Array.isArray(forwarded) ? forwarded[0] : forwarded || req.headers.host || '';
   return normalizeHost(rawHost);
 };
 
-const resolveStoreIdFromHost = (host) => STORE_HOST_MAP[host] || DEFAULT_STORE_ID;
+const resolveStoreIdFromHost = (host) => {
+  if (matchesDomain(host, LLFIX_DOMAIN)) return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
+  if (matchesDomain(host, EDSON_DOMAIN)) return STORE_DOMAIN_MAP[EDSON_DOMAIN];
+  return DEFAULT_STORE_ID;
+};
+const isStoreHostLocked = (host) => matchesDomain(host, EDSON_DOMAIN) || matchesDomain(host, LLFIX_DOMAIN);
 const getStoreIdFromRequest = (req) => resolveStoreIdFromHost(getRequestHost(req));
 const getStoreIdForProducts = (req) => {
   const host = getRequestHost(req);
-  if (isStoreHostLocked(host)) return STORE_HOST_MAP[host];
+  if (isStoreHostLocked(host)) return resolveStoreIdFromHost(host);
   const raw = String(req.query.loja || '').trim();
   if (raw) {
     const parsed = parseInt(raw, 10);

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService, LogEntry } from '../services/api';
-import { getStoreCodeForCurrentHost, isStoreSelectionLockedForCurrent, normalizeStoreCode } from '../services/storeHost';
+import { getBackendUrlForCurrentHost, getStoreCodeForCurrentHost, isBackendUrlLockedForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 
@@ -26,6 +26,9 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [selectStoreOpen, setSelectStoreOpen] = useState(false);
   const [selectedStoreIndex, setSelectedStoreIndex] = useState<number>(0);
   const storeSelectionLocked = isStoreSelectionLockedForCurrent();
+  const backendUrlLocked = isBackendUrlLockedForCurrent();
+  const lockedBackendUrl = getBackendUrlForCurrentHost();
+  const resolvedBackendUrl = backendUrlLocked ? lockedBackendUrl : config.backendUrl;
 
   const applyStoreFromERP = async (loja: any) => {
     if (!loja) return;
@@ -102,7 +105,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
         }
     }, 1500);
     return () => clearTimeout(delay);
-  }, [config.apiToken, config.backendUrl]);
+  }, [config.apiToken, config.useMockData, resolvedBackendUrl]);
 
   // Carrega dados da loja ao abrir
   useEffect(() => {
@@ -124,7 +127,11 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   };
 
   const handleSave = () => {
-    apiService.saveConfig(config);
+    const configToSave = backendUrlLocked
+      ? { ...config, backendUrl: lockedBackendUrl }
+      : config;
+    setConfig(configToSave);
+    apiService.saveConfig(configToSave);
     if (onThemeChange) onThemeChange(config.theme);
     setMessage('Configurações salvas!');
     setTimeout(() => {
@@ -148,9 +155,12 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     setTestErrorMsg('');
     
     // Salva temp
-    apiService.saveConfig(config);
+    const configToTest = backendUrlLocked
+      ? { ...config, backendUrl: lockedBackendUrl }
+      : config;
+    apiService.saveConfig(configToTest);
     
-    const result = await apiService.testConnection(config.backendUrl);
+    const result = await apiService.testConnection(resolvedBackendUrl);
     setTestStatus(result.success ? 'success' : 'error');
     if (!result.success) setTestErrorMsg(result.message);
     
@@ -182,10 +192,10 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
           <div className="flex gap-2">
             <input
               type="text"
-              value={config.backendUrl}
+              value={resolvedBackendUrl}
               onChange={(e) => setConfig({ ...config, backendUrl: e.target.value })}
-              disabled={config.useMockData}
-              placeholder="https://apiforce.edsondosparafusos.app.br"
+              disabled={config.useMockData || backendUrlLocked}
+              placeholder={backendUrlLocked ? lockedBackendUrl : "https://apiforce.edsondosparafusos.app.br"}
               className="flex-1 p-3 border rounded-md dark:bg-slate-900 dark:text-white dark:border-slate-700"
             />
             <button
