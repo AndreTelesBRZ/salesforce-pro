@@ -457,6 +457,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                             const payload = {
                               id: viewingReceipt.id,
                               displayId: viewingReceipt.displayId,
+                              createdAt: viewingReceipt.createdAt,
                               customer: viewingReceipt.customerName,
                               customerDoc: viewingReceipt.customerDoc,
                               sellerName: viewingReceipt.sellerName,

@@ -1272,12 +1272,30 @@ app.post('/api/ai/pitch', verifyToken, async (req, res) => {
 });
 
 const formatMoney = (value) => `R$ ${Number(value || 0).toFixed(2)}`;
+const formatDatePtBr = (value) => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  } catch {
+    return date.toLocaleDateString('pt-BR');
+  }
+};
+const formatDateTimePtBr = (value) => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return date.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  } catch {
+    return date.toLocaleString('pt-BR');
+  }
+};
 
 const renderReceiptPDF = (doc, receipt, store) => {
   const marginLeft = doc.page.margins.left;
   const marginRight = doc.page.margins.right;
   const pageWidth = doc.page.width - marginLeft - marginRight;
-  const safeDate = receipt.createdAt ? new Date(receipt.createdAt) : new Date();
+  const dateLabel = formatDatePtBr(receipt.createdAt);
 
   doc.fontSize(16).text(store?.trade_name || 'SalesForce Pro', marginLeft, doc.y);
   if (store?.legal_name) doc.fontSize(9).text(store.legal_name);
@@ -1287,11 +1305,12 @@ const renderReceiptPDF = (doc, receipt, store) => {
     .join(' - ');
   if (addr) doc.text(addr);
   if (store?.phone) doc.text(`Fone: ${store.phone}`);
+  doc.fontSize(9).text('Comprovante de Pedido');
 
   doc.moveDown(0.5);
   const infoY = doc.y;
   doc.fontSize(10).text(`Pedido: #${receipt.displayId || ''}`, marginLeft, infoY, { width: pageWidth, align: 'right' });
-  doc.text(`Data: ${safeDate.toLocaleDateString()}`, marginLeft, infoY + 12, { width: pageWidth, align: 'right' });
+  doc.text(`Data: ${dateLabel}`, marginLeft, infoY + 12, { width: pageWidth, align: 'right' });
   doc.moveDown(2);
 
   doc.fontSize(10).text(`Cliente: ${receipt.customer || ''}`);
@@ -1357,6 +1376,7 @@ const renderReceiptPDF = (doc, receipt, store) => {
   doc.moveDown(1.2);
   doc.fontSize(12).text(`Total Geral: ${formatMoney(receipt.total)}`, { align: 'right' });
   doc.moveDown().fontSize(8).text('Emitido via SalesForce App');
+  doc.fontSize(8).text(formatDateTimePtBr());
 };
 
 // --- GERAR PDF DE RECIBO (SERVER-SIDE) ---
