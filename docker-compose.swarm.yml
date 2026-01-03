@@ -12,6 +12,7 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       DATABASE_URL: ${DATABASE_URL}
       VITE_BACKEND_URL: ${VITE_BACKEND_URL}
+      VITE_APP_INTEGRATION_TOKEN: ${VITE_APP_INTEGRATION_TOKEN}
     volumes:
       - salesforce_data:/data
     networks:

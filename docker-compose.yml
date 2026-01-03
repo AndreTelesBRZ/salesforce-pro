@@ -9,6 +9,7 @@ services:
       args:
         VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY}
         VITE_BACKEND_URL: ${VITE_BACKEND_URL}
+        VITE_APP_INTEGRATION_TOKEN: ${VITE_APP_INTEGRATION_TOKEN}
     restart: unless-stopped
     ports:
       - "8080:8080"

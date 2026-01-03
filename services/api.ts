@@ -90,6 +90,65 @@ class ApiService {
       return trimmed;
   }
 
+  private getStoredUsername(): string {
+      return localStorage.getItem('username') || '';
+  }
+
+  private getDefaultUsername(): string {
+      return this.config.apiToken ? 'Terminal Vinculado' : 'Vendedor';
+  }
+
+  private isPlaceholderUsername(value?: string | null): boolean {
+      const raw = String(value || '').trim().toLowerCase();
+      if (!raw) return true;
+      const normalized = raw.replace(/[\s-]+/g, '_');
+      return (
+          normalized === 'vendedor' ||
+          normalized === 'terminal_vinculado' ||
+          normalized === 'app_token' ||
+          normalized === 'token' ||
+          normalized === 'integration_token' ||
+          normalized === 'integracao' ||
+          normalized === 'integracao_token'
+      );
+  }
+
+  private async resolveUsernameFromCustomers(): Promise<string | null> {
+      const sellerId = this.getSellerId();
+      if (!sellerId) return null;
+      try {
+          const customers = await dbService.getLocalCustomers();
+          const match = customers.find((customer) => {
+              if (!customer.sellerName) return false;
+              if (this.isPlaceholderUsername(customer.sellerName)) return false;
+              return this.isSameSeller(customer.sellerId, sellerId);
+          });
+          const resolved = match?.sellerName?.trim();
+          if (resolved) {
+              localStorage.setItem('username', resolved);
+              return resolved;
+          }
+      } catch {}
+      return null;
+  }
+
+  private getIntegrationTokenFromEnv(): string | null {
+      try {
+          const token = (import.meta as any)?.env?.VITE_APP_INTEGRATION_TOKEN;
+          if (typeof token === 'string') {
+              const trimmed = token.trim();
+              if (trimmed) return trimmed;
+          }
+      } catch {}
+      return null;
+  }
+
+  private applyIntegrationTokenFromEnv(): void {
+      const envToken = this.getIntegrationTokenFromEnv();
+      if (!envToken) return;
+      this.config.apiToken = envToken;
+  }
+
   constructor() {
     // Configuração padrão: URL vazia significa "Usar o mesmo endereço do site" (Relativo)
     this.config = {
@@ -114,6 +173,8 @@ class ApiService {
           this.config = { ...this.config, ...parsed };
       } catch(e) {}
     }
+
+    this.applyIntegrationTokenFromEnv();
     
     this.token = localStorage.getItem('authToken');
     // PRE-POPULA nome/código a partir do token salvo (melhora experiência offline)
@@ -157,6 +218,7 @@ class ApiService {
           } else if (localStorage.getItem('appConfig')) {
               await dbService.saveSettings(this.config);
           }
+          this.applyIntegrationTokenFromEnv();
       } catch (e: any) {
           this.addLog(`Erro init config: ${e.message}`, 'error');
       } finally {
@@ -234,11 +296,11 @@ class ApiService {
                 profile.vendedor_codigo ||
                 profile.vendedor_id;
 
-              if (sellerId && !name) {
+              if (sellerId) {
                   localStorage.setItem('sellerId', String(sellerId));
               }
 
-              if (name) {
+              if (name && !this.isPlaceholderUsername(name)) {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
                   localStorage.setItem('username', name);
                   if (sellerId) localStorage.setItem('sellerId', String(sellerId));
@@ -382,7 +444,17 @@ class ApiService {
   }
 
   getUsername(): string {
-    return localStorage.getItem('username') || 'Vendedor';
+    const raw = this.getStoredUsername().trim();
+    if (!raw || this.isPlaceholderUsername(raw)) return this.getDefaultUsername();
+    return raw;
+  }
+
+  async resolveDisplayName(): Promise<string> {
+      const raw = this.getStoredUsername().trim();
+      if (raw && !this.isPlaceholderUsername(raw)) return raw;
+      const resolved = await this.resolveUsernameFromCustomers();
+      if (resolved) return resolved;
+      return this.getDefaultUsername();
   }
   
   // Recupera o ID do vendedor salvo no login

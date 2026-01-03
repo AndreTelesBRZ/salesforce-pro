@@ -37,7 +37,8 @@ export default function App() {
       setIsAuthenticated(validSession);
       if (validSession) {
           // Garante que a UI receba o nome atualizado, mesmo se vier do cache local inicial
-          setCurrentUser(apiService.getUsername());
+          const resolvedName = await apiService.resolveDisplayName();
+          setCurrentUser(resolvedName);
           setSellerCode(apiService.getSellerId());
           
           // Tenta buscar o perfil mais atual em background para corrigir "Terminal Vinculado"
@@ -47,6 +48,9 @@ export default function App() {
                 setCurrentUser(profile.name);
                 if (profile.seller_id) setSellerCode(profile.seller_id);
               }
+              apiService.resolveDisplayName().then((name) => {
+                setCurrentUser(name);
+              });
           });
       }
       
@@ -105,6 +109,9 @@ export default function App() {
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
     setCurrentUser(apiService.getUsername());
+    apiService.resolveDisplayName().then((name) => {
+      setCurrentUser(name);
+    });
     setSellerCode(apiService.getSellerId());
     setShowSettingsFromLogin(false);
     setCurrentView('dashboard');
