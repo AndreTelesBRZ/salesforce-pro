@@ -8,21 +8,14 @@ class GeminiService {
     return base;
   }
 
-  private getAuthHeader(): string | null {
-    const token = apiService.getAppToken();
-    return token ? `Bearer ${token}` : null;
-  }
-
   async generateSalesPitch(product: Product): Promise<string> {
-    const auth = this.getAuthHeader();
     const tryFetch = async (url: string) => {
       const token = apiService.getAppToken();
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { 'X-App-Token': token } : {}),
-          ...(auth ? { Authorization: auth } : {})
+          ...(token ? { 'X-App-Token': token } : {})
         },
         body: JSON.stringify({ product })
       });
@@ -47,15 +40,13 @@ class GeminiService {
   }
 
   async generateProductImage(product: Product): Promise<string | null> {
-    const auth = this.getAuthHeader();
     const tryFetch = async (url: string) => {
       const token = apiService.getAppToken();
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { 'X-App-Token': token } : {}),
-          ...(auth ? { Authorization: auth } : {})
+          ...(token ? { 'X-App-Token': token } : {})
         },
         body: JSON.stringify({ product })
       });

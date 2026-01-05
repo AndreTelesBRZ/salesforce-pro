@@ -573,7 +573,6 @@ class ApiService {
     const tokenToUse = this.resolveAppToken();
     if (tokenToUse) {
         headers['X-App-Token'] = tokenToUse;
-        headers['Authorization'] = `Bearer ${tokenToUse}`;
     }
     return headers;
   }
