@@ -5,6 +5,30 @@ const EDSON_BACKEND_URL = 'https://apiforce.edsondosparafusos.app.br';
 const LLFIX_DOMAIN = 'llfix.app.br';
 const LLFIX_STORE_CODE = '00003';
 const LLFIX_BACKEND_URL = 'https://apiforce.llfix.app.br';
+const EDSON_APP_TOKEN = (() => {
+  try {
+    const value = (import.meta as any)?.env?.VITE_APP_INTEGRATION_TOKEN_EDSON;
+    return typeof value === 'string' ? value.trim() : '';
+  } catch {
+    return '';
+  }
+})();
+const LLFIX_APP_TOKEN = (() => {
+  try {
+    const value = (import.meta as any)?.env?.VITE_APP_INTEGRATION_TOKEN_LLFIX;
+    return typeof value === 'string' ? value.trim() : '';
+  } catch {
+    return '';
+  }
+})();
+const DEFAULT_APP_TOKEN = (() => {
+  try {
+    const value = (import.meta as any)?.env?.VITE_APP_INTEGRATION_TOKEN;
+    return typeof value === 'string' ? value.trim() : '';
+  } catch {
+    return '';
+  }
+})();
 
 const normalizeHost = (value?: string): string => {
   const raw = String(value || '').trim().toLowerCase();
@@ -42,6 +66,13 @@ export const resolveBackendUrlFromHost = (hostname?: string): string => {
   return '';
 };
 
+export const resolveIntegrationTokenFromHost = (hostname?: string): string => {
+  const host = normalizeHost(hostname);
+  if (matchesDomain(host, LLFIX_DOMAIN)) return LLFIX_APP_TOKEN;
+  if (matchesDomain(host, EDSON_DOMAIN)) return EDSON_APP_TOKEN;
+  return DEFAULT_APP_TOKEN;
+};
+
 export const isLlfixHostForCurrent = (): boolean => {
   if (typeof window === 'undefined') return false;
   return isLlfixHost(window.location.hostname);
@@ -61,6 +92,11 @@ export const isStoreSelectionLockedForCurrent = (): boolean => {
 export const getBackendUrlForCurrentHost = (): string => {
   if (typeof window === 'undefined') return '';
   return resolveBackendUrlFromHost(window.location.hostname);
+};
+
+export const getIntegrationTokenForCurrentHost = (): string => {
+  if (typeof window === 'undefined') return DEFAULT_APP_TOKEN;
+  return resolveIntegrationTokenFromHost(window.location.hostname);
 };
 
 export const isBackendUrlLockedForCurrent = (): boolean => {

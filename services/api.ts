@@ -1,7 +1,7 @@
 
 import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem } from '../types';
 import { dbService } from './db';
-import { getBackendUrlForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
+import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -95,7 +95,7 @@ class ApiService {
   }
 
   private getDefaultUsername(): string {
-      return this.config.apiToken ? 'Terminal Vinculado' : 'Vendedor';
+      return this.resolveAppToken() ? 'Terminal Vinculado' : 'Vendedor';
   }
 
   private isPlaceholderUsername(value?: string | null): boolean {
@@ -133,14 +133,15 @@ class ApiService {
   }
 
   private getIntegrationTokenFromEnv(): string | null {
-      try {
-          const token = (import.meta as any)?.env?.VITE_APP_INTEGRATION_TOKEN;
-          if (typeof token === 'string') {
-              const trimmed = token.trim();
-              if (trimmed) return trimmed;
-          }
-      } catch {}
-      return null;
+      const token = getIntegrationTokenForCurrentHost();
+      return token && token.trim() ? token.trim() : null;
+  }
+
+  private resolveAppToken(): string | null {
+      const envToken = this.getIntegrationTokenFromEnv();
+      if (envToken) return envToken;
+      const configToken = typeof this.config.apiToken === 'string' ? this.config.apiToken.trim() : '';
+      return configToken || null;
   }
 
   private applyIntegrationTokenFromEnv(): void {
@@ -247,7 +248,8 @@ class ApiService {
   }
 
   isAuthenticated(): boolean {
-    const hasToken = !!this.token || (!!this.config.apiToken && !this.config.useMockData);
+    if (this.config.useMockData) return true;
+    const hasToken = !!this.resolveAppToken();
     const hasUser = !!localStorage.getItem('username');
     return hasToken && hasUser;
   }
@@ -390,14 +392,15 @@ class ApiService {
       }
 
       // 3. Fallback: Login via Token de Configuração (Modo Terminal)
-      if (this.config.apiToken) {
+      const appToken = this.resolveAppToken();
+      if (appToken) {
           const result = await this.testConnection(this.config.backendUrl);
           
           // CRÍTICO: Se tiver sucesso OU se estiver offline (mas não rejeitado), liberamos o acesso.
           // Isso garante que o app abra mesmo sem internet se já foi configurado.
           if (result.success || result.message !== 'Token Inválido') {
               // "Loga" automaticamente usando o token da config
-              this.token = this.config.apiToken;
+              this.token = appToken;
               localStorage.setItem('authToken', this.token);
 
               // Sempre tenta buscar perfil e loja (mesmo offline tentamos decode)
@@ -421,14 +424,15 @@ class ApiService {
    * Tenta forçar o login usando o token de configuração
    */
   async loginViaSettingsToken(): Promise<{ success: boolean; message?: string }> {
-      if (!this.config.apiToken) {
+      const appToken = this.resolveAppToken();
+      if (!appToken) {
           return { success: false, message: 'Configure o Token primeiro.' };
       }
 
       const result = await this.testConnection(this.config.backendUrl);
       
       if (result.success) {
-          this.token = this.config.apiToken;
+          this.token = appToken;
           localStorage.setItem('authToken', this.token);
 
           // Tenta pegar o nome real do dono do token
@@ -441,6 +445,10 @@ class ApiService {
       } else {
           return { success: false, message: 'O Token salvo nas configurações foi rejeitado pelo servidor.' };
       }
+  }
+
+  getAppToken(): string | null {
+      return this.resolveAppToken();
   }
 
   getUsername(): string {
@@ -562,13 +570,10 @@ class ApiService {
         'Content-Type': 'application/json',
         ...this.getTenantHeaders()
     };
-    const tokenToUse = this.token || this.config.apiToken;
-    
+    const tokenToUse = this.resolveAppToken();
     if (tokenToUse) {
+        headers['X-App-Token'] = tokenToUse;
         headers['Authorization'] = `Bearer ${tokenToUse}`;
-    }
-    if (this.config.apiToken) {
-        headers['X-App-Token'] = this.config.apiToken;
     }
     return headers;
   }
@@ -1188,7 +1193,7 @@ class ApiService {
       this.addLog(`Pedido ${order.displayId} enviado com sucesso!`, 'success');
       // Atualiza status de negócio e salva localmente para refletir no histórico
       try {
-          order.businessStatus = 'pre_venda';
+          order.businessStatus = 'orcamento';
           const data = await response.clone().json().catch(()=>({}));
           if (data && (data.orderId || data.id)) order.remoteId = data.orderId || data.id;
           await dbService.saveOrder(order);
