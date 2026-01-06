@@ -21,6 +21,8 @@ const SECRET_KEY = process.env.SECRET_KEY || 'super-secret-key-change-this-in-pr
 // Master Key para acesso facilitado (Bypass de JWT)
 const MASTER_KEY = process.env.MASTER_KEY || 'salesforce-pro-token';
 const APP_INTEGRATION_TOKEN = process.env.APP_INTEGRATION_TOKEN || '';
+const APP_INTEGRATION_TOKEN_EDSON = process.env.APP_INTEGRATION_TOKEN_EDSON || '';
+const APP_INTEGRATION_TOKEN_LLFIX = process.env.APP_INTEGRATION_TOKEN_LLFIX || '';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 const DB_PATH = process.env.DB_PATH || './database.sqlite';
@@ -63,6 +65,18 @@ const resolveStoreIdFromHost = (host) => {
   if (matchesDomain(host, LLFIX_DOMAIN)) return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
   if (matchesDomain(host, EDSON_DOMAIN)) return STORE_DOMAIN_MAP[EDSON_DOMAIN];
   return DEFAULT_STORE_ID;
+};
+const resolveIntegrationTokensForHost = (host) => {
+  const normalized = normalizeHost(host);
+  const tokens = [];
+  if (APP_INTEGRATION_TOKEN) tokens.push(APP_INTEGRATION_TOKEN);
+  if (matchesDomain(normalized, LLFIX_DOMAIN) && APP_INTEGRATION_TOKEN_LLFIX) {
+    tokens.push(APP_INTEGRATION_TOKEN_LLFIX);
+  }
+  if (matchesDomain(normalized, EDSON_DOMAIN) && APP_INTEGRATION_TOKEN_EDSON) {
+    tokens.push(APP_INTEGRATION_TOKEN_EDSON);
+  }
+  return tokens;
 };
 const isStoreHostLocked = (host) => matchesDomain(host, EDSON_DOMAIN) || matchesDomain(host, LLFIX_DOMAIN);
 const getStoreIdFromRequest = (req) => resolveStoreIdFromHost(getRequestHost(req));
@@ -728,10 +742,12 @@ const parseAuthHeader = (value) => {
   return { token: '', invalid: true };
 };
 
-const isIntegrationToken = (token) => {
+const isIntegrationTokenForRequest = (req, token) => {
   if (!token) return false;
   if (token === MASTER_KEY) return true;
-  return APP_INTEGRATION_TOKEN ? token === APP_INTEGRATION_TOKEN : false;
+  const allowed = resolveIntegrationTokensForHost(getRequestHost(req));
+  if (allowed.length === 0) return false;
+  return allowed.includes(token);
 };
 
 // Middleware de Verificação de Token
@@ -745,7 +761,7 @@ const verifyToken = (req, res, next) => {
   }
 
   // BYPASS: Token de integração (Master Key ou APP_INTEGRATION_TOKEN)
-  if (isIntegrationToken(authInfo.token) || isIntegrationToken(appToken)) {
+  if (isIntegrationTokenForRequest(req, authInfo.token) || isIntegrationTokenForRequest(req, appToken)) {
       if (authInfo.token === MASTER_KEY || appToken === MASTER_KEY) {
           console.log('[AUTH_SUCCESS] Acesso via Master Key');
           req.userId = 'master-admin';
@@ -1571,8 +1587,15 @@ app.listen(PORT, '0.0.0.0', () => {
   if (process.env.NODE_ENV !== 'production') {
     const mask = (v) => (v && v.length > 8 ? `${v.slice(0,4)}…${v.slice(-4)}` : '(defina via env)');
     console.log(`🔑 Master Key (mascarada): ${mask(MASTER_KEY)}\n`);
-    if (APP_INTEGRATION_TOKEN) {
-      console.log(`🔐 App Integration Token (mascarado): ${mask(APP_INTEGRATION_TOKEN)}\n`);
-    }
+    const integrationTokens = [
+      { label: 'App Integration Token', value: APP_INTEGRATION_TOKEN },
+      { label: 'App Integration Token EDSON', value: APP_INTEGRATION_TOKEN_EDSON },
+      { label: 'App Integration Token LLFIX', value: APP_INTEGRATION_TOKEN_LLFIX }
+    ];
+    integrationTokens.forEach((entry) => {
+      if (entry.value) {
+        console.log(`🔐 ${entry.label} (mascarado): ${mask(entry.value)}\n`);
+      }
+    });
   }
 });
