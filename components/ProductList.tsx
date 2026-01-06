@@ -5,6 +5,25 @@ import { apiService } from '../services/api';
 import { geminiService } from '../services/geminiService';
 import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2 } from 'lucide-react';
 
+const normalizeCode = (value: string | undefined, length: number): string | null => {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) return text.padStart(length, '0');
+  return text;
+};
+
+const buildGroupKey = (product: Product): { key: string; label: string } => {
+  const section = normalizeCode(product.sectionCode, 2);
+  const group = normalizeCode(product.groupCode, 3);
+  const subgroup = normalizeCode(product.subgroupCode, 3);
+  if (section && group && subgroup) {
+    const key = `${section}${group}${subgroup}`;
+    return { key, label: key };
+  }
+  return { key: 'sem-agrupamento', label: 'Sem agrupamento' };
+};
+
 interface ProductListProps {
   onAddToCart: (product: Product) => void;
   onRemoveFromCart: (id: string) => void;
@@ -157,6 +176,28 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
   const categories = useMemo(() => {
     const cats = new Set(products.map(p => p.category));
     return ['Todas', ...Array.from(cats)];
+  }, [products]);
+
+  const hasGroupingCodes = useMemo(() => {
+    return products.some(p => p.sectionCode || p.groupCode || p.subgroupCode);
+  }, [products]);
+
+  const groupedProducts = useMemo(() => {
+    const groups: Array<{ key: string; label: string; items: Array<{ product: Product; index: number }> }> = [];
+    const groupMap = new Map<string, { key: string; label: string; items: Array<{ product: Product; index: number }> }>();
+
+    products.forEach((product, index) => {
+      const { key, label } = buildGroupKey(product);
+      let group = groupMap.get(key);
+      if (!group) {
+        group = { key, label, items: [] };
+        groupMap.set(key, group);
+        groups.push(group);
+      }
+      group.items.push({ product, index });
+    });
+
+    return groups;
   }, [products]);
 
   const getCartItem = (productId: string) => {
@@ -383,166 +424,177 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
 
       {/* Lista de Produtos */}
       <div className={`px-4 pt-2 ${showImages ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'space-y-2'}`}>
-        {products.map((product, index) => {
-            const isLastElement = index === products.length - 1;
-            const cartItem = getCartItem(product.id);
-            const isInCart = !!cartItem;
-            const quantity = cartItem?.quantity || 0;
-            const qtyDisplay = Number.isInteger(quantity) ? quantity : quantity.toFixed(2);
-
-            return showImages ? (
-            <div 
-                key={product.id} 
-                ref={isLastElement ? lastProductElementRef : null}
-                className={`bg-white dark:bg-slate-800 rounded-lg shadow-sm border overflow-hidden flex flex-col transition-all ${
-                    isInCart 
-                    ? 'border-orange-500 dark:border-orange-500 ring-1 ring-orange-500/50' 
-                    : 'border-slate-200 dark:border-slate-700'
-                }`}
-            >
-              <div className="relative aspect-square bg-slate-100 dark:bg-slate-700 group flex items-center justify-center">
-                {product.imageUrl ? (
-                    <img 
-                      src={product.imageUrl} 
-                      alt={product.name}
-                      className="w-full h-full object-cover"
-                    />
-                ) : (
-                    <Package className="w-16 h-16 text-slate-300 dark:text-slate-600" />
-                )}
-                
-                <button
-                    onClick={(e) => generateImage(product, e)}
-                    disabled={imageLoadingId === product.id}
-                    className="absolute top-2 right-2 p-2 bg-white/90 dark:bg-slate-900/90 rounded-full shadow-md text-purple-600 dark:text-purple-400 hover:scale-110 transition-transform disabled:opacity-50 z-10"
-                >
-                    {imageLoadingId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
-                </button>
-
-                <span className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
-                  Est: {product.stock}
-                </span>
-
-                {isInCart && (
-                  <div className="absolute top-2 left-2 bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg flex items-center gap-1 animate-in zoom-in">
-                    <Check className="w-3 h-3" />
-                    <span>{qtyDisplay}</span>
-                  </div>
-                )}
+        {groupedProducts.map(group => (
+          <React.Fragment key={group.key}>
+            {hasGroupingCodes && (
+              <div className="col-span-full flex items-center justify-between px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Agrupamento</span>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{group.label}</span>
+                <span className="text-[10px] text-slate-400">{group.items.length} itens</span>
               </div>
-              <div className="p-4 flex-1 flex flex-col">
-                 <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-bold text-lg text-slate-900 dark:text-white leading-tight">{product.name}</h3>
-                    <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded">{product.id}</span>
-                 </div>
-                 
-                 <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 line-clamp-2 flex-1">{product.description}</p>
-                 
-                 {salesPitches[product.id] && (
-                    <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
-                        <div className="flex items-center gap-1 text-blue-700 dark:text-blue-300 text-xs font-bold mb-1">
-                            <Sparkles className="w-3 h-3" /> Argumento de Venda
-                        </div>
-                        <p className="text-sm text-slate-700 dark:text-slate-300 italic">"{salesPitches[product.id]}"</p>
-                    </div>
-                 )}
+            )}
+            {group.items.map(({ product, index }) => {
+              const isLastElement = index === products.length - 1;
+              const cartItem = getCartItem(product.id);
+              const isInCart = !!cartItem;
+              const quantity = cartItem?.quantity || 0;
+              const qtyDisplay = Number.isInteger(quantity) ? quantity : quantity.toFixed(2);
 
-                 <div className="flex items-end justify-between mt-auto">
-                    <div>
-                        <span className="block text-xs text-slate-500">Preço Unitário</span>
-                        <span className="text-xl font-bold text-blue-800 dark:text-blue-400">R$ {product.price.toFixed(2)}</span>
-                    </div>
-                    <button 
-                        onClick={() => onToggleCart(product)}
-                        className={`p-3 rounded-lg shadow-lg active:scale-95 transition-all flex items-center gap-2 ${
-                            isInCart
-                            ? 'bg-orange-700 text-white shadow-orange-600/30 ring-2 ring-orange-300 dark:ring-orange-900'
-                            : 'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-600/20'
-                        }`}
-                    >
-                        <ShoppingCart className="w-5 h-5" />
-                        {isInCart ? <span className="text-xs font-bold">Adicionado ({qtyDisplay})</span> : <span className="text-xs font-bold">Adicionar</span>}
-                    </button>
-                 </div>
-                 
-                 <button 
-                    onClick={(e) => generatePitch(product, e)}
-                    disabled={!!pitchLoadingId}
-                    className="w-full mt-3 py-2 flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:text-orange-600 dark:text-slate-400 dark:hover:text-orange-400 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                 >
-                    {pitchLoadingId === product.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                    {salesPitches[product.id] ? 'Gerar Novo Argumento' : 'Gerar Argumento com IA'}
-                 </button>
-              </div>
-            </div>
-          ) : (
-            <div 
-                key={product.id} 
-                ref={isLastElement ? lastProductElementRef : null}
-                className={`p-3 rounded-lg border flex items-start justify-between gap-3 shadow-sm active:scale-[0.99] transition-all ${
-                    isInCart 
-                    ? 'bg-orange-50/50 border-orange-400 dark:bg-orange-900/10 dark:border-orange-500' 
-                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                }`}
-            >
-               <div className="flex-1 min-w-0">
-                  <div className="flex items-center flex-wrap gap-2 mb-1 text-xs text-slate-500 dark:text-slate-400">
-                     <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] border font-bold ${
-                         isInCart ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'
-                     }`}>
-                        {product.id}
-                     </span>
-                     <span className="truncate max-w-[100px] hidden sm:inline">{product.category}</span>
-                     <span className="hidden sm:inline text-slate-300 dark:text-slate-600">•</span>
-                     <span className="flex items-center gap-1 whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">
-                        <Box className="w-3 h-3" /> {product.stock} {product.unit}
-                     </span>
-                  </div>
-
-                  <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-snug whitespace-normal break-words">
-                     {product.name}
-                  </h3>
-                   
-                   {product.description && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{product.description}</p>
-                   )}
-
-                  {isInCart && (
-                     <div className="mt-1 flex items-center gap-1 text-xs font-bold text-orange-600 dark:text-orange-400">
-                        <Check className="w-3 h-3" />
-                        No carrinho: {qtyDisplay}
-                     </div>
-                  )}
-               </div>
-
-               <div className="flex flex-col items-end gap-2 pl-2 shrink-0">
-                  <div className="text-right">
-                     <div className="font-bold text-blue-800 dark:text-blue-400 text-sm whitespace-nowrap">R$ {product.price.toFixed(2)}</div>
-                     <div className="text-[10px] text-slate-400">/{product.unit}</div>
-                  </div>
-                  <div className="flex gap-2">
-                  <button 
-                    onClick={() => onToggleCart(product)}
-                    className={`p-2 rounded-lg transition-colors ${
-                        isInCart
-                        ? 'bg-orange-600 text-white hover:bg-orange-700'
-                        : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50'
+              return showImages ? (
+                <div 
+                    key={product.id} 
+                    ref={isLastElement ? lastProductElementRef : null}
+                    className={`bg-white dark:bg-slate-800 rounded-lg shadow-sm border overflow-hidden flex flex-col transition-all ${
+                        isInCart 
+                        ? 'border-orange-500 dark:border-orange-500 ring-1 ring-orange-500/50' 
+                        : 'border-slate-200 dark:border-slate-700'
                     }`}
-                  >
-                     <ShoppingCart className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => shareProduct(product)}
-                    title="Compartilhar via WhatsApp"
-                    className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
-                  >
-                    <Share2 className="w-4 h-4" />
-                  </button>
+                >
+                  <div className="relative aspect-square bg-slate-100 dark:bg-slate-700 group flex items-center justify-center">
+                    {product.imageUrl ? (
+                        <img 
+                          src={product.imageUrl} 
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                        />
+                    ) : (
+                        <Package className="w-16 h-16 text-slate-300 dark:text-slate-600" />
+                    )}
+                    
+                    <button
+                        onClick={(e) => generateImage(product, e)}
+                        disabled={imageLoadingId === product.id}
+                        className="absolute top-2 right-2 p-2 bg-white/90 dark:bg-slate-900/90 rounded-full shadow-md text-purple-600 dark:text-purple-400 hover:scale-110 transition-transform disabled:opacity-50 z-10"
+                    >
+                        {imageLoadingId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                    </button>
+
+                    <span className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
+                      Est: {product.stock}
+                    </span>
+
+                    {isInCart && (
+                      <div className="absolute top-2 left-2 bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg flex items-center gap-1 animate-in zoom-in">
+                        <Check className="w-3 h-3" />
+                        <span>{qtyDisplay}</span>
+                      </div>
+                    )}
                   </div>
-               </div>
-            </div>
-          );
-        })}
+                  <div className="p-4 flex-1 flex flex-col">
+                     <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-bold text-lg text-slate-900 dark:text-white leading-tight">{product.name}</h3>
+                        <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded">{product.id}</span>
+                     </div>
+                     
+                     <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 line-clamp-2 flex-1">{product.description}</p>
+                     
+                     {salesPitches[product.id] && (
+                        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+                            <div className="flex items-center gap-1 text-blue-700 dark:text-blue-300 text-xs font-bold mb-1">
+                                <Sparkles className="w-3 h-3" /> Argumento de Venda
+                            </div>
+                            <p className="text-sm text-slate-700 dark:text-slate-300 italic">"{salesPitches[product.id]}"</p>
+                        </div>
+                     )}
+
+                     <div className="flex items-end justify-between mt-auto">
+                        <div>
+                            <span className="block text-xs text-slate-500">Preço Unitário</span>
+                            <span className="text-xl font-bold text-blue-800 dark:text-blue-400">R$ {product.price.toFixed(2)}</span>
+                        </div>
+                        <button 
+                            onClick={() => onToggleCart(product)}
+                            className={`p-3 rounded-lg shadow-lg active:scale-95 transition-all flex items-center gap-2 ${
+                                isInCart
+                                ? 'bg-orange-700 text-white shadow-orange-600/30 ring-2 ring-orange-300 dark:ring-orange-900'
+                                : 'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-600/20'
+                            }`}
+                        >
+                            <ShoppingCart className="w-5 h-5" />
+                            {isInCart ? <span className="text-xs font-bold">Adicionado ({qtyDisplay})</span> : <span className="text-xs font-bold">Adicionar</span>}
+                        </button>
+                     </div>
+                     
+                     <button 
+                        onClick={(e) => generatePitch(product, e)}
+                        disabled={!!pitchLoadingId}
+                        className="w-full mt-3 py-2 flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:text-orange-600 dark:text-slate-400 dark:hover:text-orange-400 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                     >
+                        {pitchLoadingId === product.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                        {salesPitches[product.id] ? 'Gerar Novo Argumento' : 'Gerar Argumento com IA'}
+                     </button>
+                  </div>
+                </div>
+              ) : (
+                <div 
+                    key={product.id} 
+                    ref={isLastElement ? lastProductElementRef : null}
+                    className={`p-3 rounded-lg border flex items-start justify-between gap-3 shadow-sm active:scale-[0.99] transition-all ${
+                        isInCart 
+                        ? 'bg-orange-50/50 border-orange-400 dark:bg-orange-900/10 dark:border-orange-500' 
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                    }`}
+                >
+                   <div className="flex-1 min-w-0">
+                      <div className="flex items-center flex-wrap gap-2 mb-1 text-xs text-slate-500 dark:text-slate-400">
+                         <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] border font-bold ${
+                             isInCart ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'
+                         }`}>
+                            {product.id}
+                         </span>
+                         <span className="truncate max-w-[100px] hidden sm:inline">{product.category}</span>
+                         <span className="hidden sm:inline text-slate-300 dark:text-slate-600">•</span>
+                         <span className="flex items-center gap-1 whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">
+                            <Box className="w-3 h-3" /> {product.stock} {product.unit}
+                         </span>
+                      </div>
+
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-snug whitespace-normal break-words">
+                         {product.name}
+                      </h3>
+                       
+                       {product.description && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{product.description}</p>
+                       )}
+
+                      {isInCart && (
+                         <div className="mt-1 flex items-center gap-1 text-xs font-bold text-orange-600 dark:text-orange-400">
+                            <Check className="w-3 h-3" />
+                            No carrinho: {qtyDisplay}
+                         </div>
+                      )}
+                   </div>
+
+                   <div className="flex flex-col items-end gap-2 pl-2 shrink-0">
+                      <div className="text-right">
+                         <div className="font-bold text-blue-800 dark:text-blue-400 text-sm whitespace-nowrap">R$ {product.price.toFixed(2)}</div>
+                         <div className="text-[10px] text-slate-400">/{product.unit}</div>
+                      </div>
+                      <div className="flex gap-2">
+                      <button 
+                        onClick={() => onToggleCart(product)}
+                        className={`p-2 rounded-lg transition-colors ${
+                            isInCart
+                            ? 'bg-orange-600 text-white hover:bg-orange-700'
+                            : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50'
+                        }`}
+                      >
+                         <ShoppingCart className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => shareProduct(product)}
+                        title="Compartilhar via WhatsApp"
+                        className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
+                      >
+                        <Share2 className="w-4 h-4" />
+                      </button>
+                      </div>
+                   </div>
+                </div>
+              );
+            })}
+          </React.Fragment>
+        ))}
 
         {loadingMore && (
             <div className="py-4 text-center flex justify-center items-center gap-2 text-slate-500">

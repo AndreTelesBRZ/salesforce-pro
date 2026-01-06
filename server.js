@@ -189,6 +189,25 @@ class DatabaseAdapter {
 
 const db = new DatabaseAdapter();
 
+const isPrivilegedUser = (userId) => userId === 'master-admin' || userId === 'integration-token';
+
+const resolveSellerIdForRequest = async (req) => {
+    if (req.sellerId !== undefined) return req.sellerId;
+    if (!req.userId || isPrivilegedUser(req.userId)) {
+        req.sellerId = null;
+        return null;
+    }
+    try {
+        const user = await db.get("SELECT seller_id FROM users WHERE id = ?", [req.userId]);
+        const sellerId = user && user.seller_id ? String(user.seller_id) : null;
+        req.sellerId = sellerId;
+        return sellerId;
+    } catch (e) {
+        req.sellerId = null;
+        return null;
+    }
+};
+
 const ensureStoreInfoRow = async (storeId) => {
     try {
         const existing = await db.get("SELECT id FROM store_info WHERE id = ?", [storeId]);
@@ -906,8 +925,6 @@ app.post('/api/products', verifyToken, async (req, res) => {
 
 // Listar Clientes
 app.get('/api/clientes', verifyToken, async (req, res) => {
-    const vendedorId = req.query.vendedor_id;
-    
     // LÓGICA DE LIMITE ROBUSTA (atualizada): sem parâmetro -> sem limite (sync completo).
     // Se limit > 0, aplica paginação.
     let limit = -1; 
@@ -917,13 +934,19 @@ app.get('/api/clientes', verifyToken, async (req, res) => {
     }
 
     try {
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
         let query = "SELECT * FROM customers";
         const params = [];
 
         const where = ["(status IS NULL OR status != 'TEMPORARIO')"];
-        if (vendedorId) {
+        if (sellerId && !privileged) {
             where.push("seller_id = ?");
-            params.push(vendedorId);
+            params.push(sellerId);
         }
         if (where.length > 0) query += ` WHERE ${where.join(' AND ')}`;
         
@@ -958,10 +981,22 @@ app.get('/api/clientes/cnpj/:cnpj', verifyToken, async (req, res) => {
 
     const normalized = normalizeDocument(raw);
     try {
-        const query = isPostgres
-            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = $1 LIMIT 1"
-            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ? LIMIT 1";
-        const row = await db.get(query, [normalized]);
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        let query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = ?"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ?";
+        const params = [normalized];
+        if (sellerId && !privileged) {
+            query += " AND seller_id = ?";
+            params.push(sellerId);
+        }
+        query += " LIMIT 1";
+        const row = await db.get(query, params);
         if (!row) return res.status(404).json({ message: 'Cliente não encontrado.' });
         return res.json(mapCustomerPayload(row));
     } catch (e) {
@@ -1003,10 +1038,24 @@ app.post('/api/clientes/temp', verifyToken, async (req, res) => {
 
     const normalized = normalizeDocument(cnpj);
     try {
-        const query = isPostgres
-            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = $1 LIMIT 1"
-            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ? LIMIT 1";
-        const existing = await db.get(query, [normalized]);
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        const effectiveSellerId = privileged ? (vendedor_id || sellerId) : sellerId;
+
+        let query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = ?"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ?";
+        const params = [normalized];
+        if (effectiveSellerId) {
+            query += " AND seller_id = ?";
+            params.push(effectiveSellerId);
+        }
+        query += " LIMIT 1";
+        const existing = await db.get(query, params);
         if (existing) {
             return res.json(mapCustomerPayload(existing));
         }
@@ -1023,7 +1072,7 @@ app.post('/api/clientes/temp', verifyToken, async (req, res) => {
             uf,
             'TEMPORARIO',
             'SEFAZ',
-            vendedor_id || null
+            effectiveSellerId || null
         ]);
 
         const newId = result.lastID;
@@ -1055,7 +1104,19 @@ app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req
     if (!cliente_codigo) return res.status(400).json({ message: 'Cliente obrigatório.' });
 
     try {
-        const customer = await db.get("SELECT id, status FROM customers WHERE id = ?", [String(cliente_codigo)]);
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        const customerQuery = privileged
+            ? "SELECT id, status FROM customers WHERE id = ?"
+            : "SELECT id, status FROM customers WHERE id = ? AND seller_id = ?";
+        const customerParams = privileged
+            ? [String(cliente_codigo)]
+            : [String(cliente_codigo), sellerId];
+        const customer = await db.get(customerQuery, customerParams);
         if (!customer) return res.status(404).json({ message: 'Cliente não encontrado.' });
 
         const plans = await db.query(

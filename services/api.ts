@@ -1325,8 +1325,23 @@ class ApiService {
       let rawPrice = item.preco_promocao1 || item.preco || item.price || 0;
       if (typeof rawPrice === 'string') rawPrice = parseFloat(rawPrice.replace(',', '.'));
 
+      const readCode = (value: unknown): string | undefined => {
+          if (value === null || value === undefined) return undefined;
+          const text = String(value).trim();
+          return text ? text : undefined;
+      };
+
       // Ajuste solicitado: Nome do produto recebe a descrição completa
       const productName = item.descricao_completa || item.nome || item.name || 'Produto';
+      const sectionCode = readCode(
+          item.secao ?? item.codigo_secao ?? item.cod_secao ?? item.secao_codigo ?? item.section ?? item.section_code
+      );
+      const groupCode = readCode(
+          item.grupo ?? item.codigo_grupo ?? item.cod_grupo ?? item.grupo_codigo ?? item.group ?? item.group_code
+      );
+      const subgroupCode = readCode(
+          item.subgrupo ?? item.codigo_subgrupo ?? item.cod_subgrupo ?? item.subgrupo_codigo ?? item.subgroup ?? item.subgroup_code
+      );
 
       return {
         id: String(item.plu || item.codigo || item.id),
@@ -1338,7 +1353,10 @@ class ApiService {
         // AJUSTE: Prioriza estoque_disponivel
         stock: Number(item.estoque_disponivel ?? item.estoque ?? item.stock ?? 0),
         unit: item.unidade || item.unit || 'un',
-        imageUrl: this.resolveImageUrl(item.imagem_url || item.image_url || item.imagemUrl || item.imageUrl)
+        imageUrl: this.resolveImageUrl(item.imagem_url || item.image_url || item.imagemUrl || item.imageUrl),
+        sectionCode,
+        groupCode,
+        subgroupCode
       };
   }
 

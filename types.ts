@@ -8,6 +8,9 @@ export interface Product {
   stock: number;
   imageUrl?: string;
   unit: string; // Ex: 'un', 'kg', 'm', 'cx', 'L'
+  sectionCode?: string;
+  groupCode?: string;
+  subgroupCode?: string;
 }
 
 export interface Customer {
