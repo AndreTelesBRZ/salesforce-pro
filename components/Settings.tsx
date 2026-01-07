@@ -285,15 +285,6 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
         )}
 
         {/* Mock Data Toggle */}
-        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-900 p-4 rounded-md border dark:border-slate-700">
-          <span className="text-sm font-medium">Modo Demonstração (Mock)</span>
-          <input
-            type="checkbox"
-            checked={config.useMockData}
-            onChange={(e) => setConfig({ ...config, useMockData: e.target.checked })}
-            className="w-5 h-5 accent-orange-600"
-          />
-        </div>
 
         {/* Always fetch customers toggle */}
         <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-900 p-4 rounded-md border dark:border-slate-700">
