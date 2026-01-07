@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiService, LogEntry } from '../services/api';
 import { getBackendUrlForCurrentHost, getStoreCodeForCurrentHost, isBackendUrlLockedForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
@@ -12,6 +12,8 @@ interface SettingsProps {
 }
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
+
+const LLFIX_FORCED_BACKEND_URL = 'https://apiforce.llfix.app.br';
 
 export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeChange }) => {
   const [config, setConfig] = useState<AppConfig>(apiService.getConfig());
@@ -189,7 +191,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             <Database className="w-4 h-4 text-orange-600" />
             Endereço do Servidor (FastAPI/Django)
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
             <input
               type="text"
               value={resolvedBackendUrl}
@@ -208,7 +210,20 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                  testStatus === 'error' ? <XCircle className="w-5 h-5 text-red-500" /> :
                  <Wifi className="w-5 h-5" />}
             </button>
+            <button
+              type="button"
+              disabled={config.useMockData || backendUrlLocked || resolvedBackendUrl === LLFIX_FORCED_BACKEND_URL}
+              onClick={() => {
+                setConfig(prev => ({ ...prev, backendUrl: LLFIX_FORCED_BACKEND_URL }));
+              }}
+              className="px-3 border rounded-md text-sm font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-600 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50"
+            >
+              Usar apiforce.llfix.app.br
+            </button>
           </div>
+          <p className="text-[10px] text-slate-500 mt-2">
+            Força comunicação direta com o ERP LLFIX mesmo fora do domínio oficial.
+          </p>
         </div>
         
         {/* Token */}

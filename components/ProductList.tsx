@@ -469,6 +469,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
               const isLastElement = index === lastVisibleIndex;
               const cartItem = getCartItem(product.id);
               const isInCart = !!cartItem;
+              const isOutOfStock = (typeof product.stock === 'number' ? product.stock : 0) <= 0;
               const quantity = cartItem?.quantity || 0;
               const qtyDisplay = Number.isInteger(quantity) ? quantity : quantity.toFixed(2);
 
@@ -479,6 +480,8 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                     className={`bg-white dark:bg-slate-800 rounded-lg shadow-sm border overflow-hidden flex flex-col transition-all ${
                         isInCart 
                         ? 'border-orange-500 dark:border-orange-500 ring-1 ring-orange-500/50' 
+                        : isOutOfStock
+                        ? 'border-red-500/80 dark:border-red-500 bg-red-50/70 dark:bg-red-900/50'
                         : 'border-slate-200 dark:border-slate-700'
                     }`}
                 >
@@ -501,9 +504,14 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                         {imageLoadingId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
                     </button>
 
-                    <span className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
+                    <span className={`absolute bottom-2 right-2 text-xs px-2 py-1 rounded-full backdrop-blur-sm ${isOutOfStock ? 'bg-red-600/90 text-white' : 'bg-black/60 text-white'}`}>
                       Est: {product.stock}
                     </span>
+                    {isOutOfStock && (
+                      <span className="absolute bottom-2 left-2 text-xs font-bold text-red-600 dark:text-red-300 bg-white/80 dark:bg-red-900/70 px-2 py-0.5 rounded-full shadow-sm">
+                        Sem estoque
+                      </span>
+                    )}
 
                     {isInCart && (
                       <div className="absolute top-2 left-2 bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg flex items-center gap-1 animate-in zoom-in">
@@ -557,28 +565,36 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                      </button>
                   </div>
                 </div>
-              ) : (
-                <div 
-                    key={product.id} 
-                    ref={isLastElement ? lastProductElementRef : null}
-                    className={`p-3 rounded-lg border flex items-start justify-between gap-3 shadow-sm active:scale-[0.99] transition-all ${
+                ) : (
+                  <div 
+                      key={product.id} 
+                      ref={isLastElement ? lastProductElementRef : null}
+                      className={`p-3 rounded-lg border flex items-start justify-between gap-3 shadow-sm active:scale-[0.99] transition-all ${
                         isInCart 
                         ? 'bg-orange-50/50 border-orange-400 dark:bg-orange-900/10 dark:border-orange-500' 
+                        : isOutOfStock
+                        ? 'bg-red-50/50 border-red-300 dark:bg-red-900/10 dark:border-red-500'
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                     }`}
-                >
+                  >
                    <div className="flex-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2 mb-1 text-xs text-slate-500 dark:text-slate-400">
                          <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] border font-bold ${
-                             isInCart ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'
+                             isInCart
+                             ? 'bg-orange-100 text-orange-700 border-orange-200'
+                             : isOutOfStock
+                             ? 'bg-red-100 text-red-600 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-600'
+                             : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'
                          }`}>
-                            {product.id}
-                         </span>
+                           {product.id}
+                        </span>
                          <span className="truncate max-w-[100px] hidden sm:inline">{product.category}</span>
                          <span className="hidden sm:inline text-slate-300 dark:text-slate-600">•</span>
-                         <span className="flex items-center gap-1 whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">
-                            <Box className="w-3 h-3" /> {product.stock} {product.unit}
-                         </span>
+                         <span className={`flex items-center gap-1 whitespace-nowrap font-medium ${
+                            isOutOfStock ? 'text-red-500 dark:text-red-300' : 'text-slate-600 dark:text-slate-300'
+                         }`}>
+                           <Box className="w-3 h-3" /> {product.stock} {product.unit}
+                        </span>
                       </div>
 
                       <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-snug whitespace-normal break-words">
