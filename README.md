@@ -50,6 +50,20 @@ docker compose up --build -d
 
 O serviço ficará disponível em `http://localhost:8080`.
 
+## Implantação LLFIX
+
+Quando o frontend for compilado para o tenant LLFIX (domínio em `llfix.app.br`), fixe o backend FastAPI correto e o token esperado:
+
+1. No `.env` de build (ou em `.env.llfix`), defina:
+   - `VITE_BACKEND_URL=https://apiforce.llfix.app.br`
+   - `VITE_APP_INTEGRATION_TOKEN_LLFIX=<APP_INTEGRATION_TOKEN do FastAPI>`
+2. Rebuild e reinicie o frontend:
+   - Com Docker: `docker compose up --build -d` (ou o equivalente no Swarm)
+   - Sem Docker: `npm run build` e reinicie o serviço Node/Express que serve `dist/`
+3. Limpe o cache do navegador (hard refresh ou “Clear site data”) para garantir que não fique com Service Workers antigos.
+
+Com isso, todas as chamadas vão para `https://apiforce.llfix.app.br/api/produtos-sync?loja=000003`, evitando o 401 gerado pelo Express em `vendas.llfix.app.br`.
+
 Persistência de dados:
 - O SQLite fica em `/data/database.sqlite` dentro do container
 - O diretório local `./data` é montado em `/data` (volume), garantindo persistência entre recriações

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Product, CartItem } from '../types';
 import { apiService } from '../services/api';
 import { geminiService } from '../services/geminiService';
-import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Minus, Save, Share2 } from 'lucide-react';
+import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Minus, Save, Share2, RefreshCcw } from 'lucide-react';
 
 const normalizeCode = (value: string | undefined, length: number): string | null => {
   if (!value) return null;
@@ -84,6 +84,11 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleManualRefresh = () => {
+    if (loading) return;
+    loadFirstPage();
   };
 
   const loadMoreProducts = async () => {
@@ -354,7 +359,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
 
       {/* Cabeçalho de Controles */}
       <div className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-950 pt-4 pb-2 px-4 space-y-3">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
             <div className="relative flex-1">
               <input
                 type="text"
@@ -376,7 +381,16 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                  </button>
               )}
             </div>
-            
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={loading}
+              title="Atualizar catálogo"
+              className="p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-default"
+            >
+              <RefreshCcw className="w-4 h-4" />
+            </button>
+
             {/* Botão Adicionar Produto */}
             <button 
                 onClick={() => setShowAddModal(true)}

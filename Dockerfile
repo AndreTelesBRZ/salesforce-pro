@@ -10,7 +10,7 @@ RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
     fi
 COPY . .
 ARG VITE_GEMINI_API_KEY
-ARG VITE_BACKEND_URL
+ARG VITE_BACKEND_URL=https://apiforce.llfix.app.br
 ARG VITE_APP_INTEGRATION_TOKEN_EDSON
 ARG VITE_APP_INTEGRATION_TOKEN_LLFIX
 ARG VITE_APP_INTEGRATION_TOKEN
