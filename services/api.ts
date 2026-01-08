@@ -1,7 +1,7 @@
 
 import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem } from '../types';
 import { dbService } from './db';
-import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
+import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isEdsonHostForCurrent, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -573,6 +573,9 @@ class ApiService {
     const tokenToUse = this.resolveAppToken();
     if (tokenToUse) {
         headers['X-App-Token'] = tokenToUse;
+    }
+    if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token.trim()}`;
     }
     return headers;
   }
@@ -1370,11 +1373,12 @@ class ApiService {
          if (!this.config.alwaysFetchCustomers) {
             let local = await dbService.getLocalCustomers();
             // Filtro estrito: se houver vendedor logado, lista SOMENTE clientes vinculados a ele
-          if (currentSellerId) {
+            if (currentSellerId) {
                 local = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
             }
             local = local.filter(c => c.type !== 'TEMPORARIO');
-            if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
+            const activeLocal = this.filterCustomersByRecentSales(local);
+            if (activeLocal.length > 0) return [WALK_IN_CUSTOMER, ...activeLocal];
          }
 
          // Se estiver em Mock e não houver clientes locais, cria uma base de demonstração
@@ -1404,9 +1408,10 @@ class ApiService {
              const mapped = list
                  .filter((item: any) => item?.type !== 'TEMPORARIO')
                  .map((item: any) => this.mapCustomer(item));
+             const active = this.filterCustomersByRecentSales(mapped);
              const filtered = currentSellerId
-                 ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
-                 : mapped;
+                 ? active.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
+                 : active;
              return [WALK_IN_CUSTOMER, ...filtered];
          }
       } catch(e) {}
@@ -1614,9 +1619,10 @@ class ApiService {
         
         await dbService.clearCustomers();
         const mapped = list.map((c: any) => this.mapCustomer(c));
+        const active = this.filterCustomersByRecentSales(mapped);
         const filtered = savedSellerId
-            ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, savedSellerId))
-            : mapped;
+            ? active.filter((c: Customer) => this.isSameSeller(c.sellerId, savedSellerId))
+            : active;
         await dbService.bulkAddCustomers(filtered);
         
         onProgress(filtered.length);
@@ -1624,6 +1630,18 @@ class ApiService {
     } catch (e: any) {
         return { success: false, count: 0, message: e.message };
     }
+  }
+
+  private filterCustomersByRecentSales(customers: Customer[]): Customer[] {
+      if (!isEdsonHostForCurrent()) return customers;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      return customers.filter((customer) => {
+          if (!customer.lastSaleDate) return false;
+          const parsed = new Date(customer.lastSaleDate);
+          if (Number.isNaN(parsed.getTime())) return false;
+          return parsed >= cutoff;
+      });
   }
 
   private mapCustomer(c: any): Customer {

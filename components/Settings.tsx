@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiService, LogEntry } from '../services/api';
-import { getBackendUrlForCurrentHost, getStoreCodeForCurrentHost, isBackendUrlLockedForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from '../services/storeHost';
+import { getBackendUrlForCurrentHost, getStoreCodeForCurrentHost, isBackendUrlLockedForCurrent, isEdsonHostForCurrent, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 
@@ -31,6 +31,9 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const backendUrlLocked = isBackendUrlLockedForCurrent();
   const lockedBackendUrl = getBackendUrlForCurrentHost();
   const resolvedBackendUrl = backendUrlLocked ? lockedBackendUrl : config.backendUrl;
+  const isLlfixHost = isLlfixHostForCurrent();
+  const isEdsonHost = isEdsonHostForCurrent();
+  const showForceLLFix = isLlfixHost && !isEdsonHost;
 
   const applyStoreFromERP = async (loja: any) => {
     if (!loja) return;
@@ -210,20 +213,24 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                  testStatus === 'error' ? <XCircle className="w-5 h-5 text-red-500" /> :
                  <Wifi className="w-5 h-5" />}
             </button>
-            <button
-              type="button"
-              disabled={config.useMockData || backendUrlLocked || resolvedBackendUrl === LLFIX_FORCED_BACKEND_URL}
-              onClick={() => {
-                setConfig(prev => ({ ...prev, backendUrl: LLFIX_FORCED_BACKEND_URL }));
-              }}
-              className="px-3 border rounded-md text-sm font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-600 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50"
-            >
-              Usar apiforce.llfix.app.br
-            </button>
+            {showForceLLFix && (
+              <button
+                type="button"
+                disabled={config.useMockData || backendUrlLocked || resolvedBackendUrl === LLFIX_FORCED_BACKEND_URL}
+                onClick={() => {
+                  setConfig(prev => ({ ...prev, backendUrl: LLFIX_FORCED_BACKEND_URL }));
+                }}
+                className="px-3 border rounded-md text-sm font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-600 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50"
+              >
+                Usar apiforce.llfix.app.br
+              </button>
+            )}
           </div>
-          <p className="text-[10px] text-slate-500 mt-2">
-            Força comunicação direta com o ERP LLFIX mesmo fora do domínio oficial.
-          </p>
+          {showForceLLFix && (
+            <p className="text-[10px] text-slate-500 mt-2">
+              Força comunicação direta com o ERP LLFIX mesmo fora do domínio oficial.
+            </p>
+          )}
         </div>
         
         {/* Token */}

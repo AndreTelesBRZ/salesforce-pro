@@ -64,6 +64,25 @@ Quando o frontend for compilado para o tenant LLFIX (domínio em `llfix.app.br`)
 
 Com isso, todas as chamadas vão para `https://apiforce.llfix.app.br/api/produtos-sync?loja=000003`, evitando o 401 gerado pelo Express em `vendas.llfix.app.br`.
 
+### Cabeçalhos obrigatórios para sincronização LLFIX
+
+Ao consumir `/api/produtos-sync`, `/api/clientes-sync` e demais endpoints expostos no domínio `https://apiforce.llfix.app.br`, o frontend precisa combinar dois cabeçalhos:
+
+1. `Authorization: Bearer <JWT válido>` obtido em `/auth/login` usando as chaves `JWT_SECRET`/`JWT_ALGORITHM` do tenant LLFIX.
+2. `X-App-Token: qZBhHYhZ-7P_2_265zqAl5DwqE5MiahXvivJnvoeT2b5GuYP6IHcKf81nVAQZJU4_EQ` (ou o valor exato de `APP_INTEGRATION_TOKEN` definido em `.env.llfix`).
+
+O fluxo esperado:
+
+- Obtenha o JWT realizando `POST /auth/login` com as credenciais da API.
+- Armazene o token e reutilize-o em todas as requisições de sync feitas por `fetchWithAuth`.
+- Garanta que o `X-App-Token` corresponda ao valor fixo do `.env.llfix` (não é o JWT).
+- No DevTools > Network, confirme que:
+  - `Authorization` carrega o JWT.
+  - `X-App-Token` coincide com `.env.llfix`.
+  - `Host` / `Origin` apontam para `llfix`.
+
+Essa combinação atende ao que `permissions.py` espera no backend e evita o erro `401 Token inválido`.
+
 Persistência de dados:
 - O SQLite fica em `/data/database.sqlite` dentro do container
 - O diretório local `./data` é montado em `/data` (volume), garantindo persistência entre recriações
