@@ -25,6 +25,15 @@ const WALK_IN_CUSTOMER: Customer = {
   lastSaleValue: 0
 };
 
+export type ClientSyncViewMode = 'self' | 'all' | 'recent';
+
+export interface ClientSyncViewResponse {
+    total?: number;
+    mode?: string;
+    data?: any[];
+    [key: string]: any;
+}
+
 export interface LogEntry {
     timestamp: string;
     message: string;
@@ -78,7 +87,7 @@ class ApiService {
           }
       }
       if (decoded.sellerId) {
-          localStorage.setItem('sellerId', String(decoded.sellerId));
+          this.persistSellerId(decoded.sellerId);
       }
   }
 
@@ -297,16 +306,12 @@ class ApiService {
                 profile.codigo_vendedor ||
                 profile.vendedor_codigo ||
                 profile.vendedor_id;
-
-              if (sellerId) {
-                  localStorage.setItem('sellerId', String(sellerId));
-              }
+              const paddedSellerId = this.persistSellerId(sellerId);
 
               if (name && !this.isPlaceholderUsername(name)) {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
                   localStorage.setItem('username', name);
-                  if (sellerId) localStorage.setItem('sellerId', String(sellerId));
-                  return { name, seller_id: sellerId };
+                  return { name, seller_id: paddedSellerId ?? undefined };
               }
           } catch (e: any) {
               lastError = e;
@@ -316,11 +321,11 @@ class ApiService {
       const tokenToDecode = this.token || this.config.apiToken;
       if (tokenToDecode) {
           const decoded = this.decodeToken(tokenToDecode);
-          if (decoded.name) {
-              localStorage.setItem('username', decoded.name);
-              if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
-              return { name: decoded.name, seller_id: decoded.sellerId };
-          }
+              if (decoded.name) {
+                  localStorage.setItem('username', decoded.name);
+                  const paddedSellerId = this.persistSellerId(decoded.sellerId);
+                  return { name: decoded.name, seller_id: paddedSellerId ?? undefined };
+              }
       }
 
       if (lastError?.message) {
@@ -465,18 +470,73 @@ class ApiService {
       return this.getDefaultUsername();
   }
   
+  private padSellerDigits(value?: string | number | null): string {
+      if (value === null || value === undefined) return '';
+      const raw = String(value).trim();
+      if (!raw) return '';
+      const digits = raw.replace(/\D/g, '');
+      if (!digits) return '';
+      return digits.padStart(6, '0');
+  }
+
+  private persistSellerId(value?: string | number | null): string | null {
+      const padded = this.padSellerDigits(value);
+      if (!padded) return null;
+      if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('sellerId', padded);
+      }
+      return padded;
+  }
+
+  private getStoredSellerId(): string | null {
+      if (typeof localStorage === 'undefined') return null;
+      const stored = localStorage.getItem('sellerId');
+      if (!stored) return null;
+      const padded = this.padSellerDigits(stored);
+      if (!padded) return null;
+      if (padded !== stored) {
+          localStorage.setItem('sellerId', padded);
+      }
+      return padded;
+  }
+
+  private buildVendorQueryParams(includeStore: boolean = true): URLSearchParams {
+      const params = new URLSearchParams();
+      const sellerCode = this.getSellerId();
+      if (sellerCode) {
+          params.set('vendedor_id', sellerCode);
+          params.set('cod_vendedor', sellerCode);
+          params.set('vendedor_codigo', sellerCode);
+      }
+      if (includeStore) {
+          const storeCode = getStoreCodeForCurrentHost();
+          if (storeCode) {
+              params.set('loja_codigo', storeCode);
+          }
+      }
+      return params;
+  }
+
   // Recupera o ID do vendedor salvo no login
   getSellerId(): string | null {
-      const stored = localStorage.getItem('sellerId');
+      const stored = this.getStoredSellerId();
       if (stored) return stored;
       const tokenToDecode = this.token || this.config.apiToken;
       if (!tokenToDecode) return null;
       const decoded = this.decodeToken(tokenToDecode);
-      if (decoded.sellerId) {
-          localStorage.setItem('sellerId', String(decoded.sellerId));
-          return String(decoded.sellerId);
+      return this.persistSellerId(decoded.sellerId);
+  }
+
+  private async resolveSellerIdFromProfile(): Promise<string | null> {
+      let sellerId = this.getSellerId();
+      if (sellerId) return sellerId;
+      try {
+          await this.fetchProfile();
+      } catch {
+          // Ignore profile failures, we'll fallback to stored sellerId (if any)
       }
-      return null;
+      sellerId = this.getSellerId();
+      return sellerId || null;
   }
 
   private getBaseUrl(): string {
@@ -815,7 +875,7 @@ class ApiService {
               localStorage.setItem('username', displayName);
               
               if (sellerId) {
-                  localStorage.setItem('sellerId', sellerId);
+                  this.persistSellerId(sellerId);
               } else {
                   localStorage.removeItem('sellerId');
               }
@@ -915,7 +975,7 @@ class ApiService {
                   localStorage.setItem('authToken', this.token || '');
                   localStorage.setItem('username', displayName);
                   if (sellerId) {
-                      localStorage.setItem('sellerId', sellerId);
+                      this.persistSellerId(sellerId);
                   } else {
                       localStorage.removeItem('sellerId');
                   }
@@ -973,7 +1033,7 @@ class ApiService {
                 
                 // SALVA SELLER ID SE RETORNADO
                 if (data.sellerId) {
-                    localStorage.setItem('sellerId', data.sellerId);
+                    this.persistSellerId(data.sellerId);
                 } else {
                     localStorage.removeItem('sellerId');
                 }
@@ -1023,7 +1083,7 @@ class ApiService {
               localStorage.setItem('authToken', this.token || '');
               localStorage.setItem('username', email);
               if (data.sellerId) {
-                 localStorage.setItem('sellerId', data.sellerId);
+                 this.persistSellerId(data.sellerId);
               }
               this.addLog(`Novo usuário registrado: ${email}`, 'success');
               return { success: true };
@@ -1366,8 +1426,8 @@ class ApiService {
   // --- CLIENTES ---
 
   async getCustomers(): Promise<Customer[]> {
-      const currentSellerId = this.getSellerId();
-      
+      const currentSellerId = await this.resolveSellerIdFromProfile();
+
       try {
          // Se configuração exigir, ignora cache local e busca sempre do backend
          if (!this.config.alwaysFetchCustomers) {
@@ -1377,11 +1437,9 @@ class ApiService {
                 local = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
             }
             local = local.filter(c => c.type !== 'TEMPORARIO');
-            const activeLocal = this.filterCustomersByRecentSales(local);
-            if (activeLocal.length > 0) return [WALK_IN_CUSTOMER, ...activeLocal];
+            if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
          }
 
-         // Se estiver em Mock e não houver clientes locais, cria uma base de demonstração
          if (this.config.useMockData) {
             const demoClients: Customer[] = [
                 { id:'C100', name:'Rede Varejista Alfa', fantasyName:'Alfa Supermercados', document:'12.345.678/0001-90', address:'Av. Brasil', addressNumber:'1000', neighborhood:'Centro', city:'Fortaleza', state:'CE', zipCode:'60000-000', phone:'(85) 3333-0001', email:'compras@alfa.com', sellerId: currentSellerId || '' },
@@ -1392,30 +1450,17 @@ class ApiService {
             return [WALK_IN_CUSTOMER, ...demoClients];
          }
 
-         // FALLBACK: Aumenta limite de visualização direta se não sincronizado
-         // limit=-1 para garantir que traga tudo se a sincronização falhou antes
-         let queryParams = `limit=-1`; 
-         
-         if (currentSellerId) {
-            const encoded = encodeURIComponent(currentSellerId);
-            queryParams += `&vendedor_id=${encoded}&cod_vendedor=${encoded}`;
-         }
+         const view = await this.fetchClientSyncView('recent');
+         const list = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
+         const mapped = list
+             .filter((item: any) => item?.type !== 'TEMPORARIO')
+             .map((item: any) => this.mapCustomer(item));
+         const filtered = currentSellerId
+             ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
+             : mapped;
+         return [WALK_IN_CUSTOMER, ...filtered];
+      } catch (e) {}
 
-         const res = await this.fetchWithAuth(`/api/clientes?${queryParams}`);
-         if (res.ok) {
-             const data = await res.json();
-             const list = Array.isArray(data) ? data : data.data || [];
-             const mapped = list
-                 .filter((item: any) => item?.type !== 'TEMPORARIO')
-                 .map((item: any) => this.mapCustomer(item));
-             const active = this.filterCustomersByRecentSales(mapped);
-             const filtered = currentSellerId
-                 ? active.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
-                 : active;
-             return [WALK_IN_CUSTOMER, ...filtered];
-         }
-      } catch(e) {}
-      
       return [WALK_IN_CUSTOMER];
   }
 
@@ -1533,15 +1578,57 @@ class ApiService {
       }));
   }
 
-  async getDelinquency(): Promise<DelinquencyItem[]> {
-      const sellerId = this.getSellerId();
+  private getClientSyncViewPath(mode: ClientSyncViewMode): string {
+      switch (mode) {
+        case 'all':
+          return '/clients/sync/all/';
+        case 'recent':
+          return '/clients/sync/recentes/';
+        default:
+          return '/clients/sync/';
+      }
+  }
+
+  async fetchClientSyncView(mode: ClientSyncViewMode): Promise<ClientSyncViewResponse> {
+      await this.resolveSellerIdFromProfile();
+      const params = this.buildVendorQueryParams();
+      const queryString = params.toString();
+      const endpoint = `${this.getClientSyncViewPath(mode)}${queryString ? `?${queryString}` : ''}`;
       try {
-          const query = new URLSearchParams();
-          if (sellerId) {
-              query.set('vendedor_id', sellerId);
-              query.set('cod_vendedor', sellerId);
-          }
-          const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
+        const res = await this.fetchWithAuth(endpoint);
+        if (!res.ok) throw new Error(`Erro ${res.status}`);
+        return await res.json();
+      } catch (error: any) {
+        if (mode === 'recent') {
+          const fallback = await this.fetchWithAuth(`/api/clientes${queryString ? `?${queryString}` : ''}`);
+          if (!fallback.ok) throw new Error(`Fallback falhou: ${fallback.status}`);
+          const jsonCheck = await this.ensureJsonResponse(fallback, 'Clientes');
+          if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+          const data = await fallback.json();
+          return { data: Array.isArray(data) ? data : (data.data || []) };
+        }
+        throw error;
+      }
+  }
+
+  getClientSyncViewUrl(mode: ClientSyncViewMode): string {
+      const path = this.getClientSyncViewPath(mode);
+      const params = this.buildVendorQueryParams();
+      const queryString = params.toString();
+      const suffix = queryString ? `?${queryString}` : '';
+      const baseUrl = this.getBaseUrl();
+      if (baseUrl) {
+        return `${baseUrl}${path}${suffix}`;
+      }
+      return `${path}${suffix}`;
+  }
+
+  async getDelinquency(): Promise<DelinquencyItem[]> {
+      const sellerId = await this.resolveSellerIdFromProfile();
+      try {
+          const params = this.buildVendorQueryParams();
+          const queryString = params.toString();
+          const endpoint = `/api/inadimplencia${queryString ? `?${queryString}` : ''}`;
           const res = await this.fetchWithAuth(endpoint);
           if (!res.ok) throw new Error(`Erro ${res.status}`);
           const jsonCheck = await this.ensureJsonResponse(res, 'Inadimplência');
@@ -1571,13 +1658,10 @@ class ApiService {
 
   async syncDelinquency(): Promise<{ success: boolean, count: number, message?: string }> {
      try {
-        const sellerId = this.getSellerId();
-        const query = new URLSearchParams();
-        if (sellerId) {
-            query.set('vendedor_id', sellerId);
-            query.set('cod_vendedor', sellerId);
-        }
-        const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
+        const sellerId = await this.resolveSellerIdFromProfile();
+        const params = this.buildVendorQueryParams();
+        const queryString = params.toString();
+        const endpoint = `/api/inadimplencia${queryString ? `?${queryString}` : ''}`;
         const res = await this.fetchWithAuth(endpoint);
         if (!res.ok) throw new Error(`Erro ${res.status}`);
         const jsonCheck = await this.ensureJsonResponse(res, 'Inadimplência');
@@ -1600,48 +1684,18 @@ class ApiService {
 
   async syncCustomers(onProgress: (c: number) => void): Promise<{ success: boolean, count: number, message?: string }> {
      try {
-        // CORREÇÃO: limit=-1 indica para o backend mandar tudo (sem paginação).
-        let queryParams = `limit=-1`; 
-        
-        // RECUPERA SELLER ID DO LOGIN
-        const savedSellerId = this.getSellerId();
-        if (savedSellerId) {
-            const encoded = encodeURIComponent(savedSellerId);
-            queryParams += `&vendedor_id=${encoded}&cod_vendedor=${encoded}`;
-        }
-        
-        const response = await this.fetchWithAuth(`/api/clientes?${queryParams}`);
-        if (!response.ok) throw new Error(`Erro ${response.status}`);
-        const jsonCheck = await this.ensureJsonResponse(response, 'Clientes');
-        if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
-        const data = await response.json();
-        const list = Array.isArray(data) ? data : (data.data || []);
+        const view = await this.fetchClientSyncView('recent');
+        const rawList = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
         
         await dbService.clearCustomers();
-        const mapped = list.map((c: any) => this.mapCustomer(c));
-        const active = this.filterCustomersByRecentSales(mapped);
-        const filtered = savedSellerId
-            ? active.filter((c: Customer) => this.isSameSeller(c.sellerId, savedSellerId))
-            : active;
-        await dbService.bulkAddCustomers(filtered);
+        const mapped = rawList.map((c: any) => this.mapCustomer(c));
+        await dbService.bulkAddCustomers(mapped);
         
-        onProgress(filtered.length);
-        return { success: true, count: filtered.length };
+        onProgress(mapped.length);
+        return { success: true, count: mapped.length };
     } catch (e: any) {
         return { success: false, count: 0, message: e.message };
     }
-  }
-
-  private filterCustomersByRecentSales(customers: Customer[]): Customer[] {
-      if (!isEdsonHostForCurrent()) return customers;
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      return customers.filter((customer) => {
-          if (!customer.lastSaleDate) return false;
-          const parsed = new Date(customer.lastSaleDate);
-          if (Number.isNaN(parsed.getTime())) return false;
-          return parsed >= cutoff;
-      });
   }
 
   private mapCustomer(c: any): Customer {

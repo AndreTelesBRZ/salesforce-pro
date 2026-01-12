@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle, ChevronRight, X } from 'lucide-react';
-import { apiService } from '../services/api';
+import { apiService, ClientSyncViewMode, ClientSyncViewResponse } from '../services/api';
 import { dbService } from '../services/db';
 import { Customer, DelinquencyItem } from '../types';
 
@@ -38,6 +38,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   const [inactiveCustomersList, setInactiveCustomersList] = useState<{ customer: Customer; lastSale: Date | null }[]>([]);
   const [inactiveLoading, setInactiveLoading] = useState<boolean>(false);
   const [showInactiveModal, setShowInactiveModal] = useState<boolean>(false);
+  const [clientSyncSelfView, setClientSyncSelfView] = useState<ClientSyncViewResponse | null>(null);
+  const [clientSyncAllView, setClientSyncAllView] = useState<ClientSyncViewResponse | null>(null);
+  const [clientSyncRecentView, setClientSyncRecentView] = useState<ClientSyncViewResponse | null>(null);
+  const [clientSyncLoading, setClientSyncLoading] = useState<boolean>(false);
 
   useEffect(() => {
      let isMounted = true;
@@ -105,7 +109,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         });
 
         const inactiveCutoff = new Date();
-        inactiveCutoff.setDate(inactiveCutoff.getDate() - 30);
+        inactiveCutoff.setDate(inactiveCutoff.getDate() - 60);
 
         const filteredCustomers = customers.filter((c) => c.id !== '0' && c.type !== 'TEMPORARIO');
         const inactiveList = filteredCustomers
@@ -129,9 +133,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         setInactiveLoading(false);
      })();
 
-     return () => {
-        isMounted = false;
-     };
+      return () => {
+         isMounted = false;
+      };
+ }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadClientSyncViews = async () => {
+      setClientSyncLoading(true);
+      try {
+        const [self, all, recent] = await Promise.all([
+          apiService.fetchClientSyncView('self'),
+          apiService.fetchClientSyncView('all'),
+          apiService.fetchClientSyncView('recent')
+        ]);
+        if (!isMounted) return;
+        setClientSyncSelfView(self);
+        setClientSyncAllView(all);
+        setClientSyncRecentView(recent);
+      } catch (error) {
+        console.error('Falha ao carregar dados de sincronização', error);
+      } finally {
+        if (isMounted) setClientSyncLoading(false);
+      }
+    };
+
+    loadClientSyncViews();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -209,7 +241,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     ? 'Atualizando carteira...'
     : inactiveCount > 0
       ? `${inactiveCount} cliente${inactiveCount > 1 ? 's' : ''} sem compra no mês`
-      : 'Carteira ativa nos últimos 30 dias';
+      : 'Carteira ativa nos últimos 60 dias';
   const inactiveMeta = inactiveLoading ? 'Atualizando' : inactiveCount > 0 ? `${inactiveCount} cliente${inactiveCount > 1 ? 's' : ''}` : 'Em dia';
 
   const routineItems = [
@@ -236,7 +268,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     },
     {
       id: 'inactive',
-      title: 'Clientes sem compra há 30 dias',
+      title: 'Clientes sem compra há 60 dias',
       description: inactiveDescription,
       meta: inactiveMeta,
       tone: inactiveLoading ? ('neutral' as const) : inactiveCount > 0 ? ('neutral' as const) : ('success' as const),
@@ -247,6 +279,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           ? 'text-slate-600 dark:text-slate-300'
           : 'text-emerald-600',
     },
+  ];
+
+  const syncButtons: { mode: ClientSyncViewMode; label: string }[] = [
+    { mode: 'self', label: 'Minha carteira' },
+    { mode: 'all', label: 'Todos os clientes' },
+    { mode: 'recent', label: 'Clientes ativos 60 dias' }
   ];
 
   const toneStyles: Record<'danger' | 'warning' | 'success' | 'neutral', string> = {
@@ -325,8 +363,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           <h3 className="text-sm font-bold text-slate-800 dark:text-white">Rotina de eventos</h3>
           <span className="text-[10px] font-semibold text-slate-400 uppercase">Hoje</span>
         </div>
-        <div className="mt-4 space-y-3">
-          {routineItems.map((item) => {
+      <div className="mt-4 space-y-3">
+        {routineItems.map((item) => {
             const isDelinquency = item.id === 'delinquency';
             const isInactive = item.id === 'inactive';
             const isClickable =
@@ -370,6 +408,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
               </div>
             );
           })}
+        </div>
+      </div>
+      
+      <div className="max-w-md mx-auto mt-6 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase text-slate-400">Dados Oficiais</p>
+            <p className="text-3xl font-bold text-slate-900 dark:text-white">
+              {clientSyncAllView?.total !== undefined
+                ? clientSyncAllView.total
+                : clientSyncLoading
+                  ? '...'
+                  : '—'}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Modo: {clientSyncAllView?.mode ?? (clientSyncLoading ? 'Carregando...' : '—')}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Minha carteira: {clientSyncSelfView?.total !== undefined ? clientSyncSelfView.total : (clientSyncLoading ? '...' : '—')}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Recente 60 dias: {clientSyncRecentView?.total !== undefined ? clientSyncRecentView.total : (clientSyncLoading ? '...' : '—')}
+            </p>
+          </div>
+          <div className="ml-auto grid grid-cols-3 gap-2">
+            {syncButtons.map((button) => (
+              <a
+                key={button.mode}
+                href={apiService.getClientSyncViewUrl(button.mode)}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-semibold text-slate-700 dark:text-slate-100 hover:border-blue-500 dark:hover:border-blue-400 text-center"
+              >
+                {button.label}
+              </a>
+            ))}
+          </div>
         </div>
       </div>
       
@@ -541,7 +616,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
               <div>
-                <h3 className="text-base font-bold text-slate-800 dark:text-white">Clientes sem compra há 30 dias</h3>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white">Clientes sem compra há 60 dias</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {inactiveCustomersList.length} cliente{inactiveCustomersList.length !== 1 ? 's' : ''}
                 </p>
@@ -582,7 +657,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-slate-500">Nenhum cliente sem compra há 30 dias.</p>
+                <p className="text-sm text-slate-500">Nenhum cliente sem compra há 60 dias.</p>
               )}
             </div>
           </div>
