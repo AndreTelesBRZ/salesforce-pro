@@ -675,7 +675,7 @@ class ApiService {
   // Força requisição ao mesmo host do app (ignora backendUrl) — útil para /api/store e geração de PDF
   async fetchLocal(endpoint: string, options: RequestInit = {}): Promise<Response> {
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) } as any;
+      const headers = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
       return fetch(cleanEndpoint, { ...options, headers });
   }
 
@@ -1107,35 +1107,17 @@ class ApiService {
       const targetUrl = hostBackend
         ? this.normalizeBackendUrl(hostBackend)
         : (url.trim() ? this.normalizeBackendUrl(url) : this.getBaseUrl());
-      // Preferimos /api/me para validar permissão do token, pois alguns backends
-      // exigem vendedor_id nas rotas de produtos e retornam 403.
-      const meEndpoint = targetUrl ? `${targetUrl}/api/me` : `/api/me`;
       const productEndpoint = this.buildProductsEndpoint({ limit: 1, includeSeller: true });
       const endpoint = targetUrl ? `${targetUrl}${productEndpoint}` : productEndpoint;
       
-      this.addLog(`Testando: ${meEndpoint} ou ${endpoint}`, 'info');
+      this.addLog(`Testando: ${endpoint}`, 'info');
       
       try {
-        // 1) Tenta /api/me
-        let response = await fetch(meEndpoint, {
+        const response = await fetch(endpoint, {
           method: 'GET',
           headers: { ...this.getAuthHeaders() }
         });
 
-        if (response.ok) {
-            const jsonCheck = await this.ensureJsonResponse(response, '/api/me');
-            if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
-            const storeCheck = await this.validateStoreForCurrentHost();
-            if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
-            return { success: true, message: 'Conectado!' };
-        }
-        
-        // 2) Fallback para produtos (com vendedor_id se houver)
-        response = await fetch(endpoint, {
-          method: 'GET',
-          headers: { ...this.getAuthHeaders() }
-        });
-        
         if (response.ok) {
             const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
             if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };

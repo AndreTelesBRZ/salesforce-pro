@@ -11,9 +11,20 @@ import { SyncData } from './components/SyncData';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
 import { Product, CartItem, ThemeMode } from './types';
-import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X } from 'lucide-react';
 
 type View = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send';
+
+const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ className?: string }>; }[] = [
+  { view: 'dashboard', label: 'Início', icon: Store },
+  { view: 'products', label: 'Catálogo', icon: LayoutGrid },
+  { view: 'cart', label: 'Carrinho', icon: ShoppingCart },
+  { view: 'orders', label: 'Histórico', icon: FileText },
+  { view: 'customers', label: 'Carteira', icon: User },
+  { view: 'sync', label: 'Sincronizar', icon: Download },
+  { view: 'send', label: 'Envio Pendente', icon: UploadCloud },
+  { view: 'settings', label: 'Ajustes', icon: SettingsIcon },
+];
 
 export default function App() {
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
@@ -21,6 +32,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showSettingsFromLogin, setShowSettingsFromLogin] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [currentUser, setCurrentUser] = useState('');
   const [sellerCode, setSellerCode] = useState<string | null>(null);
@@ -244,9 +256,13 @@ export default function App() {
                 <ArrowLeft className="w-6 h-6" />
               </button>
             ) : (
-               <div className="p-2 bg-blue-800 rounded-lg shadow-inner text-orange-400">
+               <button
+                 onClick={() => setIsMainMenuOpen(true)}
+                 className="p-2 bg-blue-800 rounded-lg shadow-inner text-orange-400"
+                 aria-label="Abrir menu principal"
+               >
                   <Menu className="w-6 h-6" />
-               </div>
+               </button>
             )}
             <div>
               <h1 className="text-lg font-bold leading-tight text-white">
@@ -339,6 +355,59 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {isMainMenuOpen && (
+        <div className="fixed inset-0 z-40">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsMainMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu principal"
+            className="relative z-10 h-full max-w-xs w-full bg-white dark:bg-slate-900 shadow-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Menu</p>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">SalesForce Pro</h2>
+              </div>
+              <button
+                onClick={() => setIsMainMenuOpen(false)}
+                className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-full transition-colors"
+                aria-label="Fechar menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mt-6 space-y-2">
+              {navMenuItems.map((item) => {
+                const active = item.view === currentView;
+                return (
+                  <button
+                    key={item.view}
+                    onClick={() => {
+                      setCurrentView(item.view);
+                      setIsMainMenuOpen(false);
+                    }}
+                    className={`w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
+                      active
+                        ? 'bg-blue-900 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    <span className="font-semibold text-sm">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

@@ -411,43 +411,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         </div>
       </div>
       
-      <div className="max-w-md mx-auto mt-6 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase text-slate-400">Dados Oficiais</p>
-            <p className="text-3xl font-bold text-slate-900 dark:text-white">
-              {clientSyncAllView?.total !== undefined
-                ? clientSyncAllView.total
-                : clientSyncLoading
-                  ? '...'
-                  : '—'}
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Modo: {clientSyncAllView?.mode ?? (clientSyncLoading ? 'Carregando...' : '—')}
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Minha carteira: {clientSyncSelfView?.total !== undefined ? clientSyncSelfView.total : (clientSyncLoading ? '...' : '—')}
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Recente 60 dias: {clientSyncRecentView?.total !== undefined ? clientSyncRecentView.total : (clientSyncLoading ? '...' : '—')}
-            </p>
-          </div>
-          <div className="ml-auto grid grid-cols-3 gap-2">
-            {syncButtons.map((button) => (
-              <a
-                key={button.mode}
-                href={apiService.getClientSyncViewUrl(button.mode)}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-semibold text-slate-700 dark:text-slate-100 hover:border-blue-500 dark:hover:border-blue-400 text-center"
-              >
-                {button.label}
-              </a>
-            ))}
-          </div>
-        </div>
-      </div>
-      
       {/* ALERTA DE BANCO DE DADOS (PERSISTÊNCIA) */}
       {!isStoragePersisted && !permissionRequested && (
           <div className="max-w-md mx-auto mt-6 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4 shadow-sm animate-in slide-in-from-top-2">
