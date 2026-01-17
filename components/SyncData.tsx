@@ -15,7 +15,14 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
   const [syncedCount, setSyncedCount] = useState(0);
   const [syncedCustomerCount, setSyncedCustomerCount] = useState(0);
   const [syncedDelinquencyCount, setSyncedDelinquencyCount] = useState(0);
+  const [progressPercent, setProgressPercent] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+
+  const stageProgressMap: Record<'all' | 'products' | 'customers', Partial<Record<'products' | 'customers' | 'delinquency', number>>> = {
+    all: { products: 33, customers: 66, delinquency: 100 },
+    products: { products: 100 },
+    customers: { customers: 70, delinquency: 100 }
+  };
 
   const handleSync = async (target: 'all' | 'products' | 'customers') => {
     if (syncState === 'syncing') return;
@@ -26,9 +33,17 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
     setSyncedCount(0);
     setSyncedCustomerCount(0);
     setSyncedDelinquencyCount(0);
+    setProgressPercent(0);
 
     let hasError = false;
     let errorMsg = '';
+
+    const updateStageProgress = (stage: 'products' | 'customers' | 'delinquency') => {
+      const value = stageProgressMap[target]?.[stage];
+      if (typeof value === 'number') {
+        setProgressPercent(value);
+      }
+    };
 
     // 1. Sync Produtos
     if (target === 'all' || target === 'products') {
@@ -40,6 +55,9 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
         if (!prodResult.success) {
             hasError = true;
             errorMsg = prodResult.message || 'Erro ao baixar produtos';
+        }
+        if (!hasError) {
+            updateStageProgress('products');
         }
     }
 
@@ -53,6 +71,8 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
         if (!custResult.success) {
             hasError = true;
             errorMsg = custResult.message || 'Erro ao baixar clientes';
+        } else {
+            updateStageProgress('customers');
         }
     }
 
@@ -63,10 +83,12 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
             errorMsg = delinquencyResult.message || 'Erro ao baixar inadimplência';
         } else {
             setSyncedDelinquencyCount(delinquencyResult.count);
+            updateStageProgress('delinquency');
         }
     }
 
     if (hasError) {
+        setProgressPercent(0);
         setSyncState('error');
         setErrorMessage(errorMsg);
         setSyncStep('none');
@@ -167,6 +189,20 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
                         'Erro na Sincronização'}
                    </span>
                </div>
+               {syncState === 'syncing' && (
+                   <div className="mt-3 space-y-1">
+                       <div className="flex justify-between text-xs text-slate-600 dark:text-slate-300">
+                           <span>Progresso</span>
+                           <span className="font-mono">{progressPercent}%</span>
+                       </div>
+                       <div className="h-2 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                           <div
+                               className="h-full bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 transition-[width] duration-300 ease-out"
+                               style={{ width: `${progressPercent}%` }}
+                           />
+                       </div>
+                   </div>
+               )}
                
                <div className="text-sm space-y-1 ml-8">
                    {(syncTarget === 'products' || syncTarget === 'all') && (
@@ -195,7 +231,7 @@ export const SyncData: React.FC<SyncDataProps> = ({ onBack }) => {
                    )}
                    
                    {syncState === 'success' && (
-                       <button onClick={() => setSyncState('idle')} className="text-xs underline mt-2 text-green-700 hover:text-green-900">
+                       <button onClick={() => { setSyncState('idle'); setProgressPercent(0); }} className="text-xs underline mt-2 text-green-700 hover:text-green-900">
                            Fechar status
                        </button>
                    )}

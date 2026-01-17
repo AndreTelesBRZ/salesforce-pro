@@ -266,7 +266,6 @@ class ApiService {
   // Busca dados atualizados do perfil no servidor
   async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
       const endpoints = [
-          '/api/me',
           '/me',
           '/api/user/me',
           '/api/usuario/me',
@@ -591,6 +590,13 @@ class ApiService {
       }
       const queryString = query.toString();
       return `/api/products${queryString ? `?${queryString}` : ''}`;
+  }
+
+  private buildPaymentPlansEndpoint(): string {
+      const query = new URLSearchParams();
+      query.set('loja_codigo', getStoreCodeForApi());
+      query.set('meio', 'boleto');
+      return `/api/planos-pagamento?${query.toString()}`;
   }
 
   private normalizeSellerId(value?: string | number | null): string {
@@ -1107,36 +1113,68 @@ class ApiService {
       const targetUrl = hostBackend
         ? this.normalizeBackendUrl(hostBackend)
         : (url.trim() ? this.normalizeBackendUrl(url) : this.getBaseUrl());
-      const productEndpoint = this.buildProductsEndpoint({ limit: 1, includeSeller: true });
-      const endpoint = targetUrl ? `${targetUrl}${productEndpoint}` : productEndpoint;
+      const endpoint = this.buildPaymentPlansEndpoint();
+      const connectionUrl = targetUrl ? `${targetUrl}${endpoint}` : endpoint;
+      const headers = { ...this.getAuthHeaders() };
       
-      this.addLog(`Testando: ${endpoint}`, 'info');
-      
-      try {
-        const response = await fetch(endpoint, {
-          method: 'GET',
-          headers: { ...this.getAuthHeaders() }
-        });
+      this.addLog(`Testando: ${connectionUrl}`, 'info');
 
-        if (response.ok) {
-            const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
-            if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
-            const storeCheck = await this.validateStoreForCurrentHost();
-            if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
-            return { success: true, message: 'Conectado!' };
-        }
-        if (response.status === 401 || response.status === 403) {
-            return { success: false, message: 'Token Inválido' };
-        }
-        
-        return { success: false, message: `Erro HTTP ${response.status}` };
-      } catch (e: any) {
-        const rawMessage = typeof e?.message === 'string' && e.message.trim() ? e.message.trim() : 'Erro desconhecido';
-        const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
-          ? 'Falha no fetch (possível CORS ou servidor indisponível).'
-          : rawMessage;
-        this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
-        return { success: false, message: `Sem conexão. ${friendlyDetail}` };
+      const evaluateResponse = async (response: Response): Promise<{ success: boolean; message: string }> => {
+          if (response.ok) {
+              const jsonCheck = await this.ensureJsonResponse(response, 'Planos de Pagamento');
+              if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
+              const storeCheck = await this.validateStoreForCurrentHost();
+              if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
+              return { success: true, message: 'Conectado!' };
+          }
+          if (response.status === 401 || response.status === 403) {
+              return { success: false, message: 'Token Inválido' };
+          }
+          if (response.status === 404) {
+              return { success: false, message: 'Endpoint não encontrado (404).' };
+          }
+          return { success: false, message: `Erro HTTP ${response.status}` };
+      };
+
+      const doFetch = async (target: string): Promise<Response> => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          try {
+              const response = await fetch(target, {
+                  method: 'GET',
+                  headers,
+                  signal: controller.signal
+              });
+              clearTimeout(timer);
+              return response;
+          } catch (error) {
+              clearTimeout(timer);
+              throw error;
+          }
+      };
+
+      try {
+          if (targetUrl) {
+              try {
+                  const remoteResponse = await doFetch(connectionUrl);
+                  return await evaluateResponse(remoteResponse);
+              } catch (remoteError: any) {
+                  const friendly = remoteError?.name === 'AbortError'
+                    ? 'Timeout: O servidor demorou muito para responder.'
+                    : remoteError?.message || 'Erro desconhecido.';
+                  this.addLog(`Teste remoto falhou: ${friendly}`, 'warning');
+              }
+          }
+
+          const localResponse = await this.fetchLocal(endpoint);
+          return await evaluateResponse(localResponse);
+      } catch (error: any) {
+          const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : 'Erro desconhecido';
+          const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
+            ? 'Falha no fetch (possível CORS ou servidor indisponível).'
+            : rawMessage;
+          this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
+          return { success: false, message: `Sem conexão. ${friendlyDetail}` };
       }
   }
 
