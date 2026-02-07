@@ -40,9 +40,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
     if (activeTab !== 'pending') {
         syncRemoteHistory();
     }
-    // Carrega dados da loja para o cabeçalho do recibo
-    // Usa o servidor local (Node) com Master Key para evitar 401/404 quando estiver em produção com backendUrl
-    apiService.fetchLocal('/api/store/public').then(async (res) => {
+    // Carrega dados da loja para o cabeçalho do recibo usando o backend remoto
+    apiService.fetchWithAuth('/api/store/public').then(async (res) => {
         if (res.ok) {
             const data = await res.json();
             setHeaderStore(data);
@@ -471,8 +470,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                               total: viewingReceipt.total,
                               store: headerStore
                             };
-                            // força no host local para evitar CORS/traefik e usar Master Key
-                            const res = await apiService.fetchLocal('/api/recibo/pdf/public', {
+                            // chama o backend remoto para gerar o PDF com os headers já configurados
+                            const res = await apiService.fetchWithAuth('/api/recibo/pdf/public', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify(payload)

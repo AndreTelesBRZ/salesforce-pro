@@ -368,7 +368,7 @@ class ApiService {
               state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
               zip: pick(loja, ['AGECEP','CEP'])
           };
-          await this.fetchLocal('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
+          await this.fetchWithAuth('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
           this.addLog('Dados da loja importados automaticamente.', 'success');
       } catch {}
   }
@@ -678,42 +678,34 @@ class ApiService {
       return `Authorization=${this.maskAuthHeader(auth)}; X-App-Token=${this.maskToken(appToken)}; X-Forwarded-Host=${fwdHost}; X-Forwarded-Proto=${fwdProto}`;
   }
 
-  // Força requisição ao mesmo host do app (ignora backendUrl) — útil para /api/store e geração de PDF
-  async fetchLocal(endpoint: string, options: RequestInit = {}): Promise<Response> {
-      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const headers = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
-      return fetch(cleanEndpoint, { ...options, headers });
-  }
-
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
-      // exportado para uso em outros componentes (ex.: Settings -> importação da API externa)
-      // mantendo método public via class - já é público, mas adiciono comentário para indicar intenção
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       const baseUrl = this.getBaseUrl();
-      const hasRemoteConfig = baseUrl !== '';
+      if (!baseUrl) {
+          throw new Error('Backend não configurado. Defina VITE_BACKEND_URL.');
+      }
+      const targetUrl = `${baseUrl}${cleanEndpoint}`;
       const resolvedHeaders = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
-      
+
       const doFetch = async (url: string) => {
-           // Timeout Controller: Aborta se passar de 10s
-           const controller = new AbortController();
-           const id = setTimeout(() => controller.abort(), 10000); // 10s timeout
-           
-           try {
-               const response = await fetch(url, { 
-                  ...options, 
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 10000);
+          try {
+              const response = await fetch(url, {
+                  ...options,
                   signal: controller.signal,
                   headers: resolvedHeaders
-               });
-               clearTimeout(id);
-               return response;
-           } catch(e) {
-               clearTimeout(id);
-               throw e;
-           }
+              });
+              clearTimeout(id);
+              return response;
+          } catch (e) {
+              clearTimeout(id);
+              throw e;
+          }
       };
 
       const check401 = (res: Response) => {
-           if (res.status === 401 && this.token) {
+          if (res.status === 401 && this.token) {
               this.addLog(`Sessão expirada.`, 'warning');
               this.token = null;
               localStorage.removeItem('authToken');
@@ -722,36 +714,21 @@ class ApiService {
       };
 
       try {
-          if (hasRemoteConfig) {
-              const fullUrl = `${baseUrl}${cleanEndpoint}`;
-              this.addLog(`Req: ${fullUrl}`, 'info');
-              
-              try {
-                  const response = await doFetch(fullUrl);
-                  if (this.isAuthDebugEnabled() && (response.status === 401 || response.status === 403)) {
-                      this.addLog(`Auth debug (${response.status}) ${fullUrl}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
-                  }
-                  if (response.ok || response.status === 401 || response.status === 400 || response.status === 500) {
-                      return check401(response);
-                  }
-                  throw new Error(`Remote status ${response.status}`);
-              } catch (remoteError: any) {
-                  if (remoteError.name === 'AbortError') {
-                      this.addLog(`Timeout: O servidor demorou muito para responder.`, 'error');
-                      throw new Error('Timeout: Servidor lento ou indisponível.');
-                  }
-                  this.addLog(`Remoto falhou (${remoteError.message}), tentando Local...`, 'warning');
-              }
+          this.addLog(`Req: ${targetUrl}`, 'info');
+          const response = await doFetch(targetUrl);
+          if (this.isAuthDebugEnabled() && (response.status === 401 || response.status === 403)) {
+              this.addLog(`Auth debug (${response.status}) ${targetUrl}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
           }
-
-          const localResponse = await doFetch(cleanEndpoint);
-          if (this.isAuthDebugEnabled() && (localResponse.status === 401 || localResponse.status === 403)) {
-              this.addLog(`Auth debug (${localResponse.status}) ${cleanEndpoint}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
+          if (response.ok || response.status === 401 || response.status === 400 || response.status === 500) {
+              return check401(response);
           }
-          return check401(localResponse);
-
+          throw new Error(`Remote status ${response.status}`);
       } catch (error: any) {
-          const msg = error.name === 'AbortError' ? 'Timeout: Conexão lenta.' : error.message;
+          if (error.name === 'AbortError') {
+              this.addLog(`Timeout: O servidor demorou muito para responder.`, 'error');
+              throw new Error('Timeout: Servidor lento ou indisponível.');
+          }
+          const msg = error.message || 'Erro desconhecido';
           this.addLog(`Erro fatal na requisição: ${msg}`, 'error');
           throw error;
       }
@@ -1154,21 +1131,16 @@ class ApiService {
       };
 
       try {
-          if (targetUrl) {
-              try {
-                  const remoteResponse = await doFetch(connectionUrl);
-                  return await evaluateResponse(remoteResponse);
-              } catch (remoteError: any) {
-                  const friendly = remoteError?.name === 'AbortError'
-                    ? 'Timeout: O servidor demorou muito para responder.'
-                    : remoteError?.message || 'Erro desconhecido.';
-                  this.addLog(`Teste remoto falhou: ${friendly}`, 'warning');
-              }
+          if (!targetUrl) {
+              throw new Error('Backend não configurado.');
           }
-
-          const localResponse = await this.fetchLocal(endpoint);
-          return await evaluateResponse(localResponse);
+          const remoteResponse = await doFetch(connectionUrl);
+          return await evaluateResponse(remoteResponse);
       } catch (error: any) {
+          const friendly = error?.name === 'AbortError'
+            ? 'Timeout: O servidor demorou muito para responder.'
+            : error?.message || 'Erro desconhecido.';
+          this.addLog(`Teste remoto falhou: ${friendly}`, 'warning');
           const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : 'Erro desconhecido';
           const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
             ? 'Falha no fetch (possível CORS ou servidor indisponível).'

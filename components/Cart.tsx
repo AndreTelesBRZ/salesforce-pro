@@ -13,6 +13,13 @@ interface CartProps {
   onClear: () => void;
 }
 
+const createOrderUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `order-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};
+
 // --- KEYPAD COMPONENT ---
 interface NumericKeypadModalProps {
   title: string;
@@ -580,7 +587,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       : undefined;
 
     const order: Order = {
-      id: crypto.randomUUID(),
+      id: createOrderUUID(),
       displayId: nextId,
       items: cart,
       total: total,

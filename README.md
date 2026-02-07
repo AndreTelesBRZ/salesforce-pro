@@ -24,13 +24,13 @@ Aplicativo de força de vendas híbrido (Web/Mobile) com backend Node/Express e 
 
    `npm install`
 
-3) Ambiente de desenvolvimento (frontend + backend):
+3) Ambiente de desenvolvimento (frontend):
 
    `npm run dev`
 
    - Frontend roda em `http://localhost:3000`
-   - Backend (Express) roda em `http://localhost:8080`
-   - O Vite está configurado com proxy para `/api` -> `localhost:8080`
+- Configure `VITE_BACKEND_URL=https://apiforce.edsondosparafusos.app.br` (ou o tenant desejado) para que todas as chamadas `fetchWithAuth('/api/...')` usem URLs absolutas diretamente no backend FastAPI/Django; o Vite não envia mais o tráfego por um servidor local nem depende de proxy para `/api`.
+   - Cada requisição envia `Authorization: Bearer <JWT>`, `X-App-Token: <APP_INTEGRATION_TOKEN>` e `Content-Type: application/json` para o backend remoto, então qualquer 401/403 vem do FastAPI verdadeiro e não de um bloqueio de CORS ou proxy local.
 
 4) Build de produção (gera `dist/`):
 
@@ -48,7 +48,7 @@ Construir e subir com Docker Compose:
 docker compose up --build -d
 ```
 
-O serviço ficará disponível em `http://localhost:8080`.
+O backend Node/Express local ainda é iniciado pelo Compose para tarefas específicas (lojas, PDF, etc.), mas o frontend aponta diretamente para o FastAPI/Django remoto.
 
 ## Implantação LLFIX
 
@@ -70,6 +70,7 @@ Ao consumir `/api/produtos-sync`, `/api/clientes-sync` e demais endpoints expost
 
 1. `Authorization: Bearer <JWT válido>` obtido em `/auth/login` usando as chaves `JWT_SECRET`/`JWT_ALGORITHM` do tenant LLFIX.
 2. `X-App-Token: qZBhHYhZ-7P_2_265zqAl5DwqE5MiahXvivJnvoeT2b5GuYP6IHcKf81nVAQZJU4_EQ` (ou o valor exato de `APP_INTEGRATION_TOKEN` definido em `.env.llfix`).
+3. `Content-Type: application/json` — o FastAPI espera payloads JSON em todas as rotas com body.
 
 O fluxo esperado:
 

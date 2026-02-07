@@ -12,15 +12,6 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true,
       port: 3000,
-      // Configuração de Proxy para Desenvolvimento
-      // Redireciona chamadas /api para o backend local rodando o server.js
-      proxy: {
-        '/api': {
-          target: 'http://127.0.0.1:8080',
-          changeOrigin: true,
-          secure: false,
-        }
-      }
     }
   };
 });
