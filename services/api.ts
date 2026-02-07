@@ -90,6 +90,12 @@ class ApiService {
       return trimmed;
   }
 
+  private ensureHttpsForLockedHosts(value: string): string {
+      if (!value) return value;
+      if (!isStoreSelectionLockedForCurrent()) return value;
+      return /^http:\/\//i.test(value) ? value.replace(/^http:\/\//i, 'https://') : value;
+  }
+
   private getStoredUsername(): string {
       return localStorage.getItem('username') || '';
   }
@@ -481,9 +487,9 @@ class ApiService {
 
   private getBaseUrl(): string {
       const hostBackend = getBackendUrlForCurrentHost();
-      if (hostBackend) return this.normalizeBackendUrl(hostBackend);
+      if (hostBackend) return this.ensureHttpsForLockedHosts(this.normalizeBackendUrl(hostBackend));
       if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
-          return this.normalizeBackendUrl(this.config.backendUrl);
+          return this.ensureHttpsForLockedHosts(this.normalizeBackendUrl(this.config.backendUrl));
       }
       return '';
   }
@@ -574,6 +580,9 @@ class ApiService {
     if (tokenToUse) {
         headers['X-App-Token'] = tokenToUse;
     }
+    if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+    }
     return headers;
   }
 
@@ -620,7 +629,10 @@ class ApiService {
       // exportado para uso em outros componentes (ex.: Settings -> importação da API externa)
       // mantendo método public via class - já é público, mas adiciono comentário para indicar intenção
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const baseUrl = this.getBaseUrl();
+      let baseUrl = this.getBaseUrl();
+      if (isStoreSelectionLockedForCurrent() && !baseUrl) {
+          baseUrl = getBackendUrlForCurrentHost();
+      }
       const hasRemoteConfig = baseUrl !== '';
       const resolvedHeaders = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
       
@@ -657,23 +669,28 @@ class ApiService {
               const fullUrl = `${baseUrl}${cleanEndpoint}`;
               this.addLog(`Req: ${fullUrl}`, 'info');
               
-              try {
-                  const response = await doFetch(fullUrl);
-                  if (this.isAuthDebugEnabled() && (response.status === 401 || response.status === 403)) {
-                      this.addLog(`Auth debug (${response.status}) ${fullUrl}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
-                  }
-                  if (response.ok || response.status === 401 || response.status === 400 || response.status === 500) {
-                      return check401(response);
-                  }
-                  throw new Error(`Remote status ${response.status}`);
-              } catch (remoteError: any) {
-                  if (remoteError.name === 'AbortError') {
-                      this.addLog(`Timeout: O servidor demorou muito para responder.`, 'error');
-                      throw new Error('Timeout: Servidor lento ou indisponível.');
-                  }
-                  this.addLog(`Remoto falhou (${remoteError.message}), tentando Local...`, 'warning');
+          try {
+              const response = await doFetch(fullUrl);
+              if (this.isAuthDebugEnabled() && (response.status === 401 || response.status === 403)) {
+                  this.addLog(`Auth debug (${response.status}) ${fullUrl}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
               }
+              if (response.ok || response.status === 401 || response.status === 400 || response.status === 500) {
+                  return check401(response);
+              }
+              throw new Error(`Remote status ${response.status}`);
+          } catch (remoteError: any) {
+              if (isStoreSelectionLockedForCurrent()) {
+                  const msg = remoteError?.message || 'Falha ao acessar backend remoto';
+                  this.addLog(`Remoto falhou em host travado: ${msg}`, 'error');
+                  throw remoteError;
+              }
+              if (remoteError.name === 'AbortError') {
+                  this.addLog(`Timeout: O servidor demorou muito para responder.`, 'error');
+                  throw new Error('Timeout: Servidor lento ou indisponível.');
+              }
+              this.addLog(`Remoto falhou (${remoteError.message}), tentando Local...`, 'warning');
           }
+      }
 
           const localResponse = await doFetch(cleanEndpoint);
           if (this.isAuthDebugEnabled() && (localResponse.status === 401 || localResponse.status === 403)) {
@@ -697,6 +714,20 @@ class ApiService {
           return 'Tempo esgotado. O servidor demorou para responder.';
       }
       return 'Erro de conexão.';
+  }
+
+  private async readErrorMessage(res: Response, fallback: string): Promise<string> {
+      const text = (await res.text()).trim();
+      if (text) {
+          try {
+              const payload = JSON.parse(text);
+              if (payload && typeof payload.message === 'string' && payload.message.trim()) {
+                  return payload.message.trim();
+              }
+          } catch {}
+          return text;
+      }
+      return fallback;
   }
 
   private async ensureJsonResponse(res: Response, context: string): Promise<{ ok: boolean; message?: string }> {
@@ -1465,13 +1496,8 @@ class ApiService {
       const res = await this.fetchWithAuth(`/api/planos-pagamento-cliente/${encodeURIComponent(customerId)}`);
       if (res.status === 404) return [];
       if (!res.ok) {
-          const msg = await res.text();
-          try {
-              const data = JSON.parse(msg);
-              throw new Error(data.message || 'Erro ao buscar planos de pagamento.');
-          } catch (e) {
-              throw new Error(msg || 'Erro ao buscar planos de pagamento.');
-          }
+          const message = await this.readErrorMessage(res, 'Erro ao buscar planos de pagamento.');
+          throw new Error(message);
       }
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data.data || []);
@@ -1518,6 +1544,8 @@ class ApiService {
               query.set('vendedor_id', sellerId);
               query.set('cod_vendedor', sellerId);
           }
+          const storeCode = getStoreCodeForApi();
+          if (storeCode) query.set('loja', storeCode);
           const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
           const res = await this.fetchWithAuth(endpoint);
           if (!res.ok) throw new Error(`Erro ${res.status}`);
@@ -1554,6 +1582,8 @@ class ApiService {
             query.set('vendedor_id', sellerId);
             query.set('cod_vendedor', sellerId);
         }
+        const storeCode = getStoreCodeForApi();
+        if (storeCode) query.set('loja', storeCode);
         const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
         const res = await this.fetchWithAuth(endpoint);
         if (!res.ok) throw new Error(`Erro ${res.status}`);

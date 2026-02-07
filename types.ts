@@ -116,3 +116,9 @@ export interface DelinquencyItem {
   amount: number;
   lastSync?: string;
 }
+
+const FRACTIONAL_UNITS = new Set(['cto', 'kg']);
+
+export const isFractionalUnit = (unit?: string): boolean => {
+  return FRACTIONAL_UNITS.has(String(unit || '').trim().toLowerCase());
+};

@@ -1503,7 +1503,9 @@ if (fs.existsSync(distPath)) {
     });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+const HOST = process.env.HOST || '127.0.0.1';
+
+app.listen(PORT, HOST, () => {
   console.log(`\n🚀 Servidor rodando em: http://localhost:${PORT}`);
   console.log(`📦 Modo Banco de Dados: ${isPostgres ? 'PostgreSQL (Remoto)' : 'SQLite (Local)'}\n`);
   // Evite logar segredos em produção

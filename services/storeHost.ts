@@ -91,7 +91,13 @@ export const isStoreSelectionLockedForCurrent = (): boolean => {
 
 export const getBackendUrlForCurrentHost = (): string => {
   if (typeof window === 'undefined') return '';
-  return resolveBackendUrlFromHost(window.location.hostname);
+  const resolved = resolveBackendUrlFromHost(window.location.hostname);
+  if (resolved) return resolved;
+  // Fallback defensivo: evita cair no backend local quando o host for llfix/edson.
+  const host = normalizeHost(window.location.hostname);
+  if (matchesDomain(host, LLFIX_DOMAIN)) return LLFIX_BACKEND_URL;
+  if (matchesDomain(host, EDSON_DOMAIN)) return EDSON_BACKEND_URL;
+  return '';
 };
 
 export const getIntegrationTokenForCurrentHost = (): string => {

@@ -33,6 +33,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   const [delinquencyTotal, setDelinquencyTotal] = useState<number>(0);
   const [delinquencyCustomers, setDelinquencyCustomers] = useState<number>(0);
   const [delinquencyItems, setDelinquencyItems] = useState<DelinquencyItem[]>([]);
+  const [averageTicket, setAverageTicket] = useState<number>(0);
+  const [ordersSampleSize, setOrdersSampleSize] = useState<number>(0);
   const [delinquencyLoading, setDelinquencyLoading] = useState<boolean>(false);
   const [showDelinquencyModal, setShowDelinquencyModal] = useState<boolean>(false);
   const [inactiveCustomersList, setInactiveCustomersList] = useState<{ customer: Customer; lastSale: Date | null }[]>([]);
@@ -85,6 +87,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         const todayOrders = allOrders.filter(o => new Date(o.createdAt).toDateString() === today);
         const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
         setTodayTotal(todaySum);
+
+        const totalOrders = allOrders.length;
+        const totalSum = allOrders.reduce((sum, order) => sum + order.total, 0);
+        setOrdersSampleSize(totalOrders);
+        setAverageTicket(totalOrders > 0 ? totalSum / totalOrders : 0);
 
         // Top clientes simples pelos pedidos salvos
         const map: Record<string, number> = {};
@@ -283,6 +290,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
             <div>
               <p className="text-xs font-semibold text-slate-500">VENDAS HOJE</p>
               <p className="text-xl font-bold text-slate-900 dark:text-white">R$ {formatCurrency(todayTotal)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300 flex items-center justify-center">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500">TICKET MÉDIO</p>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">R$ {formatCurrency(averageTicket)}</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wide">
+                base: {ordersSampleSize} pedido{ordersSampleSize === 1 ? '' : 's'}
+              </p>
             </div>
           </div>
         </div>

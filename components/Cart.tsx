@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { CartItem, Order, Customer, PaymentPlan } from '../types';
+import { CartItem, Order, Customer, PaymentPlan, isFractionalUnit } from '../types';
 import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
@@ -965,8 +965,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {cart.map((item) => {
-            const isFractional = item.unit.toLowerCase() === 'cto';
-            const step = isFractional ? 0.01 : 1;
+            const step = isFractionalUnit(item.unit) ? 0.01 : 1;
 
             return (
               <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-4 py-4 border-b border-slate-100 dark:border-slate-700 last:border-0">

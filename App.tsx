@@ -10,7 +10,7 @@ import { OrderHistory } from './components/OrderHistory';
 import { SyncData } from './components/SyncData';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
-import { Product, CartItem, ThemeMode } from './types';
+import { Product, CartItem, ThemeMode, isFractionalUnit } from './types';
 import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart } from 'lucide-react';
 
 type View = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send';
@@ -126,17 +126,19 @@ export default function App() {
   const addToCart = (product: Product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
+      const isFractionalProduct = isFractionalUnit(product.unit);
+
       if (existing) {
-        const isFractional = product.unit.toLowerCase() === 'cto';
-        const increment = isFractional ? 0.01 : 1;
+        const increment = isFractionalProduct ? 0.01 : 1;
         const newQty = existing.quantity + increment;
-        const finalQty = isFractional ? Math.round(newQty * 100) / 100 : newQty;
+        const finalQty = isFractionalProduct ? Math.round(newQty * 100) / 100 : newQty;
 
         return prev.map((item) =>
           item.id === product.id ? { ...item, quantity: finalQty } : item
         );
       }
-      return [...prev, { ...product, quantity: product.unit.toLowerCase() === 'cto' ? 1.00 : 1, basePrice: product.price }];
+
+      return [...prev, { ...product, quantity: isFractionalProduct ? 1.0 : 1, basePrice: product.price }];
     });
   };
 
@@ -163,7 +165,7 @@ export default function App() {
     setCart((prev) =>
       prev.map((item) => {
         if (item.id === id) {
-          const isFractional = item.unit.toLowerCase() === 'cto';
+          const isFractional = isFractionalUnit(item.unit);
           let qty = newQuantity;
 
           if (isFractional) {

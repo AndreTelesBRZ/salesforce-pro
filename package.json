@@ -5,10 +5,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "dev": "node ./node_modules/concurrently/dist/bin/concurrently.js \"npm run server\" \"npm run client\"",
     "start": "node server.js",
     "server": "node server.js",
-    "client": "vite",
+    "client": "node ./run-vite-dev.js",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "cap:sync": "npx cap sync",
