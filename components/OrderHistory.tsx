@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { dbService } from '../services/db';
-import { apiService } from '../services/api';
+import { apiService, API_ONLY_NOTICE } from '../services/api';
 import { Order } from '../types';
 import { FileText, Printer, ChevronDown, ChevronUp, Calendar, User, Check, Clock, Package, RefreshCw, Filter, AlertCircle, CheckCircle2, UploadCloud, Trash2, Square, CheckSquare, X, Loader2, Download, Store, Copy, Share2 } from 'lucide-react';
 
@@ -14,6 +14,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [apiOnlyAlert, setApiOnlyAlert] = useState<string | null>(null);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'synced' | 'flow'>(initialTab);
   
@@ -137,12 +138,15 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
   const handleBulkSend = async () => {
       if (selectedIds.size === 0) return;
       
+      setApiOnlyAlert(null);
+      
       setSyncing(true);
       const ordersToSend = orders.filter(o => selectedIds.has(o.id));
       setSyncProgress({ current: 0, total: ordersToSend.length });
 
       let successCount = 0;
       let errorCount = 0;
+      let apiOnlyMessage: string | null = null;
 
       for (let i = 0; i < ordersToSend.length; i++) {
           const order = ordersToSend[i];
@@ -156,6 +160,9 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                   successCount++;
               } else {
                   errorCount++;
+                  if (result.requiresApiOnly && !apiOnlyMessage) {
+                      apiOnlyMessage = result.message || API_ONLY_NOTICE;
+                  }
               }
           } catch (e) {
               errorCount++;
@@ -163,8 +170,11 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
       }
 
       setSyncing(false);
+      setApiOnlyAlert(apiOnlyMessage);
       
-      if (errorCount > 0) {
+      if (apiOnlyMessage) {
+          alert(apiOnlyMessage);
+      } else if (errorCount > 0) {
           alert(`${successCount} enviados com sucesso. ${errorCount} falharam.`);
       } else {
          // Se tudo deu certo, limpa seleção
@@ -540,6 +550,21 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
              Fluxo ({flowCount})
           </button>
       </div>
+
+      {activeTab === 'pending' && pendingCount > 0 && (
+          <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50/70 text-orange-900 px-4 py-3 text-sm">
+              <p className="font-semibold">Envio pendente via FastAPI</p>
+              <p className="text-xs text-orange-800/80">
+                 Pedidos pendentes agora devem ser sincronizados via FastAPI. Use o menu <strong>Enviar Dados</strong> ou o endpoint <strong>/api/pedidos</strong>.
+              </p>
+          </div>
+      )}
+
+      {apiOnlyAlert && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
+              {apiOnlyAlert}
+          </div>
+      )}
 
       {activeTab === 'flow' ? (
         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700">

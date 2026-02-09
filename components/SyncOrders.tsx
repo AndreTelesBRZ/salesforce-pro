@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { dbService } from '../services/db';
-import { apiService, LogEntry } from '../services/api';
+import { apiService, API_ONLY_NOTICE, LogEntry } from '../services/api';
 import { Order } from '../types';
 import { UploadCloud, CheckCircle, AlertTriangle, Loader2, ArrowRight, Package, CheckSquare, Square, Trash2, Terminal, RefreshCw, XCircle } from 'lucide-react';
 
@@ -12,6 +12,7 @@ export const SyncOrders: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [status, setStatus] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [apiOnlyNotice, setApiOnlyNotice] = useState<string | null>(null);
   
   const [showDebugLogs, setShowDebugLogs] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -77,6 +78,8 @@ export const SyncOrders: React.FC = () => {
   const handleSendSelected = async () => {
     if (selectedIds.size === 0) return;
     
+    setApiOnlyNotice(null);
+    
     // Limpa logs anteriores
     apiService.clearLogs();
     refreshLogs();
@@ -89,6 +92,7 @@ export const SyncOrders: React.FC = () => {
     let successCount = 0;
     let failCount = 0;
     const errorMessages: string[] = [];
+    let apiOnlyMessage: string | null = null;
 
     for (let i = 0; i < ordersToSend.length; i++) {
       const order = ordersToSend[i];
@@ -104,6 +108,9 @@ export const SyncOrders: React.FC = () => {
           failCount++;
           const msg = `Pedido #${order.displayId}: ${result.message || 'Erro desconhecido'}`;
           if (!errorMessages.includes(msg)) errorMessages.push(msg);
+          if (result.requiresApiOnly && !apiOnlyMessage) {
+              apiOnlyMessage = result.message || API_ONLY_NOTICE;
+          }
         }
       } catch (e: any) {
         failCount++;
@@ -114,6 +121,7 @@ export const SyncOrders: React.FC = () => {
     }
 
     setSyncing(false);
+    setApiOnlyNotice(apiOnlyMessage);
     setStatus({ success: successCount, failed: failCount, errors: errorMessages });
     
     // Se houve falha, mostra os logs automaticamente
@@ -132,29 +140,42 @@ export const SyncOrders: React.FC = () => {
         <UploadCloud className="w-6 h-6 text-blue-800 dark:text-blue-400" /> Enviar Dados Pendentes
       </h2>
 
+      <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 text-blue-900 px-4 py-3 text-sm">
+          <p className="font-semibold">Envio via FastAPI obrigatório</p>
+          <p className="text-xs text-blue-700/80">
+             Pedidos pendentes só podem ser sincronizados com o backend FastAPI. Use o menu <strong>Enviar Dados</strong> ou faça POST em <strong>/api/pedidos</strong>.
+          </p>
+      </div>
+
       {status && (
         <div className={`mb-6 p-4 rounded-lg border ${status.failed === 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-orange-50 border-orange-200 text-orange-700'} animate-in slide-in-from-top-2`}>
-          <p className="font-bold flex items-center gap-2">
-             {status.failed === 0 ? <CheckCircle className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-             Resultado do Envio:
-          </p>
-          <ul className="list-disc pl-8 mt-2 text-sm mb-2">
-             <li>Enviados com sucesso: {status.success}</li>
-             {status.failed > 0 && <li>Falha ao enviar: {status.failed}</li>}
-          </ul>
-          
-          {/* Lista detalhada de erros */}
-          {status.errors.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-orange-200/50">
-                  <p className="text-xs font-bold uppercase mb-1">Detalhes dos Erros:</p>
-                  <ul className="text-xs space-y-1 font-mono bg-white/50 p-2 rounded">
-                      {status.errors.map((err, idx) => (
-                          <li key={idx} className="text-red-600 break-words">• {err}</li>
-                      ))}
-                  </ul>
-              </div>
-          )}
+            <p className="font-bold flex items-center gap-2">
+               {status.failed === 0 ? <CheckCircle className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+               Resultado do Envio:
+            </p>
+            <ul className="list-disc pl-8 mt-2 text-sm mb-2">
+               <li>Enviados com sucesso: {status.success}</li>
+               {status.failed > 0 && <li>Falha ao enviar: {status.failed}</li>}
+            </ul>
+            
+            {/* Lista detalhada de erros */}
+            {status.errors.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-orange-200/50">
+                    <p className="text-xs font-bold uppercase mb-1">Detalhes dos Erros:</p>
+                    <ul className="text-xs space-y-1 font-mono bg-white/50 p-2 rounded">
+                        {status.errors.map((err, idx) => (
+                            <li key={idx} className="text-red-600 break-words">• {err}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
         </div>
+      )}
+
+      {apiOnlyNotice && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
+              {apiOnlyNotice}
+          </div>
       )}
 
       {/* Painel de Logs Opcional */}

@@ -25,7 +25,15 @@ const WALK_IN_CUSTOMER: Customer = {
   lastSaleValue: 0
 };
 
+export const API_ONLY_NOTICE = 'Pedidos agora devem ser enviados via API. Abra o app/vendedor externo ou use o endpoint /api/pedidos.';
+
 export type ClientSyncViewMode = 'self' | 'all' | 'recent';
+
+export interface SubmitOrderResult {
+    success: boolean;
+    message?: string;
+    requiresApiOnly?: boolean;
+}
 
 export interface ClientSyncViewResponse {
     total?: number;
@@ -1152,7 +1160,7 @@ class ApiService {
 
   // --- PEDIDOS ---
 
-  async submitOrder(order: Order): Promise<{ success: boolean, message?: string }> {
+  async submitOrder(order: Order): Promise<SubmitOrderResult> {
     // Validação de Token antes de enviar
     const currentToken = this.token || this.config.apiToken;
     if (!currentToken) {
@@ -1200,19 +1208,29 @@ class ApiService {
         order.shippingMethod ? `Frete: ${order.shippingMethod}` : ''
       ].filter(Boolean).join(' | ');
 
+      const businessStatus = order.businessStatus || 'orcamento';
+      const shippingModal = order.shippingMethodId || order.shippingMethod || 'retirada';
+      const sellerCode = order.sellerId || this.getSellerId() || '';
+      const sellerName = order.sellerName || this.getUsername() || '';
+      const clienteId = order.customerId ?? '0';
+
       const backendOrder: Record<string, any> = {
         data_criacao: order.createdAt,
         total: order.total,
-        cliente_id: order.customerId, 
+        cliente_id: clienteId,
         cliente_tipo: order.customerType || 'NORMAL',
+        status: businessStatus,
+        pagamento_status: 'pendente',
+        frete_modalidade: shippingModal,
+        vendedor_codigo: sellerCode,
+        vendedor_nome: sellerName,
         plano_pagamento_codigo: planCode || '',
         plano_pagamento_descricao: planDescription || '',
         parcelas: planInstallments || 1,
         dias_entre_parcelas: planDaysBetween || 0,
         valor_minimo: planMinValue || 0,
         observacao: extraNotes,
-        vendedor_id: order.sellerId || this.getSellerId() || '',
-        vendedor_nome: order.sellerName || this.getUsername() || '',
+        vendedor_id: sellerCode,
         itens: order.items.map(item => ({ 
             codigo_produto: item.id,
             quantidade: item.quantity, 
@@ -1235,6 +1253,10 @@ class ApiService {
 
       if (!response.ok) {
           const txt = await response.text();
+          if (response.status === 403) {
+              this.addLog(`403 API: ${txt}`, 'warning');
+              return { success: false, message: API_ONLY_NOTICE, requiresApiOnly: true };
+          }
           this.addLog(`Erro Servidor (${response.status}): ${txt}`, 'error');
           try {
              const json = JSON.parse(txt);
@@ -1247,7 +1269,7 @@ class ApiService {
       this.addLog(`Pedido ${order.displayId} enviado com sucesso!`, 'success');
       // Atualiza status de negócio e salva localmente para refletir no histórico
       try {
-          order.businessStatus = 'orcamento';
+          order.businessStatus = businessStatus;
           const data = await response.clone().json().catch(()=>({}));
           if (data && (data.orderId || data.id)) order.remoteId = data.orderId || data.id;
           await dbService.saveOrder(order);

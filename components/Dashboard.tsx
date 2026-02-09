@@ -4,6 +4,8 @@ import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, Shield
 import { apiService, ClientSyncViewMode, ClientSyncViewResponse } from '../services/api';
 import { dbService } from '../services/db';
 import { Customer, DelinquencyItem } from '../types';
+import { calculateAverageTicket, AverageTicketResult } from '../salesMetrics';
+import { TicketMedioCard } from '../TicketMedioCard';
 
 interface DashboardProps {
   onNavigate: (view: string) => void;
@@ -42,6 +44,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   const [clientSyncAllView, setClientSyncAllView] = useState<ClientSyncViewResponse | null>(null);
   const [clientSyncRecentView, setClientSyncRecentView] = useState<ClientSyncViewResponse | null>(null);
   const [clientSyncLoading, setClientSyncLoading] = useState<boolean>(false);
+  const [averageTicketData, setAverageTicketData] = useState<AverageTicketResult | null>(null);
+  const [ticketLoading, setTicketLoading] = useState<boolean>(true);
 
   useEffect(() => {
      let isMounted = true;
@@ -73,68 +77,82 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         if (!current || value > current) map.set(key, value);
      };
 
-     (async () => {
+     const loadLocalFigures = async () => {
         setInactiveLoading(true);
-        const allOrders = await dbService.getOrders();
-        let customers: Customer[] = [];
+        setTicketLoading(true);
         try {
-          customers = await apiService.getCustomers();
-        } catch {
-          customers = [];
-        }
+          const allOrders = await dbService.getOrders();
+          let customers: Customer[] = [];
+          try {
+            customers = await apiService.getCustomers();
+          } catch {
+            customers = [];
+          }
 
-        if (!isMounted) return;
+          if (!isMounted) return;
 
-        const today = new Date().toDateString();
-        const todayOrders = allOrders.filter(o => new Date(o.createdAt).toDateString() === today);
-        const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
-        setTodayTotal(todaySum);
+          const today = new Date().toDateString();
+          const todayOrders = allOrders.filter(o => new Date(o.createdAt).toDateString() === today);
+          const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
+          const map: Record<string, number> = {};
+          allOrders.forEach(o => {
+             const key = o.customerName || 'Cliente';
+             map[key] = (map[key] || 0) + o.total;
+          });
+          const tops = Object.entries(map).map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total).slice(0,5);
 
-        // Top clientes simples pelos pedidos salvos
-        const map: Record<string, number> = {};
-        allOrders.forEach(o => {
-           const key = o.customerName || 'Cliente';
-           map[key] = (map[key] || 0) + o.total;
-        });
-        const tops = Object.entries(map).map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total).slice(0,5);
-        setTopCustomers(tops);
-
-        const lastSaleById = new Map<string, Date>();
-        const lastSaleByDoc = new Map<string, Date>();
-        allOrders.forEach((o) => {
-          const orderDate = parseDateValue(o.createdAt);
-          if (!orderDate) return;
-          setLatestDate(lastSaleById, o.customerId, orderDate);
-          setLatestDate(lastSaleByDoc, o.customerDoc, orderDate);
-        });
-
-        const inactiveCutoff = new Date();
-        inactiveCutoff.setDate(inactiveCutoff.getDate() - 60);
-
-        const filteredCustomers = customers.filter((c) => c.id !== '0' && c.type !== 'TEMPORARIO');
-        const inactiveList = filteredCustomers
-          .map((customer) => {
-            const lastSale =
-              parseDateValue(customer.lastSaleDate) ||
-              lastSaleById.get(customer.id) ||
-              lastSaleByDoc.get(customer.document) ||
-              null;
-            return { customer, lastSale };
-          })
-          .filter(({ lastSale }) => !lastSale || lastSale < inactiveCutoff)
-          .sort((a, b) => {
-            if (!a.lastSale && !b.lastSale) return a.customer.name.localeCompare(b.customer.name);
-            if (!a.lastSale) return -1;
-            if (!b.lastSale) return 1;
-            return a.lastSale.getTime() - b.lastSale.getTime();
+          const lastSaleById = new Map<string, Date>();
+          const lastSaleByDoc = new Map<string, Date>();
+          allOrders.forEach((o) => {
+            const orderDate = parseDateValue(o.createdAt);
+            if (!orderDate) return;
+            setLatestDate(lastSaleById, o.customerId, orderDate);
+            setLatestDate(lastSaleByDoc, o.customerDoc, orderDate);
           });
 
-        setInactiveCustomersList(inactiveList);
-        setInactiveLoading(false);
-     })();
+          const inactiveCutoff = new Date();
+          inactiveCutoff.setDate(inactiveCutoff.getDate() - 60);
 
-      return () => {
-         isMounted = false;
+          const filteredCustomers = customers.filter((c) => c.id !== '0' && c.type !== 'TEMPORARIO');
+          const inactiveList = filteredCustomers
+            .map((customer) => {
+              const lastSale =
+                parseDateValue(customer.lastSaleDate) ||
+                lastSaleById.get(customer.id) ||
+                lastSaleByDoc.get(customer.document) ||
+                null;
+              return { customer, lastSale };
+            })
+            .filter(({ lastSale }) => !lastSale || lastSale < inactiveCutoff)
+            .sort((a, b) => {
+              if (!a.lastSale && !b.lastSale) return a.customer.name.localeCompare(b.customer.name);
+              if (!a.lastSale) return -1;
+              if (!b.lastSale) return 1;
+              return a.lastSale.getTime() - b.lastSale.getTime();
+            });
+
+          const averageTicket = calculateAverageTicket(allOrders);
+
+          if (!isMounted) return;
+
+          setTodayTotal(todaySum);
+          setTopCustomers(tops);
+          setInactiveCustomersList(inactiveList);
+          setAverageTicketData(averageTicket);
+        } catch (error) {
+          console.error('Falha ao carregar métricas locais', error);
+        } finally {
+          if (isMounted) {
+            setInactiveLoading(false);
+            setTicketLoading(false);
+          }
+        }
+     };
+
+     loadLocalFigures();
+
+     return () => {
+        isMounted = false;
       };
  }, []);
 
@@ -356,6 +374,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
             </div>
           </div>
         </div>
+
+        <TicketMedioCard data={averageTicketData} loading={ticketLoading} />
       </div>
 
       <div className="max-w-md mx-auto mt-6 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">

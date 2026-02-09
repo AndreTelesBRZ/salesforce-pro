@@ -73,7 +73,9 @@ export interface Order {
   sellerName?: string;
   // Condições comerciais
   paymentMethod?: string;
+  paymentMethodId?: string;
   shippingMethod?: string;
+  shippingMethodId?: string;
   createdAt: string;
 }
 
