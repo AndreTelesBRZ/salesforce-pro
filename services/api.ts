@@ -1,5 +1,38 @@
 
-import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem } from '../types';
+import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption } from '../types';
+
+const PAGAMENTO_STATUS = {
+  PENDENTE: 'aguardando',
+  PAGO_AVISTA: 'pago_avista'
+} as const;
+
+const FRETE_MODALIDADE = {
+  RETIRADA: 'fob',
+  ENTREGA_PROPRIA: 'cif',
+  TRANSPORTADORA: 'cif',
+  SEM_FRETE: 'sem_frete'
+} as const;
+
+const normalizeString = (value?: string): string => {
+  return (value || '').toString().trim().toLowerCase();
+};
+
+const mapPagamentoStatus = (value?: string): string => {
+  const normalized = normalizeString(value);
+  if (normalized === 'pago' || normalized === 'pago_avista') {
+    return PAGAMENTO_STATUS.PAGO_AVISTA;
+  }
+  return PAGAMENTO_STATUS.PENDENTE;
+};
+
+const mapFreteModalidade = (value?: string): string => {
+  const normalized = normalizeString(value);
+  if (normalized === 'retirada') return FRETE_MODALIDADE.RETIRADA;
+  if (normalized === 'entrega_propria') return FRETE_MODALIDADE.ENTREGA_PROPRIA;
+  if (normalized === 'transportadora') return FRETE_MODALIDADE.TRANSPORTADORA;
+  if (normalized === 'sem_frete') return FRETE_MODALIDADE.SEM_FRETE;
+  return FRETE_MODALIDADE.SEM_FRETE;
+};
 import { dbService } from './db';
 import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isEdsonHostForCurrent, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
@@ -581,15 +614,13 @@ class ApiService {
 
   private buildProductsEndpoint(params: { page?: number; limit?: number; includeSeller?: boolean } = {}): string {
       const { page, limit, includeSeller } = params;
+      const query = new URLSearchParams();
       if (this.shouldUseLlfixProductsEndpoint()) {
-          const query = new URLSearchParams();
           query.set('loja', getStoreCodeForApi());
           if (page !== undefined) query.set('page', String(page));
           if (limit !== undefined && limit >= 0) query.set('limit', String(limit));
           return `/api/produtos-sync/?${query.toString()}`;
       }
-
-      const query = new URLSearchParams();
       if (page !== undefined) query.set('page', String(page));
       if (limit !== undefined) query.set('limit', String(limit));
       if (includeSeller) {
@@ -638,6 +669,8 @@ class ApiService {
       }
       return raw;
   }
+
+  private enumCache: Record<string, EnumOption[]> | null = null;
 
   private getAuthHeaders() {
     const headers: Record<string, string> = {
@@ -1211,6 +1244,8 @@ class ApiService {
 
       const businessStatus = order.businessStatus || 'orcamento';
       const shippingModal = order.shippingMethodId || order.shippingMethod || 'retirada';
+      const mappedPaymentStatus = mapPagamentoStatus(order.paymentStatus || 'pendente');
+      const mappedFreteModal = mapFreteModalidade(shippingModal);
       const sellerCode = order.sellerId || this.getSellerId() || '';
       const sellerName = order.sellerName || this.getUsername() || '';
       const clienteId = order.customerId ?? '0';
@@ -1221,8 +1256,8 @@ class ApiService {
         cliente_id: clienteId,
         cliente_tipo: order.customerType || 'NORMAL',
         status: businessStatus,
-        pagamento_status: 'pendente',
-        frete_modalidade: shippingModal,
+        pagamento_status: mappedPaymentStatus,
+        frete_modalidade: mappedFreteModal,
         vendedor_codigo: sellerCode,
         vendedor_nome: sellerName,
         plano_pagamento_codigo: planCode || '',
@@ -1696,6 +1731,51 @@ class ApiService {
           this.paymentPlanCatalogCache = [];
           return [];
       }
+  }
+
+  async fetchEnums(): Promise<Record<string, EnumOption[]>> {
+      if (this.enumCache) return this.enumCache;
+      this.enumCache = {};
+      try {
+          const response = await this.fetchWithAuth('/api/meta/enums');
+          if (!response.ok) {
+              this.addLog(`Falha ao baixar enums: ${response.status}`, 'error');
+              return this.enumCache;
+          }
+
+          const payload = await response.json();
+          const entries = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+          entries.forEach((entry: any) => {
+              const key = String(entry.name || entry.enumName || entry.key || entry.nome || entry.nomeEnum || '').trim();
+              if (!key) return;
+              const rawOptions = Array.isArray(entry.values)
+                  ? entry.values
+                  : Array.isArray(entry.options)
+                      ? entry.options
+                      : Array.isArray(entry.items)
+                          ? entry.items
+                          : Array.isArray(entry.data)
+                              ? entry.data
+                              : [];
+
+              const normalized = rawOptions
+                  .map((option: any) => ({
+                      value: String(option.value ?? option.codigo ?? option.code ?? option.id ?? option.valor ?? '').trim(),
+                      label: String(option.label ?? option.name ?? option.nome ?? option.description ?? option.descricao ?? option.value ?? '').trim(),
+                      description: option.description || option.descricao || undefined,
+                      metadata: option.metadata || option.meta || undefined,
+                  }))
+                  .filter((option) => option.value);
+
+              if (normalized.length > 0) {
+                  this.enumCache![key] = normalized;
+              }
+          });
+      } catch (error: any) {
+          this.addLog(`Erro ao carregar enums: ${error?.message || 'desconhecido'}`, 'error');
+          this.enumCache = {};
+      }
+      return this.enumCache;
   }
 
   private mapPaymentPlan(plan: any, catalog: any[]): PaymentPlan {

@@ -76,6 +76,7 @@ export interface Order {
   paymentMethodId?: string;
   shippingMethod?: string;
   shippingMethodId?: string;
+  paymentStatus?: string;
   createdAt: string;
 }
 
@@ -106,6 +107,13 @@ export interface PaymentPlan {
   imageUrl?: string;
   disponivel: boolean;
   meioPagamento?: string;
+}
+
+export interface EnumOption {
+  value: string;
+  label: string;
+  description?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface DelinquencyItem {

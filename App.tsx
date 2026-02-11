@@ -11,6 +11,7 @@ import { SyncData } from './components/SyncData';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
 import { Product, CartItem, ThemeMode } from './types';
+import { EnumProvider } from './contexts/EnumContext';
 import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X } from 'lucide-react';
 
 type View = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send';
@@ -243,7 +244,8 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <EnumProvider>
+      <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Cabeçalho Azul Profundo (Navy) */}
       <header className="bg-blue-900 text-white shadow-lg sticky top-0 z-30 border-b border-blue-800">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -408,6 +410,7 @@ export default function App() {
           </aside>
         </div>
       )}
-    </div>
+      </div>
+    </EnumProvider>
   );
 }

@@ -1,9 +1,60 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { CartItem, Order, Customer, PaymentPlan } from '../types';
+import { CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
 import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
+import { useEnums } from '../contexts/EnumContext';
+
+type IconType = React.ComponentType<{ className?: string }>;
+
+const PAYMENT_ICON_MAP: Record<string, IconType> = {
+  pix: QrCode,
+  dinheiro: Banknote,
+  cartao: CreditCard,
+  boleto: FileText,
+  default: FileText,
+};
+
+const SHIPPING_ICON_MAP: Record<string, IconType> = {
+  retirada: Store,
+  entrega_propria: Truck,
+  transportadora: Package,
+  sem_frete: Package,
+  default: Store,
+};
+
+const FALLBACK_PAYMENT_METHODS: Array<EnumOption & { icon: IconType }> = [
+  { value: 'pix', label: 'PIX', icon: QrCode },
+  { value: 'dinheiro', label: 'Dinheiro', icon: Banknote },
+  { value: 'cartao', label: 'Cartão', icon: CreditCard },
+  { value: 'boleto', label: 'Boleto', icon: FileText },
+];
+
+const FALLBACK_SHIPPING_METHODS: Array<EnumOption & { icon: IconType }> = [
+  { value: 'retirada', label: 'Retirada', icon: Store },
+  { value: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
+  { value: 'transportadora', label: 'Transportadora', icon: Package },
+  { value: 'sem_frete', label: 'Sem frete', icon: Package },
+];
+
+const buildSelectOptions = (
+  rawOptions: Array<EnumOption & { icon?: IconType }>,
+  fallback: Array<EnumOption & { icon: IconType }>,
+  iconMap: Record<string, IconType>,
+  defaultIcon: IconType
+) => {
+  const source = rawOptions.length > 0 ? rawOptions : fallback;
+  return source.map((option) => {
+    const normalizedValue = option.value.toLowerCase();
+    const icon = iconMap[normalizedValue] || option.icon || defaultIcon;
+    return {
+      value: option.value,
+      label: option.label,
+      icon,
+    };
+  });
+};
 
 interface CartProps {
   cart: CartItem[];
@@ -403,20 +454,51 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [editingPrice, setEditingPrice] = useState<{ id: string, name: string, price: number, unit: string } | null>(null);
 
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const paymentOptions = [
-    { id: 'pix', label: 'PIX', icon: QrCode },
-    { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
-    { id: 'cartao', label: 'Cartão', icon: CreditCard },
-    { id: 'boleto', label: 'Boleto', icon: FileText },
+  const { enums } = useEnums();
+  const paymentEnumKeys = ['payment_method', 'forma_pagamento', 'paymentMethods'];
+  const shippingEnumKeys = ['frete_modalidade', 'shipping_method', 'shippingMethod'];
+  const findEnumOptions = (keys: string[]) => {
+    for (const key of keys) {
+      const entry = enums[key];
+      if (entry && entry.length > 0) {
+        return entry;
+      }
+    }
+    return [];
+  };
+  const paymentSelectOptions = useMemo(() => {
+    const raw = findEnumOptions(paymentEnumKeys);
+    return buildSelectOptions(
+      raw,
+      FALLBACK_PAYMENT_METHODS,
+      PAYMENT_ICON_MAP,
+      PAYMENT_ICON_MAP.default
+    );
+  }, [enums]);
+  const shippingSelectOptions = useMemo(() => {
+    const raw = findEnumOptions(shippingEnumKeys);
+    return buildSelectOptions(
+      raw,
+      FALLBACK_SHIPPING_METHODS,
+      SHIPPING_ICON_MAP,
+      SHIPPING_ICON_MAP.default
+    );
+  }, [enums]);
+  const DEFAULT_PAYMENT_METHODS = [
+    { value: 'pix', label: 'PIX', icon: QrCode },
+    { value: 'dinheiro', label: 'Dinheiro', icon: Banknote },
+    { value: 'cartao', label: 'Cartão', icon: CreditCard },
+    { value: 'boleto', label: 'Boleto', icon: FileText },
   ];
-  const shippingOptions = [
-    { id: 'retirada', label: 'Retirada', icon: Store },
-    { id: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
-    { id: 'transportadora', label: 'Transportadora', icon: Package },
+  const DEFAULT_SHIPPING_METHODS = [
+    { value: 'retirada', label: 'Retirada', icon: Store },
+    { value: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
+    { value: 'transportadora', label: 'Transportadora', icon: Package },
+    { value: 'sem_frete', label: 'Sem frete', icon: Package },
   ];
   const isBoleto = paymentMethod === 'boleto';
-  const paymentLabel = paymentOptions.find(option => option.id === paymentMethod)?.label || '';
-  const shippingLabel = shippingOptions.find(option => option.id === shippingMethod)?.label || '';
+  const paymentLabel = paymentSelectOptions.find(option => option.value === paymentMethod)?.label || '';
+  const shippingLabel = shippingSelectOptions.find(option => option.value === shippingMethod)?.label || '';
   const formatPlanLabel = (plan: PaymentPlan) => {
     let base = plan.description || plan.code || 'Plano';
     if (plan.document === 'BOLETO' && !/boleto/i.test(base)) {
@@ -935,13 +1017,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             <h3 className="text-sm font-bold text-slate-800 dark:text-white">Forma de Pagamento</h3>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {paymentOptions.map(option => {
+            {paymentSelectOptions.map(option => {
               const Icon = option.icon;
-              const active = paymentMethod === option.id;
+              const active = paymentMethod === option.value;
               return (
                 <button
-                  key={option.id}
-                  onClick={() => setPaymentMethod(option.id)}
+                  key={option.value}
+                  onClick={() => setPaymentMethod(option.value)}
                   className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                     active
                       ? 'bg-blue-600 text-white border-blue-600'
@@ -962,13 +1044,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             <h3 className="text-sm font-bold text-slate-800 dark:text-white">Tipo de Frete</h3>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {shippingOptions.map(option => {
+            {shippingSelectOptions.map(option => {
               const Icon = option.icon;
-              const active = shippingMethod === option.id;
+              const active = shippingMethod === option.value;
               return (
                 <button
-                  key={option.id}
-                  onClick={() => setShippingMethod(option.id)}
+                  key={option.value}
+                  onClick={() => setShippingMethod(option.value)}
                   className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                     active
                       ? 'bg-orange-600 text-white border-orange-600'
