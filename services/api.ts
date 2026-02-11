@@ -1317,6 +1317,27 @@ class ApiService {
     }
   }
 
+  async patchOrder(orderId: string, payload: { status?: string; pagamento_status?: string; frete_modalidade?: string }): Promise<Order> {
+      try {
+          const response = await this.fetchWithAuth(`/api/pedidos/${encodeURIComponent(orderId)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+          if (!response.ok) {
+              const text = await response.text();
+              throw new Error(`Falha ao atualizar pedido: ${text}`);
+          }
+          const data = await response.json();
+          const updated = this.mapRemoteOrder(data);
+          await dbService.saveOrder(updated);
+          return updated;
+      } catch (error: any) {
+          this.addLog(`Erro patch pedido ${orderId}: ${error?.message || 'desconhecido'}`, 'error');
+          throw error;
+      }
+  }
+
   async getOrderHistory(): Promise<Order[]> {
       try {
           const response = await this.fetchWithAuth('/api/pedidos');
@@ -1758,14 +1779,14 @@ class ApiService {
                               ? entry.data
                               : [];
 
-              const normalized = rawOptions
-                  .map((option: any) => ({
+              const normalized: EnumOption[] = rawOptions
+                  .map((option: Record<string, any>): EnumOption => ({
                       value: String(option.value ?? option.codigo ?? option.code ?? option.id ?? option.valor ?? '').trim(),
                       label: String(option.label ?? option.name ?? option.nome ?? option.description ?? option.descricao ?? option.value ?? '').trim(),
                       description: option.description || option.descricao || undefined,
                       metadata: option.metadata || option.meta || undefined,
                   }))
-                  .filter((option) => option.value);
+                  .filter((option: EnumOption) => option.value);
 
               if (normalized.length > 0) {
                   this.enumCache![key] = normalized;

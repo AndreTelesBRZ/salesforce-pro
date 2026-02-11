@@ -1,9 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { dbService } from '../services/db';
 import { apiService, API_ONLY_NOTICE } from '../services/api';
 import { Order } from '../types';
 import { FileText, Printer, ChevronDown, ChevronUp, Calendar, User, Check, Clock, Package, RefreshCw, Filter, AlertCircle, CheckCircle2, UploadCloud, Trash2, Square, CheckSquare, X, Loader2, Download, Store, Copy, Share2 } from 'lucide-react';
+import { useEnums } from '../contexts/EnumContext';
+import { EnumOption } from '../types';
 
 interface OrderHistoryProps {
     onNavigate?: (view: string) => void;
@@ -223,6 +225,86 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
         {meta.label}
       </span>
     );
+  };
+
+  const { enums } = useEnums();
+  const STATUS_ENUM_KEYS = ['business_status', 'order_status', 'status', 'flowStatus'];
+  const PAYMENT_ENUM_KEYS = ['payment_status', 'pagamento_status', 'paymentMethods'];
+  const SHIPPING_ENUM_KEYS = ['frete_modalidade', 'shipping_method', 'shippingMethod'];
+
+  const fallbackStatusOptions: EnumOption[] = businessStatusLegend.map((item) => ({
+    value: item.key,
+    label: item.label
+  }));
+
+  const findEnumOptions = (keys: string[]) => {
+    for (const key of keys) {
+      const entry = enums[key];
+      if (entry && entry.length > 0) {
+        return entry;
+      }
+    }
+    return [];
+  };
+
+  const buildSelectOptions = (raw: EnumOption[], fallback: EnumOption[]) => {
+    const source = raw.length > 0 ? raw : fallback;
+    return source.map((option) => ({
+      value: option.value,
+      label: option.label
+    }));
+  };
+
+  const statusOptions = useMemo(() => buildSelectOptions(findEnumOptions(STATUS_ENUM_KEYS), fallbackStatusOptions), [enums]);
+  const paymentOptions = useMemo(() => buildSelectOptions(findEnumOptions(PAYMENT_ENUM_KEYS), []), [enums]);
+  const shippingOptions = useMemo(() => buildSelectOptions(findEnumOptions(SHIPPING_ENUM_KEYS), []), [enums]);
+
+  const [editingState, setEditingState] = useState<Record<string, { status: string; payment: string; shipping: string }>>({});
+  const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const resolveSelection = (order: Order) => {
+    const existing = editingState[order.id];
+    if (existing) return existing;
+    return {
+      status: order.businessStatus || 'orcamento',
+      payment: order.paymentStatus || 'aguardando',
+      shipping: order.shippingMethod || order.shippingMethodId || 'sem_frete'
+    };
+  };
+
+  const handleSelectionChange = (orderId: string, field: 'status' | 'payment' | 'shipping', value: string) => {
+    setEditingState((prev) => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [field]: value
+      }
+    }));
+  };
+
+  const handleSaveOrderUpdate = async (order: Order) => {
+    const selection = resolveSelection(order);
+    setSavingOrderId(order.id);
+    setStatusMessage(null);
+    try {
+      await apiService.patchOrder(order.id, {
+        status: selection.status,
+        pagamento_status: selection.payment,
+        frete_modalidade: selection.shipping
+      });
+      setStatusMessage('Alterações salvas.');
+      await loadOrders();
+      setEditingState((prev) => {
+        const next = { ...prev };
+        delete next[order.id];
+        return next;
+      });
+    } catch (error: any) {
+      setStatusMessage(error?.message || 'Erro ao salvar alterações.');
+    } finally {
+      setSavingOrderId(null);
+    }
   };
 
   // --- RENDER ---
@@ -710,6 +792,59 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                            <div className="mt-4 space-y-4 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 p-4">
+                                <div className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Atualizar Status</div>
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                    <label className="text-xs font-semibold text-slate-500 flex flex-col gap-1">
+                                        Fluxo
+                                        <select
+                                          value={resolveSelection(order).status}
+                                          onChange={(e) => handleSelectionChange(order.id, 'status', e.target.value)}
+                                          className="w-full bg-white border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
+                                        >
+                                          {statusOptions.map(option => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                          ))}
+                                        </select>
+                                    </label>
+                                    <label className="text-xs font-semibold text-slate-500 flex flex-col gap-1">
+                                        Pagamento
+                                        <select
+                                          value={resolveSelection(order).payment}
+                                          onChange={(e) => handleSelectionChange(order.id, 'payment', e.target.value)}
+                                          className="w-full bg-white border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
+                                        >
+                                          {paymentOptions.map(option => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                          ))}
+                                        </select>
+                                    </label>
+                                    <label className="text-xs font-semibold text-slate-500 flex flex-col gap-1">
+                                        Frete
+                                        <select
+                                          value={resolveSelection(order).shipping}
+                                          onChange={(e) => handleSelectionChange(order.id, 'shipping', e.target.value)}
+                                          className="w-full bg-white border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
+                                        >
+                                          {shippingOptions.map(option => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                          ))}
+                                        </select>
+                                    </label>
+                                </div>
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <button
+                                      onClick={() => handleSaveOrderUpdate(order)}
+                                      disabled={savingOrderId === order.id}
+                                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60"
+                                    >
+                                      {savingOrderId === order.id ? 'Salvando...' : 'Salvar alterações'}
+                                    </button>
+                                    {statusMessage && (
+                                      <span className="text-xs text-slate-500">{statusMessage}</span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
