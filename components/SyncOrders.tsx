@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { dbService } from '../services/db';
 import { apiService, API_ONLY_NOTICE, LogEntry } from '../services/api';
 import { Order } from '../types';
-import { UploadCloud, CheckCircle, AlertTriangle, Loader2, ArrowRight, Package, CheckSquare, Square, Trash2, Terminal, RefreshCw, XCircle } from 'lucide-react';
+import { UploadCloud, CheckCircle, AlertTriangle, Loader2, ArrowRight, Package, CheckSquare, Square, Trash2, Terminal, RefreshCw, XCircle, Download } from 'lucide-react';
 
 export const SyncOrders: React.FC = () => {
   const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
@@ -13,6 +13,8 @@ export const SyncOrders: React.FC = () => {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [status, setStatus] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const [apiOnlyNotice, setApiOnlyNotice] = useState<string | null>(null);
+  const [receiving, setReceiving] = useState(false);
+  const [receiveMessage, setReceiveMessage] = useState<string | null>(null);
   
   const [showDebugLogs, setShowDebugLogs] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -73,6 +75,26 @@ export const SyncOrders: React.FC = () => {
       } finally {
           setLoading(false);
       }
+  };
+
+  const handleReceiveRemoteOrders = async () => {
+    if (receiving) return;
+    setReceiving(true);
+    setReceiveMessage(null);
+    try {
+      const remoteOrders = await apiService.getOrderHistory();
+      if (remoteOrders.length === 0) {
+        setReceiveMessage('Nenhum pedido remoto disponível no momento.');
+      } else {
+        await dbService.bulkPutOrders(remoteOrders);
+        setReceiveMessage(`Sincronizados ${remoteOrders.length} pedido${remoteOrders.length > 1 ? 's' : ''} do servidor.`);
+      }
+    } catch (error: any) {
+      setReceiveMessage(error?.message || 'Erro ao baixar pedidos.');
+    } finally {
+      setReceiving(false);
+      loadPending();
+    }
   };
 
   const handleSendSelected = async () => {
@@ -169,6 +191,12 @@ export const SyncOrders: React.FC = () => {
                     </ul>
                 </div>
             )}
+        </div>
+      )}
+
+      {receiveMessage && (
+        <div className="mb-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-sm text-slate-700 dark:text-slate-200">
+          {receiveMessage}
         </div>
       )}
 
@@ -272,17 +300,26 @@ export const SyncOrders: React.FC = () => {
                   </div>
                   <div>
                       <span className="text-sm text-slate-500 mr-2">Total Sel.:</span>
-                      <span className="text-xl font-bold text-slate-900 dark:text-white">
-                         R$ {pendingOrders.filter(o => selectedIds.has(o.id)).reduce((acc, o) => acc + o.total, 0).toFixed(2)}
-                      </span>
-                  </div>
-               </div>
-            </div>
+                <span className="text-xl font-bold text-slate-900 dark:text-white">
+                   R$ {pendingOrders.filter(o => selectedIds.has(o.id)).reduce((acc, o) => acc + o.total, 0).toFixed(2)}
+                </span>
+             </div>
+          </div>
+       </div>
 
-            <div className="flex flex-col gap-3">
-                <button
-                   onClick={handleSendSelected}
-                   disabled={syncing || selectedIds.size === 0}
+       <div className="flex flex-col gap-3">
+            <button
+               onClick={handleReceiveRemoteOrders}
+               disabled={receiving || syncing}
+               className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+            >
+               {receiving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+               <span>{receiving ? 'Recebendo pedidos...' : 'Receber pedidos remotos'}</span>
+            </button>
+
+           <button
+              onClick={handleSendSelected}
+              disabled={syncing || selectedIds.size === 0}
                    className="w-full relative overflow-hidden py-4 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-lg flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
                 >
                    {syncing && (

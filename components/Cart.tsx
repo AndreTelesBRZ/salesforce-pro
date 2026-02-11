@@ -439,12 +439,6 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     const numeric = Number(value || 0);
     return `R$ ${numeric.toFixed(2)}`;
   };
-  const isBoletoPlan = (plan: PaymentPlan) => {
-    const code = (plan.code || '').toLowerCase();
-    const description = (plan.description || '').toLowerCase();
-    const doc = (plan.document || '').toLowerCase();
-    return doc === 'boleto' || code.startsWith('boleto') || description.includes('boleto');
-  };
   const buildPaymentSchedule = (plan: PaymentPlan) => {
     const daysFirst = Number(plan.daysFirstInstallment || 0);
     const interval = Number(plan.daysBetweenInstallments || 0);
@@ -493,15 +487,22 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       setPaymentPlans([]);
       setSelectedPlan(null);
 
-      apiService.getPaymentPlansForCustomer(selectedCustomer.id)
-        .then((plans) => {
+      apiService.getPaymentPlansForCustomer(selectedCustomer.id, total)
+        .then((response) => {
             if (!isActive) return;
-            const boletoPlans = plans.filter(isBoletoPlan);
-            setPaymentPlans(boletoPlans);
-            if (boletoPlans.length > 0) {
-                setSelectedPlan(boletoPlans[0]);
-            } else {
+            const data = response.plans;
+            const planosDisponiveis = data.filter((plan) => plan.disponivel === true);
+            console.log('Planos recebidos:', data);
+            console.log('Planos disponíveis:', planosDisponiveis);
+            const shouldShowError = response.total === 0 || planosDisponiveis.length === 0;
+            if (shouldShowError) {
+                setPaymentPlans([]);
+                setSelectedPlan(null);
                 setPlanError('Cliente sem plano de pagamento boleto cadastrado.');
+            } else {
+                setPlanError('');
+                setPaymentPlans(planosDisponiveis);
+                setSelectedPlan(planosDisponiveis[0]);
             }
         })
         .catch((e: any) => {
@@ -516,7 +517,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       return () => {
           isActive = false;
       };
-  }, [selectedCustomer?.id, isBoleto]);
+  }, [selectedCustomer?.id, isBoleto, total]);
 
   useEffect(() => {
       if (!isBoleto || !selectedPlan) {
@@ -901,6 +902,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 {paymentSchedule.length > 0 && (
                   <div className="mt-2 text-[11px] text-slate-600">
                     <span className="font-semibold text-slate-700">Vencimentos:</span> {paymentSchedule.map(date => date.toLocaleDateString('pt-BR')).join(' • ')}
+                  </div>
+                )}
+                {selectedPlan.imageUrl && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <img
+                      src={selectedPlan.imageUrl}
+                      alt={`Plano ${selectedPlan.description || selectedPlan.code}`}
+                      className="h-16 w-16 rounded-lg border border-slate-200 object-contain dark:border-slate-700"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Imagem oficial do plano fornecida pela API.
+                    </p>
                   </div>
                 )}
               </div>

@@ -600,11 +600,11 @@ class ApiService {
       return `/api/products${queryString ? `?${queryString}` : ''}`;
   }
 
-  private buildPaymentPlansEndpoint(): string {
+  private buildPaymentPlanCatalogEndpoint(): string {
       const query = new URLSearchParams();
       query.set('loja_codigo', getStoreCodeForApi());
       query.set('meio', 'boleto');
-      return `/api/planos-pagamento?${query.toString()}`;
+      return `/api/catalogo/plano-pagamento?${query.toString()}`;
   }
 
   private normalizeSellerId(value?: string | number | null): string {
@@ -1098,7 +1098,7 @@ class ApiService {
       const targetUrl = hostBackend
         ? this.normalizeBackendUrl(hostBackend)
         : (url.trim() ? this.normalizeBackendUrl(url) : this.getBaseUrl());
-      const endpoint = this.buildPaymentPlansEndpoint();
+      const endpoint = this.buildPaymentPlanCatalogEndpoint();
       const connectionUrl = targetUrl ? `${targetUrl}${endpoint}` : endpoint;
       const headers = { ...this.getAuthHeaders() };
       
@@ -1177,9 +1177,10 @@ class ApiService {
 
       if (!planCode && order.customerId) {
           try {
-              const plans = await this.getPaymentPlansForCustomer(order.customerId);
-              if (plans.length > 0) {
-                  const fallback = plans[0];
+              const planResult = await this.getPaymentPlansForCustomer(order.customerId, order.total);
+              const availablePlans = planResult.plans.filter(p => p.disponivel === true);
+              if (availablePlans.length > 0) {
+                  const fallback = availablePlans[0];
                   planCode = fallback.code;
                   planDescription = fallback.description;
                   planInstallments = fallback.installments;
@@ -1282,7 +1283,110 @@ class ApiService {
   }
 
   async getOrderHistory(): Promise<Order[]> {
-       return [];
+      try {
+          const response = await this.fetchWithAuth('/api/pedidos');
+          if (!response.ok) {
+              this.addLog(`Falha ao baixar histórico de pedidos: ${response.status}`, 'error');
+              return [];
+          }
+          const payload = await response.json();
+          const list = Array.isArray(payload) ? payload : payload?.data || payload?.orders || payload?.results || [];
+          if (!Array.isArray(list)) return [];
+          return list.map((item: any) => this.mapRemoteOrder(item));
+      } catch (error: any) {
+          this.addLog(`Erro ao sincronizar histórico de pedidos: ${error?.message || 'desconhecido'}`, 'error');
+          return [];
+      }
+  }
+
+  private mapRemoteOrder(item: any): Order {
+      const createdAt = this.normalizeOrderDate(
+          item.createdAt ||
+          item.created_at ||
+          item.data_criacao ||
+          item.timestamp ||
+          new Date().toISOString()
+      );
+      const orderIdValue = item.id ?? item.orderId ?? item.numero_pedido ?? item.numeroPedido ?? item.displayId;
+      const fallbackId = `${item.cliente_id || item.customerId || 'remote'}-${createdAt}`;
+      const normalizedStatus = String(item.status || item.businessStatus || item.business_status || 'synced').toLowerCase();
+      const status: Order['status'] = normalizedStatus === 'pending' || normalizedStatus === 'pendente' ? 'pending' : 'synced';
+      const businessStatus = item.businessStatus || item.business_status || normalizedStatus;
+      const itemsPayload = Array.isArray(item.items)
+          ? item.items
+          : Array.isArray(item.itens)
+            ? item.itens
+            : Array.isArray(item.order_items)
+              ? item.order_items
+              : [];
+
+      const mappedItems = itemsPayload.map((line: any) => this.mapRemoteOrderItem(line));
+
+      return {
+          id: orderIdValue ? String(orderIdValue) : fallbackId,
+          displayId: item.displayId || item.numero_pedido || item.numeroPedido || item.order_number || item.orderId || undefined,
+          customerId: String(item.cliente_id ?? item.customerId ?? item.customer_id ?? item.clienteCodigo ?? ''),
+          customerName: item.cliente_nome || item.customerName || item.customer_name || item.fantasyName || '',
+          customerDoc: item.cliente_documento || item.customerDoc || item.documento || '',
+          customerType: item.cliente_tipo || item.customerType || 'NORMAL',
+          paymentPlanCode: item.plano_pagamento_codigo || item.payment_plan_code || item.plan_code || '',
+          paymentPlanDescription: item.plano_pagamento_descricao || item.payment_plan_description || item.plan_description || '',
+          paymentInstallments: Number(item.parcelas ?? item.installments ?? 0),
+          paymentFirstInstallmentDays: Number(item.dias_primeira_parcela ?? item.firstInstallmentDays ?? item.first_payment_days ?? 0),
+          paymentDaysBetween: Number(item.dias_entre_parcelas ?? item.days_between_installments ?? item.daysBetweenInstallments ?? 0),
+          paymentMinValue: Number(item.valor_minimo ?? item.min_value ?? 0),
+          paymentDueDates: Array.isArray(item.paymentDueDates) ? item.paymentDueDates : Array.isArray(item.vencimentos) ? item.vencimentos : undefined,
+          items: mappedItems,
+          total: this.toNumber(item.total),
+          status,
+          businessStatus,
+          remoteId: item.orderId || item.id || undefined,
+          notes: item.observacao || item.notes || '',
+          sellerId: item.vendedor_id || item.sellerId || item.salesmanId || '',
+          sellerName: item.vendedor_nome || item.sellerName || '',
+          paymentMethod: item.payment_method || item.forma_pagamento || '',
+          paymentMethodId: item.payment_method_id || item.paymentMethodId || '',
+          shippingMethod: item.shipping_method || item.tipo_frete || '',
+          shippingMethodId: item.shipping_method_id || item.shippingMethodId || '',
+          createdAt
+      };
+  }
+
+  private mapRemoteOrderItem(line: any): CartItem {
+      const quantity = this.toNumber(line.quantidade ?? line.quantity ?? line.qty ?? line.amount ?? 1);
+      const price = this.toNumber(line.valor_unitario ?? line.unit_price ?? line.price ?? line.valor ?? 0);
+      const name = line.nome_produto || line.productName || line.name || line.description || 'Produto';
+      return {
+          id: String(line.codigo_produto || line.productId || line.product_code || line.id || `remote-item-${Math.random().toString(36).slice(2)}`),
+          name,
+          description: line.descricao || line.description || '',
+          price,
+          basePrice: price,
+          category: line.categoria || line.category || '',
+          stock: this.toNumber(line.estoque ?? line.stock ?? 0),
+          unit: line.unidade || line.unit || 'un',
+          quantity,
+      };
+  }
+
+  private toNumber(value: any): number {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  private toBoolean(value: any): boolean {
+      if (typeof value === 'boolean') return value;
+      if (value === undefined || value === null) return false;
+      const normalized = String(value).trim().toLowerCase();
+      if (!normalized) return false;
+      return ['1', 'true', 'sim', 's', 'yes', 'y'].includes(normalized);
+  }
+
+  private normalizeOrderDate(value: any): string {
+      if (!value) return new Date().toISOString();
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+      return parsed.toISOString();
   }
 
   // Atualiza status de negócio no servidor (se exposto) e reflete local
@@ -1543,9 +1647,17 @@ class ApiService {
       return this.mapCustomer(data);
   }
 
-  async getPaymentPlansForCustomer(customerId: string): Promise<PaymentPlan[]> {
-      const res = await this.fetchWithAuth(`/api/planos-pagamento-cliente/${encodeURIComponent(customerId)}`);
-      if (res.status === 404) return [];
+  async getPaymentPlansForCustomer(customerId: string, pedidoTotal?: number): Promise<{ total: number; plans: PaymentPlan[] }> {
+      const catalog = await this.fetchPaymentPlanCatalog();
+      const query = new URLSearchParams();
+      if (typeof pedidoTotal === 'number' && Number.isFinite(pedidoTotal)) {
+          query.set('pedido_total', pedidoTotal.toString());
+      }
+      const queryString = query.toString();
+      const endpoint = `/api/planos-pagamento-cliente/${encodeURIComponent(customerId)}${queryString ? `?${queryString}` : ''}`;
+
+      const res = await this.fetchWithAuth(endpoint);
+      if (res.status === 404) return { total: 0, plans: [] };
       if (!res.ok) {
           const msg = await res.text();
           try {
@@ -1555,41 +1667,93 @@ class ApiService {
               throw new Error(msg || 'Erro ao buscar planos de pagamento.');
           }
       }
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : (data.data || []);
+      const payload = await res.json();
+      const list = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+      const mappedPlans = list.map((p: any) => this.mapPaymentPlan(p, catalog));
+      const totalValue = Number(payload.total ?? payload.count ?? mappedPlans.length);
+      return {
+          total: Number.isFinite(totalValue) ? totalValue : mappedPlans.length,
+          plans: mappedPlans
+      };
+  }
+
+  private paymentPlanCatalogCache: any[] | null = null;
+
+  private async fetchPaymentPlanCatalog(): Promise<any[]> {
+      if (this.paymentPlanCatalogCache) return this.paymentPlanCatalogCache;
+      try {
+          const response = await this.fetchWithAuth(this.buildPaymentPlanCatalogEndpoint(), { method: 'GET' });
+          if (!response.ok) {
+              this.addLog(`Falha ao baixar catálogo de planos: ${response.status}`, 'error');
+              return (this.paymentPlanCatalogCache = []);
+          }
+          const payload = await response.json();
+          const list = Array.isArray(payload) ? payload : payload?.data || payload?.plans || payload?.results || [];
+          this.paymentPlanCatalogCache = Array.isArray(list) ? list : [];
+          return this.paymentPlanCatalogCache;
+      } catch (error: any) {
+          this.addLog(`Erro ao carregar catálogo de planos: ${error?.message || 'desconhecido'}`, 'error');
+          this.paymentPlanCatalogCache = [];
+          return [];
+      }
+  }
+
+  private mapPaymentPlan(plan: any, catalog: any[]): PaymentPlan {
       const parsePlanDays = (value: string): number[] => {
           if (!value) return [];
           const matches = value.match(/\d+/g);
           if (!matches) return [];
           return matches.map((m) => Number(m)).filter((n) => Number.isFinite(n) && n > 0);
       };
-      return list.map((p: any) => ({
-          code: String(p.plano_codigo || p.codigo || p.code || p.PLACOD || p.placod || ''),
-          description: p.plano_descricao || p.descricao || p.description || p.PLADES || p.plades || '',
-          legend: p.PLALEG || p.plaleg || p.legend || p.legenda || '',
-          document: (() => {
-              const raw = String(p.documento || p.document || p.tipo_documento || '').trim();
-              if (raw) return raw.toUpperCase();
-              const codeValue = String(p.plano_codigo || p.codigo || p.code || p.PLACOD || p.placod || '').trim();
-              if (codeValue) return codeValue.split('_')[0].toUpperCase();
-              return '';
-          })(),
-          entryValue: Number(p.PLAENT ?? p.plaent ?? p.entrada ?? 0),
-          firstInstallmentInterval: Number(p.PLAINTPRI ?? p.plaintpri ?? 0),
-          accrual: Number(p.PLAVLRACR ?? p.plavlracr ?? p.acrescimo ?? 0),
-          installments: Number(p.parcelas ?? p.installments ?? p.PLANUMPAR ?? p.planumpar ?? 1),
-          daysBetweenInstallments: Number(p.dias_entre_parcelas ?? p.days_between_installments ?? p.PLAINTPAR ?? p.plaintpar ?? 0),
-          minValue: Number(p.valor_minimo ?? p.min_value ?? p.PLAVLRMIN ?? p.plavlrmin ?? 0),
+      const codeValue = String(plan.plano_codigo || plan.codigo || plan.code || plan.PLACOD || plan.placod || '').trim();
+      const catalogEntry = catalog.find((entry) => {
+          const entryCode = (entry.plano_codigo || entry.codigo || entry.code || '').trim();
+          return entryCode && entryCode === codeValue;
+      });
+
+      const rawDoc = String(plan.documento || plan.document || plan.tipo_documento || plan.tipo_pagamento || plan.forma_pagamento || plan.payment_type || plan.paymentMethod || '').trim();
+      const documentValue = rawDoc ? rawDoc.toUpperCase() : codeValue.split('_')[0].toUpperCase();
+      const firstInstallmentInterval = Number(plan.PLAINTPRI ?? plan.plaintpri ?? plan.intervalo_primeira_parcela ?? plan.intervaloPrimeiraParcela ?? plan.firstInstallmentDays ?? 0);
+      const daysBetweenInstallments = Number(plan.dias_entre_parcelas ?? plan.days_between_installments ?? plan.intervalo_parcelas ?? plan.intervaloParcelas ?? plan.daysBetweenInstallments ?? 0);
+
+      const imageSource = catalogEntry
+          ? (catalogEntry.imagem || catalogEntry.image || catalogEntry.imagem_url || catalogEntry.image_url || catalogEntry.IMAGE || catalogEntry.IMAGEM || catalogEntry.icon || catalogEntry.icone || catalogEntry.icon_url)
+          : (plan.imagem || plan.image || plan.imagem_url || plan.image_url || plan.IMAGE || plan.IMAGEM || plan.icon || plan.icone || plan.icon_url);
+
+      const description = plan.plano_descricao || plan.descricao || plan.description || plan.PLADES || plan.plades || '';
+      const availabilitySource =
+          plan.disponivel ??
+          plan.disponible ??
+          plan.available ??
+          plan.is_disponivel ??
+          plan.disponibil ??
+          plan.isAvailable ??
+          plan.disponivel_completa ??
+          false;
+      const disponivelFlag = this.toBoolean(availabilitySource);
+      const meioPagamentoValue = plan.meio_pagamento || plan.meioPagamento || plan.paymentMethod || plan.forma_pagamento || plan.meio || '';
+
+      return {
+          code: codeValue,
+          description,
+          legend: plan.PLALEG || plan.plaleg || plan.legend || plan.legenda || '',
+          document: documentValue,
+          entryValue: Number(plan.PLAENT ?? plan.plaent ?? plan.entrada ?? 0),
+          firstInstallmentInterval,
+          accrual: Number(plan.PLAVLRACR ?? plan.plavlracr ?? plan.acrescimo ?? 0),
+          installments: Number(plan.parcelas ?? plan.installments ?? plan.PLANUMPAR ?? plan.planumpar ?? 1),
+          daysBetweenInstallments,
+          minValue: Number(plan.valor_minimo ?? plan.min_value ?? plan.PLAVLRMIN ?? plan.plavlrmin ?? 0),
           daysFirstInstallment: (() => {
-              const rawFirst = Number(p.PLAINTPRI ?? p.plaintpri ?? 0);
-              if (Number.isFinite(rawFirst) && rawFirst > 0) return rawFirst;
-              const desc = String(p.plano_descricao || p.descricao || p.description || p.PLADES || p.plades || '');
-              const days = parsePlanDays(desc);
+              if (Number.isFinite(firstInstallmentInterval) && firstInstallmentInterval > 0) return firstInstallmentInterval;
+              const days = parsePlanDays(description);
               if (days.length > 0) return days[0];
-              const interval = Number(p.dias_entre_parcelas ?? p.days_between_installments ?? p.PLAINTPAR ?? p.plaintpar ?? 0);
-              return Number.isFinite(interval) ? interval : 0;
-          })()
-      }));
+              return Number.isFinite(daysBetweenInstallments) && daysBetweenInstallments > 0 ? daysBetweenInstallments : 0;
+          })(),
+          imageUrl: this.resolveImageUrl(imageSource),
+          disponivel: disponivelFlag,
+          meioPagamento: meioPagamentoValue
+      };
   }
 
   private getClientSyncViewPath(mode: ClientSyncViewMode): string {

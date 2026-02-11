@@ -103,6 +103,9 @@ export interface PaymentPlan {
   installments: number;
   daysBetweenInstallments: number;
   minValue: number;
+  imageUrl?: string;
+  disponivel: boolean;
+  meioPagamento?: string;
 }
 
 export interface DelinquencyItem {
