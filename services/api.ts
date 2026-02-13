@@ -1971,10 +1971,22 @@ class ApiService {
         await dbService.bulkAddCustomers(mapped);
         
         onProgress(mapped.length);
-        return { success: true, count: mapped.length };
+      return { success: true, count: mapped.length };
     } catch (e: any) {
         return { success: false, count: 0, message: e.message };
     }
+  }
+
+  async syncOrders(): Promise<{ success: boolean, count: number, message?: string }> {
+      try {
+          const orders = await this.getOrderHistory();
+          if (orders.length > 0) {
+              await dbService.bulkPutOrders(orders);
+          }
+          return { success: true, count: orders.length };
+      } catch (e: any) {
+          return { success: false, count: 0, message: e.message };
+      }
   }
 
   private mapCustomer(c: any): Customer {

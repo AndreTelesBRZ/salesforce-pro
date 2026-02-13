@@ -440,8 +440,12 @@ async function initDb() {
             state TEXT,
             zip TEXT,
             complement TEXT,
+            logo_url TEXT,
             updated_at TEXT
         )`);
+        try {
+            await db.run("ALTER TABLE store_info ADD COLUMN logo_url TEXT");
+        } catch (e) {}
 
         // Garante registros por loja (00001 e 00003)
         try {
