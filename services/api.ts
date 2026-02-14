@@ -1355,6 +1355,22 @@ class ApiService {
       }
   }
 
+  async getOrderById(orderId: string): Promise<Order | null> {
+      try {
+          const response = await this.fetchWithAuth(`/api/pedidos/${encodeURIComponent(orderId)}`);
+          if (!response.ok) {
+              if (response.status === 404) return null;
+              const text = await response.text();
+              throw new Error(`Falha ao carregar pedido: ${text}`);
+          }
+          const payload = await response.json();
+          return this.mapRemoteOrder(payload);
+      } catch (error: any) {
+          this.addLog(`Erro ao carregar pedido ${orderId}: ${error?.message || 'desconhecido'}`, 'error');
+          throw error;
+      }
+  }
+
   private mapRemoteOrder(item: any): Order {
       const createdAt = this.normalizeOrderDate(
           item.createdAt ||
@@ -1377,7 +1393,11 @@ class ApiService {
               : [];
 
       const mappedItems = itemsPayload.map((line: any) => this.mapRemoteOrderItem(line));
-
+      const syncDateRaw = item.sincronizado_em || item.sincronizadoEm || item.synced_at || item.syncedAt || item.last_sync || item.lastSync;
+      const syncErrorRaw = item.sincronizacao_erro || item.sincronizacaoErro || item.sync_error || item.syncError || item.error;
+      const shippingCostValue = this.toNumber(
+          item.frete ?? item.ref_rete ?? item.shipping_cost ?? item.shippingCost ?? item.shippingValue ?? item.shipping_cost_value ?? item.frete_valor ?? item.valor_frete
+      );
       return {
           id: orderIdValue ? String(orderIdValue) : fallbackId,
           displayId: item.displayId || item.numero_pedido || item.numeroPedido || item.order_number || item.orderId || undefined,
@@ -1396,6 +1416,9 @@ class ApiService {
           total: this.toNumber(item.total),
           status,
           businessStatus,
+          sincronizado: this.toBoolean(item.sincronizado ?? item.synced ?? item.sinced ?? item.isSincronizado ?? item.synced ?? item.synced_override),
+          sincronizadoEm: syncDateRaw ? this.normalizeOrderDate(syncDateRaw) : undefined,
+          sincronizacaoErro: syncErrorRaw ? String(syncErrorRaw) : undefined,
           remoteId: item.orderId || item.id || undefined,
           notes: item.observacao || item.notes || '',
           sellerId: item.vendedor_id || item.sellerId || item.salesmanId || '',
@@ -1404,6 +1427,7 @@ class ApiService {
           paymentMethodId: item.payment_method_id || item.paymentMethodId || '',
           shippingMethod: item.shipping_method || item.tipo_frete || '',
           shippingMethodId: item.shipping_method_id || item.shippingMethodId || '',
+          shippingCost: Number.isFinite(shippingCostValue) ? shippingCostValue : undefined,
           createdAt
       };
   }

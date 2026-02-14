@@ -62,6 +62,9 @@ export interface Order {
   items: CartItem[];
   total: number;
   status: 'pending' | 'synced';
+  sincronizado?: boolean;
+  sincronizadoEm?: string;
+  sincronizacaoErro?: string;
   // Fluxo de negócio da venda
   businessStatus?: 'orcamento' | 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado';
   // ID do pedido no servidor, se já transmitido
@@ -78,6 +81,7 @@ export interface Order {
   shippingMethodId?: string;
   paymentStatus?: string;
   createdAt: string;
+  shippingCost?: number;
 }
 
 export type ThemeMode = 'light' | 'dark' | 'system';
