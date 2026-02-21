@@ -6,6 +6,7 @@ import { FileText, Printer, ChevronDown, ChevronUp, Calendar, Package, RefreshCw
 interface OrderHistoryProps {
   onNavigate?: (view: string) => void;
   initialTab?: 'all' | 'pending' | 'synced' | 'flow';
+  storeInfo?: Record<string, any> | null;
 }
 
 const businessStatusLegend = [
@@ -35,7 +36,7 @@ const formatMoney = (value: number) => {
   return `R$ ${value.toFixed(2)}`;
 };
 
-export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialTab = 'all' }) => {
+export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialTab = 'all', storeInfo }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
@@ -45,28 +46,38 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
   const [fetchingDetailId, setFetchingDetailId] = useState<string | null>(null);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const [viewingReceipt, setViewingReceipt] = useState<Order | null>(null);
-  const [headerStore, setHeaderStore] = useState<any | null>(null);
+  const [headerStore, setHeaderStore] = useState<any | null>(storeInfo ?? null);
+  const [fallbackStoreLoaded, setFallbackStoreLoaded] = useState(false);
 
   useEffect(() => {
     loadOrders();
-    loadHeaderStore();
   }, []);
+
+  useEffect(() => {
+    if (storeInfo !== undefined) {
+      setHeaderStore(storeInfo ?? null);
+      return;
+    }
+    if (fallbackStoreLoaded) return;
+    const loadHeaderStore = async () => {
+      try {
+        const res = await apiService.fetchWithAuth('/api/store/public');
+        if (res.ok) {
+          const data = await res.json();
+          setHeaderStore(data);
+        }
+      } catch (error) {
+        console.warn('Falha ao carregar dados da loja', error);
+      } finally {
+        setFallbackStoreLoaded(true);
+      }
+    };
+    loadHeaderStore();
+  }, [storeInfo, fallbackStoreLoaded]);
 
   useEffect(() => {
     setExpandedOrder(null);
   }, [activeTab]);
-
-  const loadHeaderStore = async () => {
-    try {
-      const res = await apiService.fetchWithAuth('/api/store/public');
-      if (res.ok) {
-        const data = await res.json();
-        setHeaderStore(data);
-      }
-    } catch (error) {
-      console.warn('Falha ao carregar dados da loja', error);
-    }
-  };
 
   const loadOrders = async () => {
     setLoading(true);
@@ -94,8 +105,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
         setExpandedOrder(null);
         return;
       }
-      setOrderDetails((prev) => ({ ...prev, [orderId]: detail }));
-      setOrders((prev) => prev.map((order) => (order.id === orderId ? detail : order)));
+    setOrderDetails((prev) => ({ ...prev, [orderId]: detail }));
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? detail : order)));
     } catch (error: any) {
       console.error('Erro ao carregar pedido', error);
       if (error?.message?.includes('404')) {
@@ -305,21 +316,30 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
             <div className="p-8 bg-white text-slate-900 print-content overflow-y-auto flex-1">
               <div className="print-page print-compact">
                 <div className="flex justify-between items-start border-b-2 border-slate-800 pb-4">
-                  <div>
-                    <h1 className="text-2xl font-bold uppercase tracking-wide">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
-                    <p className="text-sm text-slate-600">{headerStore?.legal_name}</p>
-                    {headerStore?.document && (
-                      <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
+                  <div className="flex gap-4 items-start">
+                    {headerStore?.logo_url && (
+                      <img
+                        src={headerStore.logo_url}
+                        alt={headerStore.trade_name || 'Logotipo'}
+                        className="h-16 w-16 object-contain rounded border border-slate-200"
+                      />
                     )}
-                    {(headerStore?.street || headerStore?.city) && (
-                      <p className="text-xs text-slate-500">
-                        {headerStore?.street || ''} {headerStore?.number || ''} {headerStore?.neighborhood ? `- ${headerStore.neighborhood}` : ''} {headerStore?.city ? `• ${headerStore.city}/${headerStore.state || ''}` : ''} {headerStore?.zip ? `• ${headerStore.zip}` : ''}
-                      </p>
-                    )}
-                    {headerStore?.phone && (
-                      <p className="text-xs text-slate-500">Fone: {headerStore.phone}</p>
-                    )}
-                    <p className="text-xs text-slate-500 mt-2">Comprovante de Pedido</p>
+                    <div className="space-y-1">
+                      <h1 className="text-2xl font-bold uppercase tracking-wide">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
+                      <p className="text-sm text-slate-600">{headerStore?.legal_name}</p>
+                      {headerStore?.document && (
+                        <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
+                      )}
+                      {(headerStore?.street || headerStore?.city) && (
+                        <p className="text-xs text-slate-500">
+                          {headerStore?.street || ''} {headerStore?.number || ''} {headerStore?.neighborhood ? `- ${headerStore.neighborhood}` : ''} {headerStore?.city ? `• ${headerStore.city}/${headerStore.state || ''}` : ''} {headerStore?.zip ? `• ${headerStore.zip}` : ''}
+                        </p>
+                      )}
+                      {headerStore?.phone && (
+                        <p className="text-xs text-slate-500">Fone: {headerStore.phone}</p>
+                      )}
+                      <p className="text-xs text-slate-500 mt-2">Comprovante de Pedido</p>
+                    </div>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] text-slate-500 uppercase font-bold">Pedido</p>
@@ -360,7 +380,9 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                         <td className="py-2 align-top">{item.unit}</td>
                         <td className="py-2 align-top">
                           <div className="font-bold text-slate-900">{item.name}</div>
-                          <div className="text-[10px] text-slate-500">{item.id}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.description || item.id}
+                          </div>
                         </td>
                         <td className="py-2 align-top text-right">R$ {item.price.toFixed(2)}</td>
                         <td className="py-2 align-top text-right font-bold">R$ {(item.quantity * item.price).toFixed(2)}</td>

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiService, LogEntry } from '../services/api';
-import { getBackendUrlForCurrentHost, getStoreCodeForCurrentHost, isBackendUrlLockedForCurrent, isEdsonHostForCurrent, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from '../services/storeHost';
+import { getBackendUrlForCurrentHost, isBackendUrlLockedForCurrent, isEdsonHostForCurrent, isLlfixHostForCurrent } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 
@@ -23,83 +23,13 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [showToken, setShowToken] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
-  const [storeForm, setStoreForm] = useState<any>({});
-  const [erpStores, setErpStores] = useState<any[]>([]);
-  const [selectStoreOpen, setSelectStoreOpen] = useState(false);
-  const [selectedStoreIndex, setSelectedStoreIndex] = useState<number>(0);
-  const storeSelectionLocked = isStoreSelectionLockedForCurrent();
   const backendUrlLocked = isBackendUrlLockedForCurrent();
   const lockedBackendUrl = getBackendUrlForCurrentHost();
   const resolvedBackendUrl = backendUrlLocked ? lockedBackendUrl : config.backendUrl;
   const isLlfixHost = isLlfixHostForCurrent();
   const isEdsonHost = isEdsonHostForCurrent();
   const showForceLLFix = isLlfixHost && !isEdsonHost;
-
-  const applyStoreFromERP = async (loja: any) => {
-    if (!loja) return;
-    const pick = (obj: any, keys: string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
-    const findBy = (obj: any, regex: RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
-    const mapped = {
-      legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','RAZAO SOCIAL','RAZÃO SOCIAL','NOME_RAZAO','EMPRESA','Razao Social','Razão Social']),
-      trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA','Nome Fantasia']),
-      document: pick(loja, ['AGECGC','AGECGCPF','CNPJ','CPF_CNPJ','CGC','CNPJ/CPF']),
-      state_registration: pick(loja, ['AGECGF','CGF','INSCR_ESTADUAL','INSCRICAO_ESTADUAL','IE']),
-      municipal_registration: pick(loja, ['INSC_MUN','INSC_MUNICIPAL','Insc. Mun.']),
-      email: pick(loja, ['AGEMAIL','AGECORELE','EMAIL','E-mail']) || findBy(loja, /email/i),
-      phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETEL2','AGETELF','AGETELEFONE','AGECELP','TEL 1','TEL 2','TEL1','TEL2','CELULAR','TELEFONE','Telefone']) || findBy(loja, /(tel|fone|cel)/i),
-      street: pick(loja, ['AGEEND','ENDERECO','ENDEREÇO','LOGRADOURO','RUA','Endereco','Endereço']),
-      number: pick(loja, ['AGEBNU','AGENUM','NUMERO','NRO','NUM','Numero']),
-      complement: pick(loja, ['AGECPL','COMPLEMENTO','Complemento']),
-      neighborhood: pick(loja, ['AGEBAI','BAIRRO','Bairro']),
-      city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO','Cidade']),
-      state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
-      zip: pick(loja, ['AGECEP','CEP']),
-    };
-    setStoreForm((prev: any) => ({ ...prev, ...mapped }));
-    await (await apiService.fetchWithAuth('/api/store', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(mapped) })).json();
-    alert('Dados da loja importados com sucesso!');
-  };
-
-  const importFromERP = async () => {
-    try {
-      // Busca lista de lojas na API do ERP
-      const res = await apiService.fetchWithAuth('/api/lojas');
-      if (!res.ok) {
-        alert('Falha ao consultar /api/lojas no ERP');
-        return;
-      }
-      const payload = await res.json();
-      const data = Array.isArray(payload) ? payload : (payload.data || []);
-      if (!data || data.length === 0) {
-        alert('Nenhuma loja retornada pelo ERP.');
-        return;
-      }
-
-      setErpStores(data);
-      const targetStoreCode = normalizeStoreCode(getStoreCodeForCurrentHost());
-      const idx = data.findIndex((l: any) => normalizeStoreCode(l.LOJCOD || l.lojcod || l.codigo || '') === targetStoreCode);
-      const resolvedIndex = idx >= 0 ? idx : 0;
-      if (storeSelectionLocked) {
-        await applyStoreFromERP(data[resolvedIndex]);
-        return;
-      }
-      setSelectedStoreIndex(resolvedIndex);
-      setSelectStoreOpen(true);
-    } catch (e) {
-      alert('Falha ao importar dados da API.');
-    }
-  };
-
-  const confirmImportFromERP = async () => {
-    try {
-      const loja = erpStores[selectedStoreIndex];
-      if (!loja) { setSelectStoreOpen(false); return; }
-      await applyStoreFromERP(loja);
-      setSelectStoreOpen(false);
-    } catch (e) {
-      alert('Falha ao importar dados da API.');
-    }
-  }
+  const [storeInfo, setStoreInfo] = useState<any | null>(null);
 
   // Auto-teste
   useEffect(() => {
@@ -112,16 +42,25 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     return () => clearTimeout(delay);
   }, [config.apiToken, config.useMockData, resolvedBackendUrl]);
 
-  // Carrega dados da loja ao abrir
   useEffect(() => {
+    let active = true;
     (async () => {
       try {
         const res = await apiService.fetchWithAuth('/api/store/public');
-        if (res.ok) setStoreForm(await res.json());
-      } catch {}
+        if (!active) return;
+        if (res.ok) {
+          setStoreInfo(await res.json());
+          return;
+        }
+      } catch {
+        // noop
+      }
+      setStoreInfo(null);
     })();
+    return () => { active = false; };
   }, []);
 
+  // Carrega dados da loja ao abrir
   const refreshLogs = () => {
       setLogs([...apiService.getLogs()]);
   };
@@ -259,31 +198,6 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
              </p>
         </div>
 
-        {/* Modal: Seletor de Loja da API */}
-        {selectStoreOpen && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-lg shadow-xl p-4">
-              <h3 className="text-lg font-bold mb-3 text-slate-800 dark:text-white">Selecionar Loja</h3>
-              <p className="text-xs text-slate-500 mb-2">Escolha qual registro de loja deseja importar da API.</p>
-              <select
-                value={selectedStoreIndex}
-                onChange={(e)=>setSelectedStoreIndex(parseInt(e.target.value))}
-                className="w-full p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700"
-              >
-                {erpStores.map((l:any, idx:number)=>{
-                  const code = String(l.LOJCOD || l.lojcod || l.codigo || '').padStart(6, '0');
-                  const name = String(l.AGEFAN || l.FANTASIA || l.NOME_FANTASIA || l.AGEEMP || l.RAZAO || 'Loja');
-                  return <option key={idx} value={idx}>{code} - {name}</option>;
-                })}
-              </select>
-              <div className="flex justify-end gap-2 mt-4">
-                <button onClick={()=>setSelectStoreOpen(false)} className="px-3 py-2 rounded border text-slate-600 dark:text-slate-300">Cancelar</button>
-                <button onClick={confirmImportFromERP} className="px-3 py-2 rounded bg-blue-600 text-white font-bold hover:bg-blue-700">Importar</button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Status */}
         {testStatus === 'error' && (
             <div className="text-xs bg-red-50 text-red-600 p-3 rounded border border-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
@@ -304,39 +218,49 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
           />
         </div>
 
-        {/* Dados da Loja (opcional) */}
         <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-md border dark:border-slate-700">
-          <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
             <Building className="w-4 h-4 text-blue-600" />
-            Dados da Loja (para relatórios/recibos)
-          </label>
-          <div className="flex justify-end mb-2">
-            <button onClick={importFromERP} className="px-3 py-2 text-xs bg-emerald-600 text-white rounded font-bold hover:bg-emerald-700">Importar da API</button>
+            Dados da Loja (ERP)
           </div>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Razão Social" value={storeForm.legal_name||''} onChange={e=>setStoreForm({...storeForm, legal_name:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Nome Fantasia" value={storeForm.trade_name||''} onChange={e=>setStoreForm({...storeForm, trade_name:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="CNPJ/CPF" value={storeForm.document||''} onChange={e=>setStoreForm({...storeForm, document:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="E-mail" value={storeForm.email||''} onChange={e=>setStoreForm({...storeForm, email:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Telefone" value={storeForm.phone||''} onChange={e=>setStoreForm({...storeForm, phone:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Logradouro" value={storeForm.street||''} onChange={e=>setStoreForm({...storeForm, street:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Número" value={storeForm.number||''} onChange={e=>setStoreForm({...storeForm, number:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Bairro" value={storeForm.neighborhood||''} onChange={e=>setStoreForm({...storeForm, neighborhood:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="Cidade" value={storeForm.city||''} onChange={e=>setStoreForm({...storeForm, city:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="UF" value={storeForm.state||''} onChange={e=>setStoreForm({...storeForm, state:e.target.value})} />
-            <input className="p-2 border rounded dark:bg-slate-900 dark:text-white dark:border-slate-700" placeholder="CEP" value={storeForm.zip||''} onChange={e=>setStoreForm({...storeForm, zip:e.target.value})} />
-          </div>
-          <div className="flex justify-end mt-3">
-            <button
-              onClick={async ()=>{
-                try{
-                  await (await apiService.fetchWithAuth('/api/store/public', { method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(storeForm)})).json();
-                  alert('Dados da loja atualizados!');
-                }catch(e){ alert('Falha ao salvar'); }
-              }}
-              className="px-3 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700"
-            >Salvar Dados da Loja</button>
-          </div>
+          {storeInfo ? (
+            <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
+              <div className="flex items-center gap-3">
+                {storeInfo.logo_url ? (
+                  <img src={storeInfo.logo_url} alt="Logotipo" className="h-12 w-12 object-contain rounded border border-slate-200" />
+                ) : (
+                  <Building className="w-8 h-8 text-slate-500" />
+                )}
+                <div>
+                  <p className="font-semibold text-slate-800 dark:text-white">
+                    {storeInfo.trade_name || storeInfo.legal_name || 'SalesForce Pro'}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Loja {storeInfo.id ? String(storeInfo.id).padStart(2, '0') : '—'}
+                    {isEdsonHost ? ' • 00001 (Edson)' : isLlfixHost ? ' • 00003 (LLFIX)' : ''}
+                  </p>
+                </div>
+              </div>
+              <p>Razão social: <span className="font-medium">{storeInfo.legal_name || 'N/A'}</span></p>
+              <p>CNPJ/CPF: <span className="font-medium">{storeInfo.document || 'N/A'}</span></p>
+              <p>Endereço:&nbsp;
+                <span className="font-medium">
+                  {storeInfo.street || '—'} {storeInfo.number || ''}
+                  {storeInfo.neighborhood ? `, ${storeInfo.neighborhood}` : ''}
+                  {storeInfo.city ? ` • ${storeInfo.city}` : ''} {storeInfo.state ? `/${storeInfo.state}` : ''}
+                  {storeInfo.zip ? ` • CEP ${storeInfo.zip}` : ''}
+                </span>
+              </p>
+              <p>Contato:&nbsp;<span className="font-medium">{storeInfo.phone || '—'} / {storeInfo.email || '—'}</span></p>
+              <p className="text-xs text-slate-500">
+                Atualizado diretamente pela API do ERP para cada loja protegida.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Os dados da loja são carregados automaticamente da API do ERP e podem ser conferidos em /api/store/public.
+            </p>
+          )}
         </div>
 
         {message && <div className="p-3 bg-green-100 text-green-700 rounded-md text-sm text-center">{message}</div>}
