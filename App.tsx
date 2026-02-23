@@ -176,6 +176,14 @@ export default function App() {
     applyTheme();
   }, [theme]);
 
+  useEffect(() => {
+    const unsubscribe = apiService.onSessionExpired(() => {
+      setIsAuthenticated(false);
+      setCurrentView('dashboard');
+    });
+    return unsubscribe;
+  }, []);
+
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
     setCurrentUser(apiService.getUsername());

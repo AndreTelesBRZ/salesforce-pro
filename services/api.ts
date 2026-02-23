@@ -13,6 +13,8 @@ const FRETE_MODALIDADE = {
   SEM_FRETE: 'sem_frete'
 } as const;
 
+const FALLBACK_BACKEND_URL = 'https://apiforce.llfix.app.br';
+
 const normalizeString = (value?: string): string => {
   return (value || '').toString().trim().toLowerCase();
 };
@@ -86,6 +88,7 @@ class ApiService {
   private token: string | null = null;
   private isInitialized: boolean = false;
   private logs: LogEntry[] = [];
+  private sessionExpiredCallbacks: Set<() => void> = new Set();
   
   // Decodifica o token JWT e tenta extrair nome/código do vendedor
   private decodeToken(token: string): { name?: string; sellerId?: string } {
@@ -255,6 +258,24 @@ class ApiService {
   public clearLogs() {
       this.logs = [];
       this.addLog('Logs limpos.', 'info');
+  }
+
+  onSessionExpired(callback: () => void): () => void {
+      this.sessionExpiredCallbacks.add(callback);
+      return () => {
+          this.sessionExpiredCallbacks.delete(callback);
+      };
+  }
+
+  private notifySessionExpired() {
+      if (this.sessionExpiredCallbacks.size === 0) return;
+      this.sessionExpiredCallbacks.forEach((cb) => {
+          try {
+              cb();
+          } catch (error) {
+              console.warn('Session expired listener failed', error);
+          }
+      });
   }
 
   // Inicialização
@@ -585,7 +606,7 @@ class ApiService {
       if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
           return this.normalizeBackendUrl(this.config.backendUrl);
       }
-      return '';
+      return this.normalizeBackendUrl(FALLBACK_BACKEND_URL);
   }
 
   private getTenantHeaders(): Record<string, string> {
@@ -750,6 +771,7 @@ class ApiService {
               this.addLog(`Sessão expirada.`, 'warning');
               this.token = null;
               localStorage.removeItem('authToken');
+              this.notifySessionExpired();
           }
           return res;
       };
@@ -825,42 +847,24 @@ class ApiService {
 
   async login(username: string, password: string): Promise<{ success: boolean; message?: string }> {
     const payload = { username, password };
-    
+    const endpoint = '/api/login';
+    const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
+
     try {
       const baseUrl = this.getBaseUrl();
-      const endpoints = ['/api/login', '/auth/login'];
-      
-      let response: Response | null = null;
-      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
+      const targetUrl = `${baseUrl}${endpoint}`;
+      const body = JSON.stringify(payload);
+      const requestOptions: RequestInit = {
+        method: 'POST',
+        headers,
+        body,
+      };
+      let response: Response;
 
-      if (baseUrl) {
-          for (const endpoint of endpoints) {
-              try {
-                  const res = await fetch(`${baseUrl}${endpoint}`, {
-                      method: 'POST',
-                      headers,
-                      body: JSON.stringify(payload)
-                  });
-                  if (res.ok) {
-                      response = res;
-                      break;
-                  }
-                  if (res.status === 404 || res.status === 405) {
-                      continue;
-                  }
-                  response = res;
-                  break;
-              } catch {
-                  // Tenta próximo endpoint ou fallback local
-              }
-          }
-      }
-      if (!response) {
-          response = await fetch('/api/login', {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(payload)
-          });
+      try {
+        response = await fetch(targetUrl, requestOptions);
+      } catch {
+        response = await fetch(endpoint, requestOptions);
       }
 
       const data = await response.json();
