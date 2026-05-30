@@ -1315,13 +1315,40 @@ class ApiService {
     return this.fetchProductsFromNetwork(page, limit);
   }
 
+  private flattenProductPayload(payload: any): any[] {
+    const source = Array.isArray(payload) ? payload : (payload?.data || []);
+    if (!Array.isArray(source)) return [];
+
+    const flattened: any[] = [];
+
+    source.forEach((entry: any) => {
+      if (!entry || typeof entry !== 'object') return;
+
+      const groupedItems =
+        entry.itens ||
+        entry.items ||
+        entry.produtos ||
+        entry.products ||
+        entry.children;
+
+      if (Array.isArray(groupedItems)) {
+        flattened.push(...this.flattenProductPayload(groupedItems));
+        return;
+      }
+
+      flattened.push(entry);
+    });
+
+    return flattened;
+  }
+
   private async fetchProductsFromNetwork(page: number, limit: number): Promise<Product[]> {
     try {
       const response = await this.fetchWithAuth(this.buildProductsEndpoint({ page, limit, includeSeller: true }));
       if (!response.ok) return [];
       
       const data = await response.json();
-      const list = Array.isArray(data) ? data : (data.data || []);
+      const list = this.flattenProductPayload(data);
       
       return list.map((item: any) => this.mapProduct(item));
     } catch (error) {
@@ -1338,7 +1365,7 @@ class ApiService {
         const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
         if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
         const data = await response.json();
-        const list = Array.isArray(data) ? data : (data.data || []);
+        const list = this.flattenProductPayload(data);
         
         await dbService.clearProducts();
         const mapped = list.map((i: any) => this.mapProduct(i));
@@ -1358,9 +1385,15 @@ class ApiService {
 
       // Ajuste solicitado: Nome do produto recebe a descrição completa
       const productName = item.descricao_completa || item.nome || item.name || 'Produto';
+      const productCode = String(item.codigo || item.id || item.plu || '');
+      const productPlu = item.plu ? String(item.plu) : undefined;
 
       return {
-        id: String(item.plu || item.codigo || item.id),
+        // Usa o codigo do item como identificador principal para evitar
+        // consolidar variantes diferentes quando compartilham o mesmo PLU.
+        id: productCode,
+        code: productCode,
+        plu: productPlu,
         name: productName,
         // Evita duplicação se a descrição for igual ao nome
         description: (item.descricao_completa && item.descricao_completa !== productName) ? item.descricao_completa : (item.description || ''),
