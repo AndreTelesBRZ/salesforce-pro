@@ -21,6 +21,8 @@ const SECRET_KEY = process.env.SECRET_KEY || 'super-secret-key-change-this-in-pr
 // Master Key para acesso facilitado (Bypass de JWT)
 const MASTER_KEY = process.env.MASTER_KEY || 'salesforce-pro-token';
 const APP_INTEGRATION_TOKEN = process.env.APP_INTEGRATION_TOKEN || '';
+const APP_INTEGRATION_TOKEN_EDSON = process.env.APP_INTEGRATION_TOKEN_EDSON || '';
+const APP_INTEGRATION_TOKEN_LLFIX = process.env.APP_INTEGRATION_TOKEN_LLFIX || '';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 const DB_PATH = process.env.DB_PATH || './database.sqlite';
@@ -63,6 +65,18 @@ const resolveStoreIdFromHost = (host) => {
   if (matchesDomain(host, LLFIX_DOMAIN)) return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
   if (matchesDomain(host, EDSON_DOMAIN)) return STORE_DOMAIN_MAP[EDSON_DOMAIN];
   return DEFAULT_STORE_ID;
+};
+const resolveIntegrationTokensForHost = (host) => {
+  const normalized = normalizeHost(host);
+  const tokens = [];
+  if (APP_INTEGRATION_TOKEN) tokens.push(APP_INTEGRATION_TOKEN);
+  if (matchesDomain(normalized, LLFIX_DOMAIN) && APP_INTEGRATION_TOKEN_LLFIX) {
+    tokens.push(APP_INTEGRATION_TOKEN_LLFIX);
+  }
+  if (matchesDomain(normalized, EDSON_DOMAIN) && APP_INTEGRATION_TOKEN_EDSON) {
+    tokens.push(APP_INTEGRATION_TOKEN_EDSON);
+  }
+  return tokens;
 };
 const isStoreHostLocked = (host) => matchesDomain(host, EDSON_DOMAIN) || matchesDomain(host, LLFIX_DOMAIN);
 const getStoreIdFromRequest = (req) => resolveStoreIdFromHost(getRequestHost(req));
@@ -188,6 +202,25 @@ class DatabaseAdapter {
 }
 
 const db = new DatabaseAdapter();
+
+const isPrivilegedUser = (userId) => userId === 'master-admin' || userId === 'integration-token';
+
+const resolveSellerIdForRequest = async (req) => {
+    if (req.sellerId !== undefined) return req.sellerId;
+    if (!req.userId || isPrivilegedUser(req.userId)) {
+        req.sellerId = null;
+        return null;
+    }
+    try {
+        const user = await db.get("SELECT seller_id FROM users WHERE id = ?", [req.userId]);
+        const sellerId = user && user.seller_id ? String(user.seller_id) : null;
+        req.sellerId = sellerId;
+        return sellerId;
+    } catch (e) {
+        req.sellerId = null;
+        return null;
+    }
+};
 
 const ensureStoreInfoRow = async (storeId) => {
     try {
@@ -407,8 +440,12 @@ async function initDb() {
             state TEXT,
             zip TEXT,
             complement TEXT,
+            logo_url TEXT,
             updated_at TEXT
         )`);
+        try {
+            await db.run("ALTER TABLE store_info ADD COLUMN logo_url TEXT");
+        } catch (e) {}
 
         // Garante registros por loja (00001 e 00003)
         try {
@@ -709,10 +746,12 @@ const parseAuthHeader = (value) => {
   return { token: '', invalid: true };
 };
 
-const isIntegrationToken = (token) => {
+const isIntegrationTokenForRequest = (req, token) => {
   if (!token) return false;
   if (token === MASTER_KEY) return true;
-  return APP_INTEGRATION_TOKEN ? token === APP_INTEGRATION_TOKEN : false;
+  const allowed = resolveIntegrationTokensForHost(getRequestHost(req));
+  if (allowed.length === 0) return false;
+  return allowed.includes(token);
 };
 
 // Middleware de Verificação de Token
@@ -726,7 +765,7 @@ const verifyToken = (req, res, next) => {
   }
 
   // BYPASS: Token de integração (Master Key ou APP_INTEGRATION_TOKEN)
-  if (isIntegrationToken(authInfo.token) || isIntegrationToken(appToken)) {
+  if (isIntegrationTokenForRequest(req, authInfo.token) || isIntegrationTokenForRequest(req, appToken)) {
       if (authInfo.token === MASTER_KEY || appToken === MASTER_KEY) {
           console.log('[AUTH_SUCCESS] Acesso via Master Key');
           req.userId = 'master-admin';
@@ -906,8 +945,6 @@ app.post('/api/products', verifyToken, async (req, res) => {
 
 // Listar Clientes
 app.get('/api/clientes', verifyToken, async (req, res) => {
-    const vendedorId = req.query.vendedor_id;
-    
     // LÓGICA DE LIMITE ROBUSTA (atualizada): sem parâmetro -> sem limite (sync completo).
     // Se limit > 0, aplica paginação.
     let limit = -1; 
@@ -917,13 +954,19 @@ app.get('/api/clientes', verifyToken, async (req, res) => {
     }
 
     try {
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
         let query = "SELECT * FROM customers";
         const params = [];
 
         const where = ["(status IS NULL OR status != 'TEMPORARIO')"];
-        if (vendedorId) {
+        if (sellerId && !privileged) {
             where.push("seller_id = ?");
-            params.push(vendedorId);
+            params.push(sellerId);
         }
         if (where.length > 0) query += ` WHERE ${where.join(' AND ')}`;
         
@@ -958,10 +1001,22 @@ app.get('/api/clientes/cnpj/:cnpj', verifyToken, async (req, res) => {
 
     const normalized = normalizeDocument(raw);
     try {
-        const query = isPostgres
-            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = $1 LIMIT 1"
-            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ? LIMIT 1";
-        const row = await db.get(query, [normalized]);
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        let query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = ?"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ?";
+        const params = [normalized];
+        if (sellerId && !privileged) {
+            query += " AND seller_id = ?";
+            params.push(sellerId);
+        }
+        query += " LIMIT 1";
+        const row = await db.get(query, params);
         if (!row) return res.status(404).json({ message: 'Cliente não encontrado.' });
         return res.json(mapCustomerPayload(row));
     } catch (e) {
@@ -1003,10 +1058,24 @@ app.post('/api/clientes/temp', verifyToken, async (req, res) => {
 
     const normalized = normalizeDocument(cnpj);
     try {
-        const query = isPostgres
-            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = $1 LIMIT 1"
-            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ? LIMIT 1";
-        const existing = await db.get(query, [normalized]);
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        const effectiveSellerId = privileged ? (vendedor_id || sellerId) : sellerId;
+
+        let query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = ?"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ?";
+        const params = [normalized];
+        if (effectiveSellerId) {
+            query += " AND seller_id = ?";
+            params.push(effectiveSellerId);
+        }
+        query += " LIMIT 1";
+        const existing = await db.get(query, params);
         if (existing) {
             return res.json(mapCustomerPayload(existing));
         }
@@ -1023,7 +1092,7 @@ app.post('/api/clientes/temp', verifyToken, async (req, res) => {
             uf,
             'TEMPORARIO',
             'SEFAZ',
-            vendedor_id || null
+            effectiveSellerId || null
         ]);
 
         const newId = result.lastID;
@@ -1055,7 +1124,19 @@ app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req
     if (!cliente_codigo) return res.status(400).json({ message: 'Cliente obrigatório.' });
 
     try {
-        const customer = await db.get("SELECT id, status FROM customers WHERE id = ?", [String(cliente_codigo)]);
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        const customerQuery = privileged
+            ? "SELECT id, status FROM customers WHERE id = ?"
+            : "SELECT id, status FROM customers WHERE id = ? AND seller_id = ?";
+        const customerParams = privileged
+            ? [String(cliente_codigo)]
+            : [String(cliente_codigo), sellerId];
+        const customer = await db.get(customerQuery, customerParams);
         if (!customer) return res.status(404).json({ message: 'Cliente não encontrado.' });
 
         const plans = await db.query(
@@ -1512,8 +1593,15 @@ app.listen(PORT, HOST, () => {
   if (process.env.NODE_ENV !== 'production') {
     const mask = (v) => (v && v.length > 8 ? `${v.slice(0,4)}…${v.slice(-4)}` : '(defina via env)');
     console.log(`🔑 Master Key (mascarada): ${mask(MASTER_KEY)}\n`);
-    if (APP_INTEGRATION_TOKEN) {
-      console.log(`🔐 App Integration Token (mascarado): ${mask(APP_INTEGRATION_TOKEN)}\n`);
-    }
+    const integrationTokens = [
+      { label: 'App Integration Token', value: APP_INTEGRATION_TOKEN },
+      { label: 'App Integration Token EDSON', value: APP_INTEGRATION_TOKEN_EDSON },
+      { label: 'App Integration Token LLFIX', value: APP_INTEGRATION_TOKEN_LLFIX }
+    ];
+    integrationTokens.forEach((entry) => {
+      if (entry.value) {
+        console.log(`🔐 ${entry.label} (mascarado): ${mask(entry.value)}\n`);
+      }
+    });
   }
 });

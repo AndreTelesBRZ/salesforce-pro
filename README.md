@@ -24,13 +24,13 @@ Aplicativo de força de vendas híbrido (Web/Mobile) com backend Node/Express e 
 
    `npm install`
 
-3) Ambiente de desenvolvimento (frontend + backend):
+3) Ambiente de desenvolvimento (frontend):
 
    `npm run dev`
 
    - Frontend roda em `http://localhost:3000`
-   - Backend (Express) roda em `http://localhost:8080`
-   - O Vite está configurado com proxy para `/api` -> `localhost:8080`
+- Configure `VITE_BACKEND_URL=https://apiforce.edsondosparafusos.app.br` (ou o tenant desejado) para que todas as chamadas `fetchWithAuth('/api/...')` usem URLs absolutas diretamente no backend FastAPI/Django; o Vite não envia mais o tráfego por um servidor local nem depende de proxy para `/api`.
+   - Cada requisição envia `Authorization: Bearer <JWT>`, `X-App-Token: <APP_INTEGRATION_TOKEN>` e `Content-Type: application/json` para o backend remoto, então qualquer 401/403 vem do FastAPI verdadeiro e não de um bloqueio de CORS ou proxy local.
 
 4) Build de produção (gera `dist/`):
 
@@ -48,7 +48,41 @@ Construir e subir com Docker Compose:
 docker compose up --build -d
 ```
 
-O serviço ficará disponível em `http://localhost:8080`.
+O backend Node/Express local ainda é iniciado pelo Compose para tarefas específicas (lojas, PDF, etc.), mas o frontend aponta diretamente para o FastAPI/Django remoto.
+
+## Implantação LLFIX
+
+Quando o frontend for compilado para o tenant LLFIX (domínio em `llfix.app.br`), fixe o backend FastAPI correto e o token esperado:
+
+1. No `.env` de build (ou em `.env.llfix`), defina:
+   - `VITE_BACKEND_URL=https://apiforce.llfix.app.br`
+   - `VITE_APP_INTEGRATION_TOKEN_LLFIX=<APP_INTEGRATION_TOKEN do FastAPI>`
+2. Rebuild e reinicie o frontend:
+   - Com Docker: `docker compose up --build -d` (ou o equivalente no Swarm)
+   - Sem Docker: `npm run build` e reinicie o serviço Node/Express que serve `dist/`
+3. Limpe o cache do navegador (hard refresh ou “Clear site data”) para garantir que não fique com Service Workers antigos.
+
+Com isso, todas as chamadas vão para `https://apiforce.llfix.app.br/api/produtos-sync?loja=000003`, evitando o 401 gerado pelo Express em `vendas.llfix.app.br`.
+
+### Cabeçalhos obrigatórios para sincronização LLFIX
+
+Ao consumir `/api/produtos-sync`, `/api/clientes-sync` e demais endpoints expostos no domínio `https://apiforce.llfix.app.br`, o frontend precisa combinar dois cabeçalhos:
+
+1. `Authorization: Bearer <JWT válido>` obtido em `/auth/login` usando as chaves `JWT_SECRET`/`JWT_ALGORITHM` do tenant LLFIX.
+2. `X-App-Token: qZBhHYhZ-7P_2_265zqAl5DwqE5MiahXvivJnvoeT2b5GuYP6IHcKf81nVAQZJU4_EQ` (ou o valor exato de `APP_INTEGRATION_TOKEN` definido em `.env.llfix`).
+3. `Content-Type: application/json` — o FastAPI espera payloads JSON em todas as rotas com body.
+
+O fluxo esperado:
+
+- Obtenha o JWT realizando `POST /auth/login` com as credenciais da API.
+- Armazene o token e reutilize-o em todas as requisições de sync feitas por `fetchWithAuth`.
+- Garanta que o `X-App-Token` corresponda ao valor fixo do `.env.llfix` (não é o JWT).
+- No DevTools > Network, confirme que:
+  - `Authorization` carrega o JWT.
+  - `X-App-Token` coincide com `.env.llfix`.
+  - `Host` / `Origin` apontam para `llfix`.
+
+Essa combinação atende ao que `permissions.py` espera no backend e evita o erro `401 Token inválido`.
 
 Persistência de dados:
 - O SQLite fica em `/data/database.sqlite` dentro do container

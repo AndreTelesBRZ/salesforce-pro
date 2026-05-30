@@ -8,12 +8,27 @@ import { Dashboard } from './components/Dashboard';
 import { CustomerList } from './components/CustomerList';
 import { OrderHistory } from './components/OrderHistory';
 import { SyncData } from './components/SyncData';
+import { DraftsPage } from './src/pages/DraftsPage';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
-import { Product, CartItem, ThemeMode, isFractionalUnit } from './types';
-import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart } from 'lucide-react';
+import { Product, CartItem, ThemeMode } from './types';
+import { EnumProvider } from './contexts/EnumContext';
+import { OrderDraft } from './src/types/orderDraft';
+import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList } from 'lucide-react';
 
-type View = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send';
+type View = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
+
+const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ className?: string }>; }[] = [
+  { view: 'dashboard', label: 'Início', icon: Store },
+  { view: 'products', label: 'Catálogo', icon: LayoutGrid },
+  { view: 'cart', label: 'Carrinho', icon: ShoppingCart },
+  { view: 'orders', label: 'Histórico', icon: FileText },
+  { view: 'drafts', label: 'Rascunhos', icon: ClipboardList },
+  { view: 'customers', label: 'Carteira', icon: User },
+  { view: 'sync', label: 'Sincronizar', icon: Download },
+  { view: 'send', label: 'Envio Pendente', icon: UploadCloud },
+  { view: 'settings', label: 'Ajustes', icon: SettingsIcon },
+];
 
 export default function App() {
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
@@ -21,9 +36,13 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [showSettingsFromLogin, setShowSettingsFromLogin] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [draftToEdit, setDraftToEdit] = useState<OrderDraft | null>(null);
+  const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
+  const clearDraftEditing = () => setDraftToEdit(null);
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [currentUser, setCurrentUser] = useState('');
   const [sellerCode, setSellerCode] = useState<string | null>(null);
+  const [storeInfo, setStoreInfo] = useState<any | undefined>(undefined);
 
   // Inicialização do App
   useEffect(() => {
@@ -64,15 +83,63 @@ export default function App() {
   }, []);
 
   // Carrega rascunho de carrinho ao navegar para Cart (duplicar pedido)
+  const hydrateCartFromDraft = async (draft: OrderDraft): Promise<CartItem[]> => {
+    return Promise.all(draft.itens.map(async (item) => {
+      let basePrice = Number(item.base_price ?? item.valor_unitario ?? 0);
+      try {
+        const product = await dbService.getProductById(item.codigo_produto);
+        if (product?.price) basePrice = product.price;
+        return {
+          id: item.codigo_produto,
+          name: item.nome_produto || product?.name || item.codigo_produto,
+          description: product?.description || item.descricao || '',
+          price: Number(item.valor_unitario ?? basePrice),
+          basePrice,
+          category: product?.category || '',
+          stock: product?.stock ?? 0,
+          unit: product?.unit || item.unidade || 'un',
+          quantity: item.quantidade,
+          sectionCode: product?.sectionCode,
+          groupCode: product?.groupCode,
+          subgroupCode: product?.subgroupCode,
+        };
+      } catch {
+        return {
+          id: item.codigo_produto,
+          name: item.nome_produto || item.codigo_produto,
+          description: item.descricao || '',
+          price: Number(item.valor_unitario ?? basePrice),
+          basePrice,
+          category: '',
+          stock: 0,
+          unit: item.unidade || 'un',
+          quantity: item.quantidade,
+        };
+      }
+    }));
+  };
+
   useEffect(() => {
     if (currentView === 'cart') {
        const loadDraft = async () => {
           try {
+            if (cart.length > 0) return;
+            setDraftToEdit(null);
+            const draftRaw = localStorage.getItem('orderDraftEdit');
+            if (draftRaw) {
+              const draft: OrderDraft = JSON.parse(draftRaw);
+              setDraftToEdit(draft);
+              const hydrated = await hydrateCartFromDraft(draft);
+              if (hydrated.length > 0) {
+                setCart(hydrated);
+              }
+              return;
+            }
+
             const raw = localStorage.getItem('cartDraft');
             if (!raw) return;
             const items: CartItem[] = JSON.parse(raw);
-            // Ignora se carrinho já tem itens (não sobrescreve pedido atual)
-            if (cart.length === 0 && Array.isArray(items) && items.length > 0) {
+            if (Array.isArray(items) && items.length > 0) {
                const hydrated = await Promise.all(items.map(async (item) => {
                   let basePrice = item.basePrice ?? (Number(item.price) || 0);
                   try {
@@ -83,12 +150,15 @@ export default function App() {
                }));
                setCart(hydrated);
             }
-            localStorage.removeItem('cartDraft');
           } catch {}
+          finally {
+            localStorage.removeItem('cartDraft');
+            localStorage.removeItem('orderDraftEdit');
+          }
        };
        loadDraft();
     }
-  }, [currentView]);
+  }, [currentView, cart.length]);
 
   // Efeito apenas para tema visual
   useEffect(() => {
@@ -106,6 +176,14 @@ export default function App() {
     applyTheme();
   }, [theme]);
 
+  useEffect(() => {
+    const unsubscribe = apiService.onSessionExpired(() => {
+      setIsAuthenticated(false);
+      setCurrentView('dashboard');
+    });
+    return unsubscribe;
+  }, []);
+
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
     setCurrentUser(apiService.getUsername());
@@ -115,30 +193,50 @@ export default function App() {
     setSellerCode(apiService.getSellerId());
     setShowSettingsFromLogin(false);
     setCurrentView('dashboard');
+    refreshStoreInfo();
   };
 
   const handleLogout = () => {
     apiService.logout();
     setIsAuthenticated(false);
     setCurrentView('dashboard');
+    setStoreInfo(undefined);
   };
+
+  const refreshStoreInfo = async () => {
+    try {
+      const res = await apiService.fetchWithAuth('/api/store/public');
+      if (res.ok) {
+        const data = await res.json();
+        setStoreInfo(data);
+        return;
+      }
+      setStoreInfo(null);
+    } catch (error) {
+      console.warn('Falha ao carregar dados da loja', error);
+      setStoreInfo(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    refreshStoreInfo();
+  }, [isAuthenticated]);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
-      const isFractionalProduct = isFractionalUnit(product.unit);
-
       if (existing) {
-        const increment = isFractionalProduct ? 0.01 : 1;
+        const isFractional = product.unit.toLowerCase() === 'cto';
+        const increment = isFractional ? 0.01 : 1;
         const newQty = existing.quantity + increment;
-        const finalQty = isFractionalProduct ? Math.round(newQty * 100) / 100 : newQty;
+        const finalQty = isFractional ? Math.round(newQty * 100) / 100 : newQty;
 
         return prev.map((item) =>
           item.id === product.id ? { ...item, quantity: finalQty } : item
         );
       }
-
-      return [...prev, { ...product, quantity: isFractionalProduct ? 1.0 : 1, basePrice: product.price }];
+      return [...prev, { ...product, quantity: product.unit.toLowerCase() === 'cto' ? 1.00 : 1, basePrice: product.price }];
     });
   };
 
@@ -165,7 +263,7 @@ export default function App() {
     setCart((prev) =>
       prev.map((item) => {
         if (item.id === id) {
-          const isFractional = isFractionalUnit(item.unit);
+          const isFractional = item.unit.toLowerCase() === 'cto';
           let qty = newQuantity;
 
           if (isFractional) {
@@ -224,6 +322,7 @@ export default function App() {
       case 'products': return 'Catálogo';
       case 'cart': return 'Carrinho';
       case 'orders': return 'Meus Pedidos';
+      case 'drafts': return 'Rascunhos';
       case 'customers': return 'Carteira de Clientes';
       case 'settings': return 'Ajustes';
       case 'sync': return 'Sincronizar Dados';
@@ -233,11 +332,12 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <EnumProvider>
+      <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Cabeçalho Azul Profundo (Navy) */}
-      <header className="bg-blue-900 text-white shadow-lg sticky top-0 z-30 border-b border-blue-800">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <header className="bg-blue-900 text-white shadow-lg sticky top-0 z-30 border-b border-blue-800">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
             {currentView !== 'dashboard' ? (
               <button 
                 onClick={() => setCurrentView('dashboard')} 
@@ -246,9 +346,13 @@ export default function App() {
                 <ArrowLeft className="w-6 h-6" />
               </button>
             ) : (
-               <div className="p-2 bg-blue-800 rounded-lg shadow-inner text-orange-400">
+               <button
+                 onClick={() => setIsMainMenuOpen(true)}
+                 className="p-2 bg-blue-800 rounded-lg shadow-inner text-orange-400"
+                 aria-label="Abrir menu principal"
+               >
                   <Menu className="w-6 h-6" />
-               </div>
+               </button>
             )}
             <div>
               <h1 className="text-lg font-bold leading-tight text-white">
@@ -258,8 +362,23 @@ export default function App() {
                  <p className="text-xs text-orange-300 font-medium">SalesForce Pro</p>
               )}
             </div>
-          </div>
-          
+            </div>
+            {storeInfo && (
+              <div className="hidden md:flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full border border-white/25">
+                {storeInfo.logo_url ? (
+                  <img src={storeInfo.logo_url} alt={storeInfo.trade_name || 'Loja'} className="h-9 w-9 object-contain rounded-full border border-white/30" />
+                ) : (
+                  <Store className="w-6 h-6 text-white/80" />
+                )}
+                <div className="text-left text-xs">
+                  <p className="font-semibold leading-none">{storeInfo.trade_name || storeInfo.legal_name || 'SalesForce Pro'}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-white/70">
+                    Loja {storeInfo.id?.toString().padStart(2, '0')}
+                  </p>
+                </div>
+              </div>
+            )}
+  
           <div className="flex items-center gap-2">
               {currentUser && (
                   <div className="flex flex-col items-end mr-1">
@@ -317,6 +436,8 @@ export default function App() {
               }}
               onRemove={removeFromCart} 
               onClear={clearCart} 
+              draftToEdit={draftToEdit}
+              onClearDraft={clearDraftEditing}
             />
           )}
           {/* Unificando a visão de Pedidos e Envio Pendente no Histórico */}
@@ -324,6 +445,18 @@ export default function App() {
             <OrderHistory 
                 onNavigate={(v) => setCurrentView(v as View)} 
                 initialTab={currentView === 'send' ? 'pending' : 'all'}
+                storeInfo={storeInfo}
+            />
+          )}
+          {currentView === 'drafts' && (
+            <DraftsPage
+              onNavigate={(v) => setCurrentView(v as View)}
+              onEditDraft={(draft) => {
+                try {
+                  localStorage.setItem('orderDraftEdit', JSON.stringify(draft));
+                } catch {}
+                setCurrentView('cart');
+              }}
             />
           )}
           {currentView === 'customers' && (
@@ -341,6 +474,60 @@ export default function App() {
           )}
         </div>
       </main>
-    </div>
+
+      {isMainMenuOpen && (
+        <div className="fixed inset-0 z-40">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsMainMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu principal"
+            className="relative z-10 h-full max-w-xs w-full bg-white dark:bg-slate-900 shadow-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Menu</p>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">SalesForce Pro</h2>
+              </div>
+              <button
+                onClick={() => setIsMainMenuOpen(false)}
+                className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-full transition-colors"
+                aria-label="Fechar menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mt-6 space-y-2">
+              {navMenuItems.map((item) => {
+                const active = item.view === currentView;
+                return (
+                  <button
+                    key={item.view}
+                    onClick={() => {
+                      setCurrentView(item.view);
+                      setIsMainMenuOpen(false);
+                    }}
+                    className={`w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
+                      active
+                        ? 'bg-blue-900 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    <span className="font-semibold text-sm">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+        </div>
+      )}
+      </div>
+    </EnumProvider>
   );
 }

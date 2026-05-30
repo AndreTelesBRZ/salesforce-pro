@@ -1,7 +1,42 @@
 
-import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem } from '../types';
+import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption } from '../types';
+
+const PAGAMENTO_STATUS = {
+  PENDENTE: 'aguardando',
+  PAGO_AVISTA: 'pago_avista'
+} as const;
+
+const FRETE_MODALIDADE = {
+  RETIRADA: 'fob',
+  ENTREGA_PROPRIA: 'cif',
+  TRANSPORTADORA: 'cif',
+  SEM_FRETE: 'sem_frete'
+} as const;
+
+const FALLBACK_BACKEND_URL = 'https://apiforce.llfix.app.br';
+
+const normalizeString = (value?: string): string => {
+  return (value || '').toString().trim().toLowerCase();
+};
+
+const mapPagamentoStatus = (value?: string): string => {
+  const normalized = normalizeString(value);
+  if (normalized === 'pago' || normalized === 'pago_avista') {
+    return PAGAMENTO_STATUS.PAGO_AVISTA;
+  }
+  return PAGAMENTO_STATUS.PENDENTE;
+};
+
+const mapFreteModalidade = (value?: string): string => {
+  const normalized = normalizeString(value);
+  if (normalized === 'retirada') return FRETE_MODALIDADE.RETIRADA;
+  if (normalized === 'entrega_propria') return FRETE_MODALIDADE.ENTREGA_PROPRIA;
+  if (normalized === 'transportadora') return FRETE_MODALIDADE.TRANSPORTADORA;
+  if (normalized === 'sem_frete') return FRETE_MODALIDADE.SEM_FRETE;
+  return FRETE_MODALIDADE.SEM_FRETE;
+};
 import { dbService } from './db';
-import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
+import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isEdsonHostForCurrent, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -25,6 +60,23 @@ const WALK_IN_CUSTOMER: Customer = {
   lastSaleValue: 0
 };
 
+export const API_ONLY_NOTICE = 'Pedidos agora devem ser enviados via API. Abra o app/vendedor externo ou use o endpoint /api/pedidos.';
+
+export type ClientSyncViewMode = 'self' | 'all' | 'recent';
+
+export interface SubmitOrderResult {
+    success: boolean;
+    message?: string;
+    requiresApiOnly?: boolean;
+}
+
+export interface ClientSyncViewResponse {
+    total?: number;
+    mode?: string;
+    data?: any[];
+    [key: string]: any;
+}
+
 export interface LogEntry {
     timestamp: string;
     message: string;
@@ -36,6 +88,7 @@ class ApiService {
   private token: string | null = null;
   private isInitialized: boolean = false;
   private logs: LogEntry[] = [];
+  private sessionExpiredCallbacks: Set<() => void> = new Set();
   
   // Decodifica o token JWT e tenta extrair nome/código do vendedor
   private decodeToken(token: string): { name?: string; sellerId?: string } {
@@ -78,7 +131,7 @@ class ApiService {
           }
       }
       if (decoded.sellerId) {
-          localStorage.setItem('sellerId', String(decoded.sellerId));
+          this.persistSellerId(decoded.sellerId);
       }
   }
 
@@ -88,12 +141,6 @@ class ApiService {
           return trimmed.replace(/^http:\/\//i, 'https://');
       }
       return trimmed;
-  }
-
-  private ensureHttpsForLockedHosts(value: string): string {
-      if (!value) return value;
-      if (!isStoreSelectionLockedForCurrent()) return value;
-      return /^http:\/\//i.test(value) ? value.replace(/^http:\/\//i, 'https://') : value;
   }
 
   private getStoredUsername(): string {
@@ -213,6 +260,24 @@ class ApiService {
       this.addLog('Logs limpos.', 'info');
   }
 
+  onSessionExpired(callback: () => void): () => void {
+      this.sessionExpiredCallbacks.add(callback);
+      return () => {
+          this.sessionExpiredCallbacks.delete(callback);
+      };
+  }
+
+  private notifySessionExpired() {
+      if (this.sessionExpiredCallbacks.size === 0) return;
+      this.sessionExpiredCallbacks.forEach((cb) => {
+          try {
+              cb();
+          } catch (error) {
+              console.warn('Session expired listener failed', error);
+          }
+      });
+  }
+
   // Inicialização
   async initializeConfig(): Promise<void> {
       try {
@@ -263,7 +328,6 @@ class ApiService {
   // Busca dados atualizados do perfil no servidor
   async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
       const endpoints = [
-          '/api/me',
           '/me',
           '/api/user/me',
           '/api/usuario/me',
@@ -303,16 +367,12 @@ class ApiService {
                 profile.codigo_vendedor ||
                 profile.vendedor_codigo ||
                 profile.vendedor_id;
-
-              if (sellerId) {
-                  localStorage.setItem('sellerId', String(sellerId));
-              }
+              const paddedSellerId = this.persistSellerId(sellerId);
 
               if (name && !this.isPlaceholderUsername(name)) {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
                   localStorage.setItem('username', name);
-                  if (sellerId) localStorage.setItem('sellerId', String(sellerId));
-                  return { name, seller_id: sellerId };
+                  return { name, seller_id: paddedSellerId ?? undefined };
               }
           } catch (e: any) {
               lastError = e;
@@ -322,11 +382,11 @@ class ApiService {
       const tokenToDecode = this.token || this.config.apiToken;
       if (tokenToDecode) {
           const decoded = this.decodeToken(tokenToDecode);
-          if (decoded.name) {
-              localStorage.setItem('username', decoded.name);
-              if (decoded.sellerId) localStorage.setItem('sellerId', String(decoded.sellerId));
-              return { name: decoded.name, seller_id: decoded.sellerId };
-          }
+              if (decoded.name) {
+                  localStorage.setItem('username', decoded.name);
+                  const paddedSellerId = this.persistSellerId(decoded.sellerId);
+                  return { name: decoded.name, seller_id: paddedSellerId ?? undefined };
+              }
       }
 
       if (lastError?.message) {
@@ -370,7 +430,7 @@ class ApiService {
               state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
               zip: pick(loja, ['AGECEP','CEP'])
           };
-          await this.fetchLocal('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
+          await this.fetchWithAuth('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
           this.addLog('Dados da loja importados automaticamente.', 'success');
       } catch {}
   }
@@ -471,27 +531,82 @@ class ApiService {
       return this.getDefaultUsername();
   }
   
+  private padSellerDigits(value?: string | number | null): string {
+      if (value === null || value === undefined) return '';
+      const raw = String(value).trim();
+      if (!raw) return '';
+      const digits = raw.replace(/\D/g, '');
+      if (!digits) return '';
+      return digits.padStart(6, '0');
+  }
+
+  private persistSellerId(value?: string | number | null): string | null {
+      const padded = this.padSellerDigits(value);
+      if (!padded) return null;
+      if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('sellerId', padded);
+      }
+      return padded;
+  }
+
+  private getStoredSellerId(): string | null {
+      if (typeof localStorage === 'undefined') return null;
+      const stored = localStorage.getItem('sellerId');
+      if (!stored) return null;
+      const padded = this.padSellerDigits(stored);
+      if (!padded) return null;
+      if (padded !== stored) {
+          localStorage.setItem('sellerId', padded);
+      }
+      return padded;
+  }
+
+  private buildVendorQueryParams(includeStore: boolean = true): URLSearchParams {
+      const params = new URLSearchParams();
+      const sellerCode = this.getSellerId();
+      if (sellerCode) {
+          params.set('vendedor_id', sellerCode);
+          params.set('cod_vendedor', sellerCode);
+          params.set('vendedor_codigo', sellerCode);
+      }
+      if (includeStore) {
+          const storeCode = getStoreCodeForCurrentHost();
+          if (storeCode) {
+              params.set('loja_codigo', storeCode);
+          }
+      }
+      return params;
+  }
+
   // Recupera o ID do vendedor salvo no login
   getSellerId(): string | null {
-      const stored = localStorage.getItem('sellerId');
+      const stored = this.getStoredSellerId();
       if (stored) return stored;
       const tokenToDecode = this.token || this.config.apiToken;
       if (!tokenToDecode) return null;
       const decoded = this.decodeToken(tokenToDecode);
-      if (decoded.sellerId) {
-          localStorage.setItem('sellerId', String(decoded.sellerId));
-          return String(decoded.sellerId);
+      return this.persistSellerId(decoded.sellerId);
+  }
+
+  private async resolveSellerIdFromProfile(): Promise<string | null> {
+      let sellerId = this.getSellerId();
+      if (sellerId) return sellerId;
+      try {
+          await this.fetchProfile();
+      } catch {
+          // Ignore profile failures, we'll fallback to stored sellerId (if any)
       }
-      return null;
+      sellerId = this.getSellerId();
+      return sellerId || null;
   }
 
   private getBaseUrl(): string {
       const hostBackend = getBackendUrlForCurrentHost();
-      if (hostBackend) return this.ensureHttpsForLockedHosts(this.normalizeBackendUrl(hostBackend));
+      if (hostBackend) return this.normalizeBackendUrl(hostBackend);
       if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
-          return this.ensureHttpsForLockedHosts(this.normalizeBackendUrl(this.config.backendUrl));
+          return this.normalizeBackendUrl(this.config.backendUrl);
       }
-      return '';
+      return this.normalizeBackendUrl(FALLBACK_BACKEND_URL);
   }
 
   private getTenantHeaders(): Record<string, string> {
@@ -520,15 +635,13 @@ class ApiService {
 
   private buildProductsEndpoint(params: { page?: number; limit?: number; includeSeller?: boolean } = {}): string {
       const { page, limit, includeSeller } = params;
+      const query = new URLSearchParams();
       if (this.shouldUseLlfixProductsEndpoint()) {
-          const query = new URLSearchParams();
           query.set('loja', getStoreCodeForApi());
           if (page !== undefined) query.set('page', String(page));
           if (limit !== undefined && limit >= 0) query.set('limit', String(limit));
           return `/api/produtos-sync/?${query.toString()}`;
       }
-
-      const query = new URLSearchParams();
       if (page !== undefined) query.set('page', String(page));
       if (limit !== undefined) query.set('limit', String(limit));
       if (includeSeller) {
@@ -537,6 +650,13 @@ class ApiService {
       }
       const queryString = query.toString();
       return `/api/products${queryString ? `?${queryString}` : ''}`;
+  }
+
+  private buildPaymentPlanCatalogEndpoint(): string {
+      const query = new URLSearchParams();
+      query.set('loja_codigo', getStoreCodeForApi());
+      query.set('meio', 'boleto');
+      return `/api/catalogo/plano-pagamento?${query.toString()}`;
   }
 
   private normalizeSellerId(value?: string | number | null): string {
@@ -571,6 +691,8 @@ class ApiService {
       return raw;
   }
 
+  private enumCache: Record<string, EnumOption[]> | null = null;
+
   private getAuthHeaders() {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -581,7 +703,7 @@ class ApiService {
         headers['X-App-Token'] = tokenToUse;
     }
     if (this.token) {
-        headers['Authorization'] = `Bearer ${this.token}`;
+        headers['Authorization'] = `Bearer ${this.token.trim()}`;
     }
     return headers;
   }
@@ -618,88 +740,58 @@ class ApiService {
       return `Authorization=${this.maskAuthHeader(auth)}; X-App-Token=${this.maskToken(appToken)}; X-Forwarded-Host=${fwdHost}; X-Forwarded-Proto=${fwdProto}`;
   }
 
-  // Força requisição ao mesmo host do app (ignora backendUrl) — útil para /api/store e geração de PDF
-  async fetchLocal(endpoint: string, options: RequestInit = {}): Promise<Response> {
-      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) } as any;
-      return fetch(cleanEndpoint, { ...options, headers });
-  }
-
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
-      // exportado para uso em outros componentes (ex.: Settings -> importação da API externa)
-      // mantendo método public via class - já é público, mas adiciono comentário para indicar intenção
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      let baseUrl = this.getBaseUrl();
-      if (isStoreSelectionLockedForCurrent() && !baseUrl) {
-          baseUrl = getBackendUrlForCurrentHost();
+      const baseUrl = this.getBaseUrl();
+      if (!baseUrl) {
+          throw new Error('Backend não configurado. Defina VITE_BACKEND_URL.');
       }
-      const hasRemoteConfig = baseUrl !== '';
+      const targetUrl = `${baseUrl}${cleanEndpoint}`;
       const resolvedHeaders = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
-      
+
       const doFetch = async (url: string) => {
-           // Timeout Controller: Aborta se passar de 10s
-           const controller = new AbortController();
-           const id = setTimeout(() => controller.abort(), 10000); // 10s timeout
-           
-           try {
-               const response = await fetch(url, { 
-                  ...options, 
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 10000);
+          try {
+              const response = await fetch(url, {
+                  ...options,
                   signal: controller.signal,
                   headers: resolvedHeaders
-               });
-               clearTimeout(id);
-               return response;
-           } catch(e) {
-               clearTimeout(id);
-               throw e;
-           }
+              });
+              clearTimeout(id);
+              return response;
+          } catch (e) {
+              clearTimeout(id);
+              throw e;
+          }
       };
 
       const check401 = (res: Response) => {
-           if (res.status === 401 && this.token) {
+          if (res.status === 401 && this.token) {
               this.addLog(`Sessão expirada.`, 'warning');
               this.token = null;
               localStorage.removeItem('authToken');
+              this.notifySessionExpired();
           }
           return res;
       };
 
       try {
-          if (hasRemoteConfig) {
-              const fullUrl = `${baseUrl}${cleanEndpoint}`;
-              this.addLog(`Req: ${fullUrl}`, 'info');
-              
-          try {
-              const response = await doFetch(fullUrl);
-              if (this.isAuthDebugEnabled() && (response.status === 401 || response.status === 403)) {
-                  this.addLog(`Auth debug (${response.status}) ${fullUrl}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
-              }
-              if (response.ok || response.status === 401 || response.status === 400 || response.status === 500) {
-                  return check401(response);
-              }
-              throw new Error(`Remote status ${response.status}`);
-          } catch (remoteError: any) {
-              if (isStoreSelectionLockedForCurrent()) {
-                  const msg = remoteError?.message || 'Falha ao acessar backend remoto';
-                  this.addLog(`Remoto falhou em host travado: ${msg}`, 'error');
-                  throw remoteError;
-              }
-              if (remoteError.name === 'AbortError') {
-                  this.addLog(`Timeout: O servidor demorou muito para responder.`, 'error');
-                  throw new Error('Timeout: Servidor lento ou indisponível.');
-              }
-              this.addLog(`Remoto falhou (${remoteError.message}), tentando Local...`, 'warning');
+          this.addLog(`Req: ${targetUrl}`, 'info');
+          const response = await doFetch(targetUrl);
+          if (this.isAuthDebugEnabled() && (response.status === 401 || response.status === 403)) {
+              this.addLog(`Auth debug (${response.status}) ${targetUrl}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
           }
-      }
-
-          const localResponse = await doFetch(cleanEndpoint);
-          if (this.isAuthDebugEnabled() && (localResponse.status === 401 || localResponse.status === 403)) {
-              this.addLog(`Auth debug (${localResponse.status}) ${cleanEndpoint}: ${this.describeAuthHeaders(resolvedHeaders)}`, 'warning');
+          if (response.ok || response.status === 401 || response.status === 400 || response.status === 500) {
+              return check401(response);
           }
-          return check401(localResponse);
-
+          throw new Error(`Remote status ${response.status}`);
       } catch (error: any) {
-          const msg = error.name === 'AbortError' ? 'Timeout: Conexão lenta.' : error.message;
+          if (error.name === 'AbortError') {
+              this.addLog(`Timeout: O servidor demorou muito para responder.`, 'error');
+              throw new Error('Timeout: Servidor lento ou indisponível.');
+          }
+          const msg = error.message || 'Erro desconhecido';
           this.addLog(`Erro fatal na requisição: ${msg}`, 'error');
           throw error;
       }
@@ -714,20 +806,6 @@ class ApiService {
           return 'Tempo esgotado. O servidor demorou para responder.';
       }
       return 'Erro de conexão.';
-  }
-
-  private async readErrorMessage(res: Response, fallback: string): Promise<string> {
-      const text = (await res.text()).trim();
-      if (text) {
-          try {
-              const payload = JSON.parse(text);
-              if (payload && typeof payload.message === 'string' && payload.message.trim()) {
-                  return payload.message.trim();
-              }
-          } catch {}
-          return text;
-      }
-      return fallback;
   }
 
   private async ensureJsonResponse(res: Response, context: string): Promise<{ ok: boolean; message?: string }> {
@@ -769,42 +847,24 @@ class ApiService {
 
   async login(username: string, password: string): Promise<{ success: boolean; message?: string }> {
     const payload = { username, password };
-    
+    const endpoint = '/api/login';
+    const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
+
     try {
       const baseUrl = this.getBaseUrl();
-      const endpoints = ['/api/login', '/auth/login'];
-      
-      let response: Response | null = null;
-      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
+      const targetUrl = `${baseUrl}${endpoint}`;
+      const body = JSON.stringify(payload);
+      const requestOptions: RequestInit = {
+        method: 'POST',
+        headers,
+        body,
+      };
+      let response: Response;
 
-      if (baseUrl) {
-          for (const endpoint of endpoints) {
-              try {
-                  const res = await fetch(`${baseUrl}${endpoint}`, {
-                      method: 'POST',
-                      headers,
-                      body: JSON.stringify(payload)
-                  });
-                  if (res.ok) {
-                      response = res;
-                      break;
-                  }
-                  if (res.status === 404 || res.status === 405) {
-                      continue;
-                  }
-                  response = res;
-                  break;
-              } catch {
-                  // Tenta próximo endpoint ou fallback local
-              }
-          }
-      }
-      if (!response) {
-          response = await fetch('/api/login', {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(payload)
-          });
+      try {
+        response = await fetch(targetUrl, requestOptions);
+      } catch {
+        response = await fetch(endpoint, requestOptions);
       }
 
       const data = await response.json();
@@ -843,7 +903,7 @@ class ApiService {
               localStorage.setItem('username', displayName);
               
               if (sellerId) {
-                  localStorage.setItem('sellerId', sellerId);
+                  this.persistSellerId(sellerId);
               } else {
                   localStorage.removeItem('sellerId');
               }
@@ -943,7 +1003,7 @@ class ApiService {
                   localStorage.setItem('authToken', this.token || '');
                   localStorage.setItem('username', displayName);
                   if (sellerId) {
-                      localStorage.setItem('sellerId', sellerId);
+                      this.persistSellerId(sellerId);
                   } else {
                       localStorage.removeItem('sellerId');
                   }
@@ -1001,7 +1061,7 @@ class ApiService {
                 
                 // SALVA SELLER ID SE RETORNADO
                 if (data.sellerId) {
-                    localStorage.setItem('sellerId', data.sellerId);
+                    this.persistSellerId(data.sellerId);
                 } else {
                     localStorage.removeItem('sellerId');
                 }
@@ -1051,7 +1111,7 @@ class ApiService {
               localStorage.setItem('authToken', this.token || '');
               localStorage.setItem('username', email);
               if (data.sellerId) {
-                 localStorage.setItem('sellerId', data.sellerId);
+                 this.persistSellerId(data.sellerId);
               }
               this.addLog(`Novo usuário registrado: ${email}`, 'success');
               return { success: true };
@@ -1075,60 +1135,69 @@ class ApiService {
       const targetUrl = hostBackend
         ? this.normalizeBackendUrl(hostBackend)
         : (url.trim() ? this.normalizeBackendUrl(url) : this.getBaseUrl());
-      // Preferimos /api/me para validar permissão do token, pois alguns backends
-      // exigem vendedor_id nas rotas de produtos e retornam 403.
-      const meEndpoint = targetUrl ? `${targetUrl}/api/me` : `/api/me`;
-      const productEndpoint = this.buildProductsEndpoint({ limit: 1, includeSeller: true });
-      const endpoint = targetUrl ? `${targetUrl}${productEndpoint}` : productEndpoint;
+      const endpoint = this.buildPaymentPlanCatalogEndpoint();
+      const connectionUrl = targetUrl ? `${targetUrl}${endpoint}` : endpoint;
+      const headers = { ...this.getAuthHeaders() };
       
-      this.addLog(`Testando: ${meEndpoint} ou ${endpoint}`, 'info');
-      
-      try {
-        // 1) Tenta /api/me
-        let response = await fetch(meEndpoint, {
-          method: 'GET',
-          headers: { ...this.getAuthHeaders() }
-        });
+      this.addLog(`Testando: ${connectionUrl}`, 'info');
 
-        if (response.ok) {
-            const jsonCheck = await this.ensureJsonResponse(response, '/api/me');
-            if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
-            const storeCheck = await this.validateStoreForCurrentHost();
-            if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
-            return { success: true, message: 'Conectado!' };
-        }
-        
-        // 2) Fallback para produtos (com vendedor_id se houver)
-        response = await fetch(endpoint, {
-          method: 'GET',
-          headers: { ...this.getAuthHeaders() }
-        });
-        
-        if (response.ok) {
-            const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
-            if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
-            const storeCheck = await this.validateStoreForCurrentHost();
-            if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
-            return { success: true, message: 'Conectado!' };
-        }
-        if (response.status === 401 || response.status === 403) {
-            return { success: false, message: 'Token Inválido' };
-        }
-        
-        return { success: false, message: `Erro HTTP ${response.status}` };
-      } catch (e: any) {
-        const rawMessage = typeof e?.message === 'string' && e.message.trim() ? e.message.trim() : 'Erro desconhecido';
-        const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
-          ? 'Falha no fetch (possível CORS ou servidor indisponível).'
-          : rawMessage;
-        this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
-        return { success: false, message: `Sem conexão. ${friendlyDetail}` };
+      const evaluateResponse = async (response: Response): Promise<{ success: boolean; message: string }> => {
+          if (response.ok) {
+              const jsonCheck = await this.ensureJsonResponse(response, 'Planos de Pagamento');
+              if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
+              const storeCheck = await this.validateStoreForCurrentHost();
+              if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
+              return { success: true, message: 'Conectado!' };
+          }
+          if (response.status === 401 || response.status === 403) {
+              return { success: false, message: 'Token Inválido' };
+          }
+          if (response.status === 404) {
+              return { success: false, message: 'Endpoint não encontrado (404).' };
+          }
+          return { success: false, message: `Erro HTTP ${response.status}` };
+      };
+
+      const doFetch = async (target: string): Promise<Response> => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          try {
+              const response = await fetch(target, {
+                  method: 'GET',
+                  headers,
+                  signal: controller.signal
+              });
+              clearTimeout(timer);
+              return response;
+          } catch (error) {
+              clearTimeout(timer);
+              throw error;
+          }
+      };
+
+      try {
+          if (!targetUrl) {
+              throw new Error('Backend não configurado.');
+          }
+          const remoteResponse = await doFetch(connectionUrl);
+          return await evaluateResponse(remoteResponse);
+      } catch (error: any) {
+          const friendly = error?.name === 'AbortError'
+            ? 'Timeout: O servidor demorou muito para responder.'
+            : error?.message || 'Erro desconhecido.';
+          this.addLog(`Teste remoto falhou: ${friendly}`, 'warning');
+          const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : 'Erro desconhecido';
+          const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
+            ? 'Falha no fetch (possível CORS ou servidor indisponível).'
+            : rawMessage;
+          this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
+          return { success: false, message: `Sem conexão. ${friendlyDetail}` };
       }
   }
 
   // --- PEDIDOS ---
 
-  async submitOrder(order: Order): Promise<{ success: boolean, message?: string }> {
+  async submitOrder(order: Order): Promise<SubmitOrderResult> {
     // Validação de Token antes de enviar
     const currentToken = this.token || this.config.apiToken;
     if (!currentToken) {
@@ -1145,9 +1214,10 @@ class ApiService {
 
       if (!planCode && order.customerId) {
           try {
-              const plans = await this.getPaymentPlansForCustomer(order.customerId);
-              if (plans.length > 0) {
-                  const fallback = plans[0];
+              const planResult = await this.getPaymentPlansForCustomer(order.customerId, order.total);
+              const availablePlans = planResult.plans.filter(p => p.disponivel === true);
+              if (availablePlans.length > 0) {
+                  const fallback = availablePlans[0];
                   planCode = fallback.code;
                   planDescription = fallback.description;
                   planInstallments = fallback.installments;
@@ -1176,19 +1246,31 @@ class ApiService {
         order.shippingMethod ? `Frete: ${order.shippingMethod}` : ''
       ].filter(Boolean).join(' | ');
 
+      const businessStatus = order.businessStatus || 'orcamento';
+      const shippingModal = order.shippingMethodId || order.shippingMethod || 'retirada';
+      const mappedPaymentStatus = mapPagamentoStatus(order.paymentStatus || 'pendente');
+      const mappedFreteModal = mapFreteModalidade(shippingModal);
+      const sellerCode = order.sellerId || this.getSellerId() || '';
+      const sellerName = order.sellerName || this.getUsername() || '';
+      const clienteId = order.customerId ?? '0';
+
       const backendOrder: Record<string, any> = {
         data_criacao: order.createdAt,
         total: order.total,
-        cliente_id: order.customerId, 
+        cliente_id: clienteId,
         cliente_tipo: order.customerType || 'NORMAL',
+        status: businessStatus,
+        pagamento_status: mappedPaymentStatus,
+        frete_modalidade: mappedFreteModal,
+        vendedor_codigo: sellerCode,
+        vendedor_nome: sellerName,
         plano_pagamento_codigo: planCode || '',
         plano_pagamento_descricao: planDescription || '',
         parcelas: planInstallments || 1,
         dias_entre_parcelas: planDaysBetween || 0,
         valor_minimo: planMinValue || 0,
         observacao: extraNotes,
-        vendedor_id: order.sellerId || this.getSellerId() || '',
-        vendedor_nome: order.sellerName || this.getUsername() || '',
+        vendedor_id: sellerCode,
         itens: order.items.map(item => ({ 
             codigo_produto: item.id,
             quantidade: item.quantity, 
@@ -1211,6 +1293,10 @@ class ApiService {
 
       if (!response.ok) {
           const txt = await response.text();
+          if (response.status === 403) {
+              this.addLog(`403 API: ${txt}`, 'warning');
+              return { success: false, message: API_ONLY_NOTICE, requiresApiOnly: true };
+          }
           this.addLog(`Erro Servidor (${response.status}): ${txt}`, 'error');
           try {
              const json = JSON.parse(txt);
@@ -1223,7 +1309,7 @@ class ApiService {
       this.addLog(`Pedido ${order.displayId} enviado com sucesso!`, 'success');
       // Atualiza status de negócio e salva localmente para refletir no histórico
       try {
-          order.businessStatus = 'orcamento';
+          order.businessStatus = businessStatus;
           const data = await response.clone().json().catch(()=>({}));
           if (data && (data.orderId || data.id)) order.remoteId = data.orderId || data.id;
           await dbService.saveOrder(order);
@@ -1235,8 +1321,156 @@ class ApiService {
     }
   }
 
+  async patchOrder(orderId: string, payload: { status?: string; pagamento_status?: string; frete_modalidade?: string }): Promise<Order> {
+      try {
+          const response = await this.fetchWithAuth(`/api/pedidos/${encodeURIComponent(orderId)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+          if (!response.ok) {
+              const text = await response.text();
+              throw new Error(`Falha ao atualizar pedido: ${text}`);
+          }
+          const data = await response.json();
+          const updated = this.mapRemoteOrder(data);
+          await dbService.saveOrder(updated);
+          return updated;
+      } catch (error: any) {
+          this.addLog(`Erro patch pedido ${orderId}: ${error?.message || 'desconhecido'}`, 'error');
+          throw error;
+      }
+  }
+
   async getOrderHistory(): Promise<Order[]> {
-       return [];
+      try {
+          const response = await this.fetchWithAuth('/api/pedidos');
+          if (!response.ok) {
+              this.addLog(`Falha ao baixar histórico de pedidos: ${response.status}`, 'error');
+              return [];
+          }
+          const payload = await response.json();
+          const list = Array.isArray(payload) ? payload : payload?.data || payload?.orders || payload?.results || [];
+          if (!Array.isArray(list)) return [];
+          return list.map((item: any) => this.mapRemoteOrder(item));
+      } catch (error: any) {
+          this.addLog(`Erro ao sincronizar histórico de pedidos: ${error?.message || 'desconhecido'}`, 'error');
+          return [];
+      }
+  }
+
+  async getOrderById(orderId: string): Promise<Order | null> {
+      try {
+          const response = await this.fetchWithAuth(`/api/pedidos/${encodeURIComponent(orderId)}`);
+          if (!response.ok) {
+              if (response.status === 404) return null;
+              const text = await response.text();
+              throw new Error(`Falha ao carregar pedido: ${text}`);
+          }
+          const payload = await response.json();
+          return this.mapRemoteOrder(payload);
+      } catch (error: any) {
+          this.addLog(`Erro ao carregar pedido ${orderId}: ${error?.message || 'desconhecido'}`, 'error');
+          throw error;
+      }
+  }
+
+  private mapRemoteOrder(item: any): Order {
+      const createdAt = this.normalizeOrderDate(
+          item.createdAt ||
+          item.created_at ||
+          item.data_criacao ||
+          item.timestamp ||
+          new Date().toISOString()
+      );
+      const orderIdValue = item.id ?? item.orderId ?? item.numero_pedido ?? item.numeroPedido ?? item.displayId;
+      const fallbackId = `${item.cliente_id || item.customerId || 'remote'}-${createdAt}`;
+      const normalizedStatus = String(item.status || item.businessStatus || item.business_status || 'synced').toLowerCase();
+      const status: Order['status'] = normalizedStatus === 'pending' || normalizedStatus === 'pendente' ? 'pending' : 'synced';
+      const businessStatus = item.businessStatus || item.business_status || normalizedStatus;
+      const itemsPayload = Array.isArray(item.items)
+          ? item.items
+          : Array.isArray(item.itens)
+            ? item.itens
+            : Array.isArray(item.order_items)
+              ? item.order_items
+              : [];
+
+      const mappedItems = itemsPayload.map((line: any) => this.mapRemoteOrderItem(line));
+      const syncDateRaw = item.sincronizado_em || item.sincronizadoEm || item.synced_at || item.syncedAt || item.last_sync || item.lastSync;
+      const syncErrorRaw = item.sincronizacao_erro || item.sincronizacaoErro || item.sync_error || item.syncError || item.error;
+      const shippingCostValue = this.toNumber(
+          item.frete ?? item.ref_rete ?? item.shipping_cost ?? item.shippingCost ?? item.shippingValue ?? item.shipping_cost_value ?? item.frete_valor ?? item.valor_frete
+      );
+      return {
+          id: orderIdValue ? String(orderIdValue) : fallbackId,
+          displayId: item.displayId || item.numero_pedido || item.numeroPedido || item.order_number || item.orderId || undefined,
+          customerId: String(item.cliente_id ?? item.customerId ?? item.customer_id ?? item.clienteCodigo ?? ''),
+          customerName: item.cliente_nome || item.customerName || item.customer_name || item.fantasyName || '',
+          customerDoc: item.cliente_documento || item.customerDoc || item.documento || '',
+          customerType: item.cliente_tipo || item.customerType || 'NORMAL',
+          paymentPlanCode: item.plano_pagamento_codigo || item.payment_plan_code || item.plan_code || '',
+          paymentPlanDescription: item.plano_pagamento_descricao || item.payment_plan_description || item.plan_description || '',
+          paymentInstallments: Number(item.parcelas ?? item.installments ?? 0),
+          paymentFirstInstallmentDays: Number(item.dias_primeira_parcela ?? item.firstInstallmentDays ?? item.first_payment_days ?? 0),
+          paymentDaysBetween: Number(item.dias_entre_parcelas ?? item.days_between_installments ?? item.daysBetweenInstallments ?? 0),
+          paymentMinValue: Number(item.valor_minimo ?? item.min_value ?? 0),
+          paymentDueDates: Array.isArray(item.paymentDueDates) ? item.paymentDueDates : Array.isArray(item.vencimentos) ? item.vencimentos : undefined,
+          items: mappedItems,
+          total: this.toNumber(item.total),
+          status,
+          businessStatus,
+          sincronizado: this.toBoolean(item.sincronizado ?? item.synced ?? item.sinced ?? item.isSincronizado ?? item.synced ?? item.synced_override),
+          sincronizadoEm: syncDateRaw ? this.normalizeOrderDate(syncDateRaw) : undefined,
+          sincronizacaoErro: syncErrorRaw ? String(syncErrorRaw) : undefined,
+          remoteId: item.orderId || item.id || undefined,
+          notes: item.observacao || item.notes || '',
+          sellerId: item.vendedor_id || item.sellerId || item.salesmanId || '',
+          sellerName: item.vendedor_nome || item.sellerName || '',
+          paymentMethod: item.payment_method || item.forma_pagamento || '',
+          paymentMethodId: item.payment_method_id || item.paymentMethodId || '',
+          shippingMethod: item.shipping_method || item.tipo_frete || '',
+          shippingMethodId: item.shipping_method_id || item.shippingMethodId || '',
+          shippingCost: Number.isFinite(shippingCostValue) ? shippingCostValue : undefined,
+          createdAt
+      };
+  }
+
+  private mapRemoteOrderItem(line: any): CartItem {
+      const quantity = this.toNumber(line.quantidade ?? line.quantity ?? line.qty ?? line.amount ?? 1);
+      const price = this.toNumber(line.valor_unitario ?? line.unit_price ?? line.price ?? line.valor ?? 0);
+      const name = line.nome_produto || line.productName || line.name || line.description || 'Produto';
+      return {
+          id: String(line.codigo_produto || line.productId || line.product_code || line.id || `remote-item-${Math.random().toString(36).slice(2)}`),
+          name,
+          description: line.descricao || line.description || '',
+          price,
+          basePrice: price,
+          category: line.categoria || line.category || '',
+          stock: this.toNumber(line.estoque ?? line.stock ?? 0),
+          unit: line.unidade || line.unit || 'un',
+          quantity,
+      };
+  }
+
+  private toNumber(value: any): number {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  private toBoolean(value: any): boolean {
+      if (typeof value === 'boolean') return value;
+      if (value === undefined || value === null) return false;
+      const normalized = String(value).trim().toLowerCase();
+      if (!normalized) return false;
+      return ['1', 'true', 'sim', 's', 'yes', 'y'].includes(normalized);
+  }
+
+  private normalizeOrderDate(value: any): string {
+      if (!value) return new Date().toISOString();
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+      return parsed.toISOString();
   }
 
   // Atualiza status de negócio no servidor (se exposto) e reflete local
@@ -1315,40 +1549,13 @@ class ApiService {
     return this.fetchProductsFromNetwork(page, limit);
   }
 
-  private flattenProductPayload(payload: any): any[] {
-    const source = Array.isArray(payload) ? payload : (payload?.data || []);
-    if (!Array.isArray(source)) return [];
-
-    const flattened: any[] = [];
-
-    source.forEach((entry: any) => {
-      if (!entry || typeof entry !== 'object') return;
-
-      const groupedItems =
-        entry.itens ||
-        entry.items ||
-        entry.produtos ||
-        entry.products ||
-        entry.children;
-
-      if (Array.isArray(groupedItems)) {
-        flattened.push(...this.flattenProductPayload(groupedItems));
-        return;
-      }
-
-      flattened.push(entry);
-    });
-
-    return flattened;
-  }
-
   private async fetchProductsFromNetwork(page: number, limit: number): Promise<Product[]> {
     try {
       const response = await this.fetchWithAuth(this.buildProductsEndpoint({ page, limit, includeSeller: true }));
       if (!response.ok) return [];
       
       const data = await response.json();
-      const list = this.flattenProductPayload(data);
+      const list = Array.isArray(data) ? data : (data.data || []);
       
       return list.map((item: any) => this.mapProduct(item));
     } catch (error) {
@@ -1365,7 +1572,7 @@ class ApiService {
         const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
         if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
         const data = await response.json();
-        const list = this.flattenProductPayload(data);
+        const list = Array.isArray(data) ? data : (data.data || []);
         
         await dbService.clearProducts();
         const mapped = list.map((i: any) => this.mapProduct(i));
@@ -1383,17 +1590,26 @@ class ApiService {
       let rawPrice = item.preco_promocao1 || item.preco || item.price || 0;
       if (typeof rawPrice === 'string') rawPrice = parseFloat(rawPrice.replace(',', '.'));
 
+      const readCode = (value: unknown): string | undefined => {
+          if (value === null || value === undefined) return undefined;
+          const text = String(value).trim();
+          return text ? text : undefined;
+      };
+
       // Ajuste solicitado: Nome do produto recebe a descrição completa
       const productName = item.descricao_completa || item.nome || item.name || 'Produto';
-      const productCode = String(item.codigo || item.id || item.plu || '');
-      const productPlu = item.plu ? String(item.plu) : undefined;
+      const sectionCode = readCode(
+          item.secao ?? item.codigo_secao ?? item.cod_secao ?? item.secao_codigo ?? item.section ?? item.section_code
+      );
+      const groupCode = readCode(
+          item.grupo ?? item.codigo_grupo ?? item.cod_grupo ?? item.grupo_codigo ?? item.group ?? item.group_code
+      );
+      const subgroupCode = readCode(
+          item.subgrupo ?? item.codigo_subgrupo ?? item.cod_subgrupo ?? item.subgrupo_codigo ?? item.subgroup ?? item.subgroup_code
+      );
 
       return {
-        // Usa o codigo do item como identificador principal para evitar
-        // consolidar variantes diferentes quando compartilham o mesmo PLU.
-        id: productCode,
-        code: productCode,
-        plu: productPlu,
+        id: String(item.plu || item.codigo || item.id),
         name: productName,
         // Evita duplicação se a descrição for igual ao nome
         description: (item.descricao_completa && item.descricao_completa !== productName) ? item.descricao_completa : (item.description || ''),
@@ -1402,28 +1618,30 @@ class ApiService {
         // AJUSTE: Prioriza estoque_disponivel
         stock: Number(item.estoque_disponivel ?? item.estoque ?? item.stock ?? 0),
         unit: item.unidade || item.unit || 'un',
-        imageUrl: this.resolveImageUrl(item.imagem_url || item.image_url || item.imagemUrl || item.imageUrl)
+        imageUrl: this.resolveImageUrl(item.imagem_url || item.image_url || item.imagemUrl || item.imageUrl),
+        sectionCode,
+        groupCode,
+        subgroupCode
       };
   }
 
   // --- CLIENTES ---
 
   async getCustomers(): Promise<Customer[]> {
-      const currentSellerId = this.getSellerId();
-      
+      const currentSellerId = await this.resolveSellerIdFromProfile();
+
       try {
          // Se configuração exigir, ignora cache local e busca sempre do backend
          if (!this.config.alwaysFetchCustomers) {
             let local = await dbService.getLocalCustomers();
             // Filtro estrito: se houver vendedor logado, lista SOMENTE clientes vinculados a ele
-          if (currentSellerId) {
+            if (currentSellerId) {
                 local = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
             }
             local = local.filter(c => c.type !== 'TEMPORARIO');
             if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
          }
 
-         // Se estiver em Mock e não houver clientes locais, cria uma base de demonstração
          if (this.config.useMockData) {
             const demoClients: Customer[] = [
                 { id:'C100', name:'Rede Varejista Alfa', fantasyName:'Alfa Supermercados', document:'12.345.678/0001-90', address:'Av. Brasil', addressNumber:'1000', neighborhood:'Centro', city:'Fortaleza', state:'CE', zipCode:'60000-000', phone:'(85) 3333-0001', email:'compras@alfa.com', sellerId: currentSellerId || '' },
@@ -1434,29 +1652,17 @@ class ApiService {
             return [WALK_IN_CUSTOMER, ...demoClients];
          }
 
-         // FALLBACK: Aumenta limite de visualização direta se não sincronizado
-         // limit=-1 para garantir que traga tudo se a sincronização falhou antes
-         let queryParams = `limit=-1`; 
-         
-         if (currentSellerId) {
-            const encoded = encodeURIComponent(currentSellerId);
-            queryParams += `&vendedor_id=${encoded}&cod_vendedor=${encoded}`;
-         }
+         const view = await this.fetchClientSyncView('recent');
+         const list = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
+         const mapped = list
+             .filter((item: any) => item?.type !== 'TEMPORARIO')
+             .map((item: any) => this.mapCustomer(item));
+         const filtered = currentSellerId
+             ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
+             : mapped;
+         return [WALK_IN_CUSTOMER, ...filtered];
+      } catch (e) {}
 
-         const res = await this.fetchWithAuth(`/api/clientes?${queryParams}`);
-         if (res.ok) {
-             const data = await res.json();
-             const list = Array.isArray(data) ? data : data.data || [];
-             const mapped = list
-                 .filter((item: any) => item?.type !== 'TEMPORARIO')
-                 .map((item: any) => this.mapCustomer(item));
-             const filtered = currentSellerId
-                 ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
-                 : mapped;
-             return [WALK_IN_CUSTOMER, ...filtered];
-         }
-      } catch(e) {}
-      
       return [WALK_IN_CUSTOMER];
   }
 
@@ -1525,61 +1731,211 @@ class ApiService {
       return this.mapCustomer(data);
   }
 
-  async getPaymentPlansForCustomer(customerId: string): Promise<PaymentPlan[]> {
-      const res = await this.fetchWithAuth(`/api/planos-pagamento-cliente/${encodeURIComponent(customerId)}`);
-      if (res.status === 404) return [];
-      if (!res.ok) {
-          const message = await this.readErrorMessage(res, 'Erro ao buscar planos de pagamento.');
-          throw new Error(message);
+  async getPaymentPlansForCustomer(customerId: string, pedidoTotal?: number): Promise<{ total: number; plans: PaymentPlan[] }> {
+      const catalog = await this.fetchPaymentPlanCatalog();
+      const query = new URLSearchParams();
+      if (typeof pedidoTotal === 'number' && Number.isFinite(pedidoTotal)) {
+          query.set('pedido_total', pedidoTotal.toString());
       }
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : (data.data || []);
+      const queryString = query.toString();
+      const endpoint = `/api/planos-pagamento-cliente/${encodeURIComponent(customerId)}${queryString ? `?${queryString}` : ''}`;
+
+      const res = await this.fetchWithAuth(endpoint);
+      if (res.status === 404) return { total: 0, plans: [] };
+      if (!res.ok) {
+          const msg = await res.text();
+          try {
+              const data = JSON.parse(msg);
+              throw new Error(data.message || 'Erro ao buscar planos de pagamento.');
+          } catch (e) {
+              throw new Error(msg || 'Erro ao buscar planos de pagamento.');
+          }
+      }
+      const payload = await res.json();
+      const list = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+      const mappedPlans = list.map((p: any) => this.mapPaymentPlan(p, catalog));
+      const totalValue = Number(payload.total ?? payload.count ?? mappedPlans.length);
+      return {
+          total: Number.isFinite(totalValue) ? totalValue : mappedPlans.length,
+          plans: mappedPlans
+      };
+  }
+
+  private paymentPlanCatalogCache: any[] | null = null;
+
+  private async fetchPaymentPlanCatalog(): Promise<any[]> {
+      if (this.paymentPlanCatalogCache) return this.paymentPlanCatalogCache;
+      try {
+          const response = await this.fetchWithAuth(this.buildPaymentPlanCatalogEndpoint(), { method: 'GET' });
+          if (!response.ok) {
+              this.addLog(`Falha ao baixar catálogo de planos: ${response.status}`, 'error');
+              return (this.paymentPlanCatalogCache = []);
+          }
+          const payload = await response.json();
+          const list = Array.isArray(payload) ? payload : payload?.data || payload?.plans || payload?.results || [];
+          this.paymentPlanCatalogCache = Array.isArray(list) ? list : [];
+          return this.paymentPlanCatalogCache;
+      } catch (error: any) {
+          this.addLog(`Erro ao carregar catálogo de planos: ${error?.message || 'desconhecido'}`, 'error');
+          this.paymentPlanCatalogCache = [];
+          return [];
+      }
+  }
+
+  async fetchEnums(): Promise<Record<string, EnumOption[]>> {
+      if (this.enumCache) return this.enumCache;
+      this.enumCache = {};
+      try {
+          const response = await this.fetchWithAuth('/api/meta/enums');
+          if (!response.ok) {
+              this.addLog(`Falha ao baixar enums: ${response.status}`, 'error');
+              return this.enumCache;
+          }
+
+          const payload = await response.json();
+          const entries = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+          entries.forEach((entry: any) => {
+              const key = String(entry.name || entry.enumName || entry.key || entry.nome || entry.nomeEnum || '').trim();
+              if (!key) return;
+              const rawOptions = Array.isArray(entry.values)
+                  ? entry.values
+                  : Array.isArray(entry.options)
+                      ? entry.options
+                      : Array.isArray(entry.items)
+                          ? entry.items
+                          : Array.isArray(entry.data)
+                              ? entry.data
+                              : [];
+
+              const normalized: EnumOption[] = rawOptions
+                  .map((option: Record<string, any>): EnumOption => ({
+                      value: String(option.value ?? option.codigo ?? option.code ?? option.id ?? option.valor ?? '').trim(),
+                      label: String(option.label ?? option.name ?? option.nome ?? option.description ?? option.descricao ?? option.value ?? '').trim(),
+                      description: option.description || option.descricao || undefined,
+                      metadata: option.metadata || option.meta || undefined,
+                  }))
+                  .filter((option: EnumOption) => option.value);
+
+              if (normalized.length > 0) {
+                  this.enumCache![key] = normalized;
+              }
+          });
+      } catch (error: any) {
+          this.addLog(`Erro ao carregar enums: ${error?.message || 'desconhecido'}`, 'error');
+          this.enumCache = {};
+      }
+      return this.enumCache;
+  }
+
+  private mapPaymentPlan(plan: any, catalog: any[]): PaymentPlan {
       const parsePlanDays = (value: string): number[] => {
           if (!value) return [];
           const matches = value.match(/\d+/g);
           if (!matches) return [];
           return matches.map((m) => Number(m)).filter((n) => Number.isFinite(n) && n > 0);
       };
-      return list.map((p: any) => ({
-          code: String(p.plano_codigo || p.codigo || p.code || p.PLACOD || p.placod || ''),
-          description: p.plano_descricao || p.descricao || p.description || p.PLADES || p.plades || '',
-          legend: p.PLALEG || p.plaleg || p.legend || p.legenda || '',
-          document: (() => {
-              const raw = String(p.documento || p.document || p.tipo_documento || '').trim();
-              if (raw) return raw.toUpperCase();
-              const codeValue = String(p.plano_codigo || p.codigo || p.code || p.PLACOD || p.placod || '').trim();
-              if (codeValue) return codeValue.split('_')[0].toUpperCase();
-              return '';
-          })(),
-          entryValue: Number(p.PLAENT ?? p.plaent ?? p.entrada ?? 0),
-          firstInstallmentInterval: Number(p.PLAINTPRI ?? p.plaintpri ?? 0),
-          accrual: Number(p.PLAVLRACR ?? p.plavlracr ?? p.acrescimo ?? 0),
-          installments: Number(p.parcelas ?? p.installments ?? p.PLANUMPAR ?? p.planumpar ?? 1),
-          daysBetweenInstallments: Number(p.dias_entre_parcelas ?? p.days_between_installments ?? p.PLAINTPAR ?? p.plaintpar ?? 0),
-          minValue: Number(p.valor_minimo ?? p.min_value ?? p.PLAVLRMIN ?? p.plavlrmin ?? 0),
+      const codeValue = String(plan.plano_codigo || plan.codigo || plan.code || plan.PLACOD || plan.placod || '').trim();
+      const catalogEntry = catalog.find((entry) => {
+          const entryCode = (entry.plano_codigo || entry.codigo || entry.code || '').trim();
+          return entryCode && entryCode === codeValue;
+      });
+
+      const rawDoc = String(plan.documento || plan.document || plan.tipo_documento || plan.tipo_pagamento || plan.forma_pagamento || plan.payment_type || plan.paymentMethod || '').trim();
+      const documentValue = rawDoc ? rawDoc.toUpperCase() : codeValue.split('_')[0].toUpperCase();
+      const firstInstallmentInterval = Number(plan.PLAINTPRI ?? plan.plaintpri ?? plan.intervalo_primeira_parcela ?? plan.intervaloPrimeiraParcela ?? plan.firstInstallmentDays ?? 0);
+      const daysBetweenInstallments = Number(plan.dias_entre_parcelas ?? plan.days_between_installments ?? plan.intervalo_parcelas ?? plan.intervaloParcelas ?? plan.daysBetweenInstallments ?? 0);
+
+      const imageSource = catalogEntry
+          ? (catalogEntry.imagem || catalogEntry.image || catalogEntry.imagem_url || catalogEntry.image_url || catalogEntry.IMAGE || catalogEntry.IMAGEM || catalogEntry.icon || catalogEntry.icone || catalogEntry.icon_url)
+          : (plan.imagem || plan.image || plan.imagem_url || plan.image_url || plan.IMAGE || plan.IMAGEM || plan.icon || plan.icone || plan.icon_url);
+
+      const description = plan.plano_descricao || plan.descricao || plan.description || plan.PLADES || plan.plades || '';
+      const availabilitySource =
+          plan.disponivel ??
+          plan.disponible ??
+          plan.available ??
+          plan.is_disponivel ??
+          plan.disponibil ??
+          plan.isAvailable ??
+          plan.disponivel_completa ??
+          false;
+      const disponivelFlag = this.toBoolean(availabilitySource);
+      const meioPagamentoValue = plan.meio_pagamento || plan.meioPagamento || plan.paymentMethod || plan.forma_pagamento || plan.meio || '';
+
+      return {
+          code: codeValue,
+          description,
+          legend: plan.PLALEG || plan.plaleg || plan.legend || plan.legenda || '',
+          document: documentValue,
+          entryValue: Number(plan.PLAENT ?? plan.plaent ?? plan.entrada ?? 0),
+          firstInstallmentInterval,
+          accrual: Number(plan.PLAVLRACR ?? plan.plavlracr ?? plan.acrescimo ?? 0),
+          installments: Number(plan.parcelas ?? plan.installments ?? plan.PLANUMPAR ?? plan.planumpar ?? 1),
+          daysBetweenInstallments,
+          minValue: Number(plan.valor_minimo ?? plan.min_value ?? plan.PLAVLRMIN ?? plan.plavlrmin ?? 0),
           daysFirstInstallment: (() => {
-              const rawFirst = Number(p.PLAINTPRI ?? p.plaintpri ?? 0);
-              if (Number.isFinite(rawFirst) && rawFirst > 0) return rawFirst;
-              const desc = String(p.plano_descricao || p.descricao || p.description || p.PLADES || p.plades || '');
-              const days = parsePlanDays(desc);
+              if (Number.isFinite(firstInstallmentInterval) && firstInstallmentInterval > 0) return firstInstallmentInterval;
+              const days = parsePlanDays(description);
               if (days.length > 0) return days[0];
-              const interval = Number(p.dias_entre_parcelas ?? p.days_between_installments ?? p.PLAINTPAR ?? p.plaintpar ?? 0);
-              return Number.isFinite(interval) ? interval : 0;
-          })()
-      }));
+              return Number.isFinite(daysBetweenInstallments) && daysBetweenInstallments > 0 ? daysBetweenInstallments : 0;
+          })(),
+          imageUrl: this.resolveImageUrl(imageSource),
+          disponivel: disponivelFlag,
+          meioPagamento: meioPagamentoValue
+      };
+  }
+
+  private getClientSyncViewPath(mode: ClientSyncViewMode): string {
+      switch (mode) {
+        case 'all':
+          return '/clients/sync/all/';
+        case 'recent':
+          return '/clients/sync/recentes/';
+        default:
+          return '/clients/sync/';
+      }
+  }
+
+  async fetchClientSyncView(mode: ClientSyncViewMode): Promise<ClientSyncViewResponse> {
+      await this.resolveSellerIdFromProfile();
+      const params = this.buildVendorQueryParams();
+      const queryString = params.toString();
+      const endpoint = `${this.getClientSyncViewPath(mode)}${queryString ? `?${queryString}` : ''}`;
+      try {
+        const res = await this.fetchWithAuth(endpoint);
+        if (!res.ok) throw new Error(`Erro ${res.status}`);
+        return await res.json();
+      } catch (error: any) {
+        if (mode === 'recent') {
+          const fallback = await this.fetchWithAuth(`/api/clientes${queryString ? `?${queryString}` : ''}`);
+          if (!fallback.ok) throw new Error(`Fallback falhou: ${fallback.status}`);
+          const jsonCheck = await this.ensureJsonResponse(fallback, 'Clientes');
+          if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+          const data = await fallback.json();
+          return { data: Array.isArray(data) ? data : (data.data || []) };
+        }
+        throw error;
+      }
+  }
+
+  getClientSyncViewUrl(mode: ClientSyncViewMode): string {
+      const path = this.getClientSyncViewPath(mode);
+      const params = this.buildVendorQueryParams();
+      const queryString = params.toString();
+      const suffix = queryString ? `?${queryString}` : '';
+      const baseUrl = this.getBaseUrl();
+      if (baseUrl) {
+        return `${baseUrl}${path}${suffix}`;
+      }
+      return `${path}${suffix}`;
   }
 
   async getDelinquency(): Promise<DelinquencyItem[]> {
-      const sellerId = this.getSellerId();
+      const sellerId = await this.resolveSellerIdFromProfile();
       try {
-          const query = new URLSearchParams();
-          if (sellerId) {
-              query.set('vendedor_id', sellerId);
-              query.set('cod_vendedor', sellerId);
-          }
-          const storeCode = getStoreCodeForApi();
-          if (storeCode) query.set('loja', storeCode);
-          const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
+          const params = this.buildVendorQueryParams();
+          const queryString = params.toString();
+          const endpoint = `/api/inadimplencia${queryString ? `?${queryString}` : ''}`;
           const res = await this.fetchWithAuth(endpoint);
           if (!res.ok) throw new Error(`Erro ${res.status}`);
           const jsonCheck = await this.ensureJsonResponse(res, 'Inadimplência');
@@ -1609,15 +1965,10 @@ class ApiService {
 
   async syncDelinquency(): Promise<{ success: boolean, count: number, message?: string }> {
      try {
-        const sellerId = this.getSellerId();
-        const query = new URLSearchParams();
-        if (sellerId) {
-            query.set('vendedor_id', sellerId);
-            query.set('cod_vendedor', sellerId);
-        }
-        const storeCode = getStoreCodeForApi();
-        if (storeCode) query.set('loja', storeCode);
-        const endpoint = `/api/inadimplencia${query.toString() ? `?${query.toString()}` : ''}`;
+        const sellerId = await this.resolveSellerIdFromProfile();
+        const params = this.buildVendorQueryParams();
+        const queryString = params.toString();
+        const endpoint = `/api/inadimplencia${queryString ? `?${queryString}` : ''}`;
         const res = await this.fetchWithAuth(endpoint);
         if (!res.ok) throw new Error(`Erro ${res.status}`);
         const jsonCheck = await this.ensureJsonResponse(res, 'Inadimplência');
@@ -1640,35 +1991,30 @@ class ApiService {
 
   async syncCustomers(onProgress: (c: number) => void): Promise<{ success: boolean, count: number, message?: string }> {
      try {
-        // CORREÇÃO: limit=-1 indica para o backend mandar tudo (sem paginação).
-        let queryParams = `limit=-1`; 
-        
-        // RECUPERA SELLER ID DO LOGIN
-        const savedSellerId = this.getSellerId();
-        if (savedSellerId) {
-            const encoded = encodeURIComponent(savedSellerId);
-            queryParams += `&vendedor_id=${encoded}&cod_vendedor=${encoded}`;
-        }
-        
-        const response = await this.fetchWithAuth(`/api/clientes?${queryParams}`);
-        if (!response.ok) throw new Error(`Erro ${response.status}`);
-        const jsonCheck = await this.ensureJsonResponse(response, 'Clientes');
-        if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
-        const data = await response.json();
-        const list = Array.isArray(data) ? data : (data.data || []);
+        const view = await this.fetchClientSyncView('recent');
+        const rawList = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
         
         await dbService.clearCustomers();
-        const mapped = list.map((c: any) => this.mapCustomer(c));
-        const filtered = savedSellerId
-            ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, savedSellerId))
-            : mapped;
-        await dbService.bulkAddCustomers(filtered);
+        const mapped = rawList.map((c: any) => this.mapCustomer(c));
+        await dbService.bulkAddCustomers(mapped);
         
-        onProgress(filtered.length);
-        return { success: true, count: filtered.length };
+        onProgress(mapped.length);
+      return { success: true, count: mapped.length };
     } catch (e: any) {
         return { success: false, count: 0, message: e.message };
     }
+  }
+
+  async syncOrders(): Promise<{ success: boolean, count: number, message?: string }> {
+      try {
+          const orders = await this.getOrderHistory();
+          if (orders.length > 0) {
+              await dbService.bulkPutOrders(orders);
+          }
+          return { success: true, count: orders.length };
+      } catch (e: any) {
+          return { success: false, count: 0, message: e.message };
+      }
   }
 
   private mapCustomer(c: any): Customer {

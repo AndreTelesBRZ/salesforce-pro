@@ -10,6 +10,9 @@ export interface Product {
   stock: number;
   imageUrl?: string;
   unit: string; // Ex: 'un', 'kg', 'm', 'cx', 'L'
+  sectionCode?: string;
+  groupCode?: string;
+  subgroupCode?: string;
 }
 
 export interface Customer {
@@ -61,6 +64,9 @@ export interface Order {
   items: CartItem[];
   total: number;
   status: 'pending' | 'synced';
+  sincronizado?: boolean;
+  sincronizadoEm?: string;
+  sincronizacaoErro?: string;
   // Fluxo de negócio da venda
   businessStatus?: 'orcamento' | 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado';
   // ID do pedido no servidor, se já transmitido
@@ -72,8 +78,12 @@ export interface Order {
   sellerName?: string;
   // Condições comerciais
   paymentMethod?: string;
+  paymentMethodId?: string;
   shippingMethod?: string;
+  shippingMethodId?: string;
+  paymentStatus?: string;
   createdAt: string;
+  shippingCost?: number;
 }
 
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -100,6 +110,16 @@ export interface PaymentPlan {
   installments: number;
   daysBetweenInstallments: number;
   minValue: number;
+  imageUrl?: string;
+  disponivel: boolean;
+  meioPagamento?: string;
+}
+
+export interface EnumOption {
+  value: string;
+  label: string;
+  description?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface DelinquencyItem {

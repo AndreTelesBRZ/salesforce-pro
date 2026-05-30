@@ -1,9 +1,62 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { CartItem, Order, Customer, PaymentPlan, isFractionalUnit } from '../types';
+import { CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
 import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
+import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
+import { DraftStatus, OrderDraft, OrderDraftItem } from '../src/types/orderDraft';
+import { useEnums } from '../contexts/EnumContext';
+
+type IconType = React.ComponentType<{ className?: string }>;
+
+const PAYMENT_ICON_MAP: Record<string, IconType> = {
+  pix: QrCode,
+  dinheiro: Banknote,
+  cartao: CreditCard,
+  boleto: FileText,
+  default: FileText,
+};
+
+const SHIPPING_ICON_MAP: Record<string, IconType> = {
+  retirada: Store,
+  entrega_propria: Truck,
+  transportadora: Package,
+  sem_frete: Package,
+  default: Store,
+};
+
+const FALLBACK_PAYMENT_METHODS: Array<EnumOption & { icon: IconType }> = [
+  { value: 'pix', label: 'PIX', icon: QrCode },
+  { value: 'dinheiro', label: 'Dinheiro', icon: Banknote },
+  { value: 'cartao', label: 'Cartão', icon: CreditCard },
+  { value: 'boleto', label: 'Boleto', icon: FileText },
+];
+
+const FALLBACK_SHIPPING_METHODS: Array<EnumOption & { icon: IconType }> = [
+  { value: 'retirada', label: 'Retirada', icon: Store },
+  { value: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
+  { value: 'transportadora', label: 'Transportadora', icon: Package },
+  { value: 'sem_frete', label: 'Sem frete', icon: Package },
+];
+
+const buildSelectOptions = (
+  rawOptions: Array<EnumOption & { icon?: IconType }>,
+  fallback: Array<EnumOption & { icon: IconType }>,
+  iconMap: Record<string, IconType>,
+  defaultIcon: IconType
+) => {
+  const source = rawOptions.length > 0 ? rawOptions : fallback;
+  return source.map((option) => {
+    const normalizedValue = option.value.toLowerCase();
+    const icon = iconMap[normalizedValue] || option.icon || defaultIcon;
+    return {
+      value: option.value,
+      label: option.label,
+      icon,
+    };
+  });
+};
 
 interface CartProps {
   cart: CartItem[];
@@ -11,7 +64,16 @@ interface CartProps {
   onUpdatePrice?: (id: string, newPrice: number) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
+  draftToEdit?: OrderDraft | null;
+  onClearDraft?: () => void;
 }
+
+const createOrderUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `order-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};
 
 // --- KEYPAD COMPONENT ---
 interface NumericKeypadModalProps {
@@ -371,7 +433,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ onClose, onSelectCu
 };
 
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft }) => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
@@ -382,6 +444,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [notes, setNotes] = useState('');
   const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [currentDraft, setCurrentDraft] = useState<OrderDraft | null>(null);
+  const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
 
   const [paymentPlans, setPaymentPlans] = useState<PaymentPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<PaymentPlan | null>(null);
@@ -396,20 +460,51 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [editingPrice, setEditingPrice] = useState<{ id: string, name: string, price: number, unit: string } | null>(null);
 
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const paymentOptions = [
-    { id: 'pix', label: 'PIX', icon: QrCode },
-    { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
-    { id: 'cartao', label: 'Cartão', icon: CreditCard },
-    { id: 'boleto', label: 'Boleto', icon: FileText },
+  const { enums } = useEnums();
+  const paymentEnumKeys = ['payment_method', 'forma_pagamento', 'paymentMethods'];
+  const shippingEnumKeys = ['frete_modalidade', 'shipping_method', 'shippingMethod'];
+  const findEnumOptions = (keys: string[]) => {
+    for (const key of keys) {
+      const entry = enums[key];
+      if (entry && entry.length > 0) {
+        return entry;
+      }
+    }
+    return [];
+  };
+  const paymentSelectOptions = useMemo(() => {
+    const raw = findEnumOptions(paymentEnumKeys);
+    return buildSelectOptions(
+      raw,
+      FALLBACK_PAYMENT_METHODS,
+      PAYMENT_ICON_MAP,
+      PAYMENT_ICON_MAP.default
+    );
+  }, [enums]);
+  const shippingSelectOptions = useMemo(() => {
+    const raw = findEnumOptions(shippingEnumKeys);
+    return buildSelectOptions(
+      raw,
+      FALLBACK_SHIPPING_METHODS,
+      SHIPPING_ICON_MAP,
+      SHIPPING_ICON_MAP.default
+    );
+  }, [enums]);
+  const DEFAULT_PAYMENT_METHODS = [
+    { value: 'pix', label: 'PIX', icon: QrCode },
+    { value: 'dinheiro', label: 'Dinheiro', icon: Banknote },
+    { value: 'cartao', label: 'Cartão', icon: CreditCard },
+    { value: 'boleto', label: 'Boleto', icon: FileText },
   ];
-  const shippingOptions = [
-    { id: 'retirada', label: 'Retirada', icon: Store },
-    { id: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
-    { id: 'transportadora', label: 'Transportadora', icon: Package },
+  const DEFAULT_SHIPPING_METHODS = [
+    { value: 'retirada', label: 'Retirada', icon: Store },
+    { value: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
+    { value: 'transportadora', label: 'Transportadora', icon: Package },
+    { value: 'sem_frete', label: 'Sem frete', icon: Package },
   ];
   const isBoleto = paymentMethod === 'boleto';
-  const paymentLabel = paymentOptions.find(option => option.id === paymentMethod)?.label || '';
-  const shippingLabel = shippingOptions.find(option => option.id === shippingMethod)?.label || '';
+  const paymentLabel = paymentSelectOptions.find(option => option.value === paymentMethod)?.label || '';
+  const shippingLabel = shippingSelectOptions.find(option => option.value === shippingMethod)?.label || '';
   const formatPlanLabel = (plan: PaymentPlan) => {
     let base = plan.description || plan.code || 'Plano';
     if (plan.document === 'BOLETO' && !/boleto/i.test(base)) {
@@ -431,12 +526,6 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const formatMoney = (value?: number) => {
     const numeric = Number(value || 0);
     return `R$ ${numeric.toFixed(2)}`;
-  };
-  const isBoletoPlan = (plan: PaymentPlan) => {
-    const code = (plan.code || '').toLowerCase();
-    const description = (plan.description || '').toLowerCase();
-    const doc = (plan.document || '').toLowerCase();
-    return doc === 'boleto' || code.startsWith('boleto') || description.includes('boleto');
   };
   const buildPaymentSchedule = (plan: PaymentPlan) => {
     const daysFirst = Number(plan.daysFirstInstallment || 0);
@@ -469,6 +558,30 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   }, []);
 
   useEffect(() => {
+    if (!draftToEdit) {
+      setCurrentDraft(null);
+      setPendingCustomerId(null);
+      return;
+    }
+    setCurrentDraft(draftToEdit);
+    setNotes(draftToEdit.notes || '');
+    setPaymentMethod(draftToEdit.payment_method || 'pix');
+    setShippingMethod(draftToEdit.shipping_method || 'retirada');
+    setLastOrderNumber(draftToEdit.display_id ?? null);
+    setPendingCustomerId(draftToEdit.cliente_id || null);
+  }, [draftToEdit]);
+
+  useEffect(() => {
+    if (!pendingCustomerId) return;
+    if (customers.length === 0) return;
+    const customer = customers.find((c) => c.id === pendingCustomerId);
+    if (customer) {
+      setSelectedCustomer(customer);
+    }
+    setPendingCustomerId(null);
+  }, [pendingCustomerId, customers]);
+
+  useEffect(() => {
       if (!selectedCustomer) return;
 
       if (!isBoleto) {
@@ -486,15 +599,22 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       setPaymentPlans([]);
       setSelectedPlan(null);
 
-      apiService.getPaymentPlansForCustomer(selectedCustomer.id)
-        .then((plans) => {
+      apiService.getPaymentPlansForCustomer(selectedCustomer.id, total)
+        .then((response) => {
             if (!isActive) return;
-            const boletoPlans = plans.filter(isBoletoPlan);
-            setPaymentPlans(boletoPlans);
-            if (boletoPlans.length > 0) {
-                setSelectedPlan(boletoPlans[0]);
-            } else {
+            const data = response.plans;
+            const planosDisponiveis = data.filter((plan) => plan.disponivel === true);
+            console.log('Planos recebidos:', data);
+            console.log('Planos disponíveis:', planosDisponiveis);
+            const shouldShowError = response.total === 0 || planosDisponiveis.length === 0;
+            if (shouldShowError) {
+                setPaymentPlans([]);
+                setSelectedPlan(null);
                 setPlanError('Cliente sem plano de pagamento boleto cadastrado.');
+            } else {
+                setPlanError('');
+                setPaymentPlans(planosDisponiveis);
+                setSelectedPlan(planosDisponiveis[0]);
             }
         })
         .catch((e: any) => {
@@ -509,7 +629,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       return () => {
           isActive = false;
       };
-  }, [selectedCustomer?.id, isBoleto]);
+  }, [selectedCustomer?.id, isBoleto, total]);
 
   useEffect(() => {
       if (!isBoleto || !selectedPlan) {
@@ -531,95 +651,207 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       setPlanValidationError('');
   }, [isBoleto, selectedPlan, total]);
 
-  const handleCheckout = async () => {
-    if (cart.length === 0) return;
+  const validateOrderForm = (): boolean => {
+    if (cart.length === 0) {
+      alert('O pedido precisa ter pelo menos um item.');
+      return false;
+    }
     if (!selectedCustomer) {
-        alert('Por favor, selecione um cliente para o pedido.');
-        return;
+      alert('Por favor, selecione um cliente para o pedido.');
+      return false;
     }
     if (!paymentLabel) {
-        alert('Selecione uma forma de pagamento.');
-        return;
+      alert('Selecione uma forma de pagamento.');
+      return false;
     }
     if (!shippingLabel) {
-        alert('Selecione um tipo de frete.');
-        return;
+      alert('Selecione um tipo de frete.');
+      return false;
     }
     if (isBoleto) {
-        if (!selectedPlan) {
-            alert('Selecione um plano de pagamento para boleto.');
-            return;
-        }
-        const minValue = Number(selectedPlan.minValue || 0);
-        if (minValue > 0 && total < minValue) {
-            alert(`Valor mínimo do plano: ${formatMoney(minValue)}.`);
-            return;
-        }
-        const daysFirst = Number(selectedPlan.daysFirstInstallment || 0);
-        const installments = Number(selectedPlan.installments || 0);
-        const interval = Number(selectedPlan.daysBetweenInstallments || 0);
-        if (daysFirst <= 0 || installments <= 0 || (installments > 1 && interval <= 0)) {
-            alert('Plano boleto incompleto. Verifique dias e parcelas.');
-            return;
-        }
+      if (!selectedPlan) {
+        alert('Selecione um plano de pagamento para boleto.');
+        return false;
+      }
+      const minValue = Number(selectedPlan.minValue || 0);
+      if (minValue > 0 && total < minValue) {
+        alert(`Valor mínimo do plano: ${formatMoney(minValue)}.`);
+        return false;
+      }
+      const daysFirst = Number(selectedPlan.daysFirstInstallment || 0);
+      const installments = Number(selectedPlan.installments || 0);
+      const interval = Number(selectedPlan.daysBetweenInstallments || 0);
+      if (daysFirst <= 0 || installments <= 0 || (installments > 1 && interval <= 0)) {
+        alert('Plano boleto incompleto. Verifique dias e parcelas.');
+        return false;
+      }
     }
+    return true;
+  };
 
-    setSubmitting(true);
-    
-    // GERAÇÃO DE ID SEQUENCIAL SEGURO
-    const nextId = await dbService.generateNextOrderId();
+  const ensureDisplayId = async (): Promise<number> => {
+    if (currentDraft?.display_id) {
+      return currentDraft.display_id;
+    }
+    return dbService.generateNextOrderId();
+  };
 
-    const isTemporary = selectedCustomer.type === 'TEMPORARIO';
-    const sellerId = isTemporary ? (apiService.getSellerId() || undefined) : (selectedCustomer.sellerId || apiService.getSellerId() || undefined);
-    const loggedName = apiService.getUsername();
-    const hasLoggedName = loggedName && loggedName !== 'Vendedor' && loggedName !== 'Terminal Vinculado';
-    const fallbackName = selectedCustomer.sellerName && selectedCustomer.sellerName !== 'Loja' ? selectedCustomer.sellerName : undefined;
-    const sellerName = hasLoggedName ? loggedName : (fallbackName || loggedName || undefined);
-    const dueDates = isBoleto && selectedPlan
-      ? buildPaymentSchedule(selectedPlan).map(date => date.toISOString())
-      : undefined;
+  const buildDraftItem = (item: CartItem): OrderDraftItem => ({
+    codigo_produto: item.id,
+    quantidade: item.quantity,
+    valor_unitario: item.price,
+    nome_produto: item.name,
+    descricao: item.description || '',
+    unidade: item.unit,
+    base_price: item.basePrice ?? item.price,
+    category: item.category,
+    stock: item.stock,
+    sectionCode: item.sectionCode,
+    groupCode: item.groupCode,
+    subgroupCode: item.subgroupCode,
+  });
 
-    const order: Order = {
-      id: crypto.randomUUID(),
-      displayId: nextId,
-      items: cart,
-      total: total,
-      customerId: selectedCustomer.id,
-      customerName: selectedCustomer.name,
-      customerDoc: selectedCustomer.document,
-      customerType: isTemporary ? 'TEMPORARIO' : 'NORMAL',
-      paymentPlanCode: selectedPlan?.code,
-      paymentPlanDescription: selectedPlan?.description,
-      paymentInstallments: selectedPlan?.installments,
-      paymentFirstInstallmentDays: selectedPlan?.daysFirstInstallment,
-      paymentDaysBetween: selectedPlan?.daysBetweenInstallments,
-      paymentMinValue: selectedPlan?.minValue,
-      paymentDueDates: dueDates,
-      paymentMethod: paymentLabel,
-      shippingMethod: shippingLabel,
+  const buildDraftPayload = async (status: DraftStatus): Promise<OrderDraft> => {
+    const now = new Date().toISOString();
+    const draftId = currentDraft?.id || createOrderUUID();
+    const displayId = await ensureDisplayId();
+    return {
+    id: draftId,
+    cliente_id: selectedCustomer?.id || '0',
+    cliente_nome: selectedCustomer?.name,
+    cliente_documento: selectedCustomer?.document,
+    cliente_tipo: selectedCustomer?.type,
+      itens: cart.map(buildDraftItem),
+      total,
+      data_criacao: currentDraft?.data_criacao || now,
+      updated_at: now,
+      status,
+      retry_count: currentDraft?.retry_count ?? 0,
+      error_message: undefined,
+      display_id: displayId,
+      notes,
+      payment_method: paymentMethod,
+      payment_method_id: paymentMethod,
+      shipping_method: shippingMethod,
+      shipping_method_id: shippingMethod,
+      payment_plan_code: selectedPlan?.code,
+      payment_plan_description: selectedPlan?.description,
+      payment_installments: selectedPlan?.installments,
+      payment_first_installment_days: selectedPlan?.daysFirstInstallment,
+      payment_days_between: selectedPlan?.daysBetweenInstallments,
+      payment_min_value: selectedPlan?.minValue,
+    };
+  };
+
+  const buildOrderFromDraft = (draft: OrderDraft): Order => {
+    const customer = selectedCustomer;
+    const sellerId = customer?.sellerId || apiService.getSellerId() || undefined;
+    const sellerName = customer?.sellerName || apiService.getUsername() || undefined;
+    const items = draft.itens.map((item) => ({
+      id: item.codigo_produto,
+      name: item.nome_produto || item.codigo_produto,
+      description: item.descricao || '',
+      price: item.valor_unitario,
+      basePrice: item.base_price ?? item.valor_unitario,
+      category: item.category || '',
+      stock: 0,
+      unit: item.unidade || 'un',
+      quantity: item.quantidade,
+    }));
+
+    return {
+      id: draft.id,
+      displayId: draft.display_id,
+      items,
+      total: draft.total,
+      customerId: draft.cliente_id,
+      customerName: customer?.name || draft.cliente_nome,
+      customerDoc: customer?.document || draft.cliente_documento,
+      customerType: customer?.type || draft.cliente_tipo,
+      paymentPlanCode: draft.payment_plan_code,
+      paymentPlanDescription: draft.payment_plan_description,
+      paymentInstallments: draft.payment_installments,
+      paymentFirstInstallmentDays: draft.payment_first_installment_days,
+      paymentDaysBetween: draft.payment_days_between,
+      paymentMinValue: draft.payment_min_value,
+      paymentMethod: draft.payment_method,
+      paymentMethodId: draft.payment_method_id,
+      shippingMethod: draft.shipping_method,
+      shippingMethodId: draft.shipping_method_id,
+      notes: draft.notes,
       sellerId,
       sellerName,
-      notes,
-      status: 'pending', // Sempre pendente inicialmente
-      createdAt: new Date().toISOString()
+      status: 'pending',
+      createdAt: draft.data_criacao,
     };
+  };
 
-    await dbService.saveOrder(order);
-    
-    setSubmitting(false);
-    setLastOrderNumber(nextId);
-    setSuccess(true);
-    
+  const scheduleSuccessReset = () => {
     setTimeout(() => {
       if (document.getElementById('success-view')) {
-          handleNewOrder();
+        handleNewOrder();
       }
-    }, 5000); // 5s para ler a mensagem
+    }, 5000);
+  };
+
+  const handleSaveDraft = async () => {
+    if (!validateOrderForm()) return;
+    setSubmitting(true);
+    try {
+      const draft = await buildDraftPayload('DRAFT');
+      await (currentDraft ? updateDraft(draft) : saveDraft(draft));
+      setLastOrderNumber(draft.display_id ?? null);
+      setSuccess(true);
+      setCurrentDraft(null);
+      if (onClearDraft) onClearDraft();
+      onClear();
+      scheduleSuccessReset();
+    } catch (error: any) {
+      alert(`Erro ao salvar rascunho: ${error?.message || 'Erro desconhecido'}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSendToERP = async () => {
+    if (!validateOrderForm()) return;
+    setSubmitting(true);
+    let draft: OrderDraft | null = null;
+    try {
+      draft = await buildDraftPayload('SYNCING');
+      await (currentDraft ? updateDraft(draft) : saveDraft(draft));
+      const order = buildOrderFromDraft(draft);
+      const result = await apiService.submitOrder(order);
+      if (!result.success) {
+        throw new Error(result.message || 'Erro ao enviar pedido');
+      }
+      await deleteDraft(draft.id);
+      setLastOrderNumber(draft.display_id ?? null);
+      setSuccess(true);
+      setCurrentDraft(null);
+      if (onClearDraft) onClearDraft();
+      onClear();
+      scheduleSuccessReset();
+    } catch (error: any) {
+      if (draft) {
+        await updateDraft({
+          ...draft,
+          status: 'ERROR',
+          retry_count: (draft.retry_count ?? 0) + 1,
+          error_message: String(error?.message || error),
+        });
+      }
+      alert(`Erro ao enviar pedido: ${error?.message || 'Erro desconhecido'}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleNewOrder = () => {
-      setSuccess(false);
-      onClear();
+    setSuccess(false);
+    setCurrentDraft(null);
+    if (onClearDraft) onClearDraft();
+    onClear();
   };
 
   const shareQuote = () => {
@@ -675,10 +907,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 p-4 rounded-lg my-2 w-full max-w-sm">
             <p className="text-sm font-semibold text-orange-800 dark:text-orange-200 flex items-center justify-center gap-2">
                 <CloudOff className="w-4 h-4" />
-                Status: Pendente de Envio
+                Status: Rascunho salvo
             </p>
             <p className="text-xs text-orange-700 dark:text-orange-300 mt-1">
-                O pedido foi guardado no dispositivo. Quando tiver internet, acesse o menu <strong>"Enviar Dados"</strong> para transmitir.
+                O pedido foi guardado no dispositivo. Vá para o menu <strong>"Rascunhos"</strong> para revisar e enviar quando estiver pronto.
             </p>
         </div>
         
@@ -894,6 +1126,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                     <span className="font-semibold text-slate-700">Vencimentos:</span> {paymentSchedule.map(date => date.toLocaleDateString('pt-BR')).join(' • ')}
                   </div>
                 )}
+                {selectedPlan.imageUrl && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <img
+                      src={selectedPlan.imageUrl}
+                      alt={`Plano ${selectedPlan.description || selectedPlan.code}`}
+                      className="h-16 w-16 rounded-lg border border-slate-200 object-contain dark:border-slate-700"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Imagem oficial do plano fornecida pela API.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             {planValidationError && (
@@ -913,13 +1157,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             <h3 className="text-sm font-bold text-slate-800 dark:text-white">Forma de Pagamento</h3>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {paymentOptions.map(option => {
+            {paymentSelectOptions.map(option => {
               const Icon = option.icon;
-              const active = paymentMethod === option.id;
+              const active = paymentMethod === option.value;
               return (
                 <button
-                  key={option.id}
-                  onClick={() => setPaymentMethod(option.id)}
+                  key={option.value}
+                  onClick={() => setPaymentMethod(option.value)}
                   className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                     active
                       ? 'bg-blue-600 text-white border-blue-600'
@@ -940,13 +1184,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             <h3 className="text-sm font-bold text-slate-800 dark:text-white">Tipo de Frete</h3>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {shippingOptions.map(option => {
+            {shippingSelectOptions.map(option => {
               const Icon = option.icon;
-              const active = shippingMethod === option.id;
+              const active = shippingMethod === option.value;
               return (
                 <button
-                  key={option.id}
-                  onClick={() => setShippingMethod(option.id)}
+                  key={option.value}
+                  onClick={() => setShippingMethod(option.value)}
                   className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                     active
                       ? 'bg-orange-600 text-white border-orange-600'
@@ -965,7 +1209,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {cart.map((item) => {
-            const step = isFractionalUnit(item.unit) ? 0.01 : 1;
+            const isFractional = item.unit.toLowerCase() === 'cto';
+            const step = isFractional ? 0.01 : 1;
 
             return (
               <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-4 py-4 border-b border-slate-100 dark:border-slate-700 last:border-0">
@@ -1044,7 +1289,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
           <span className="text-2xl font-bold text-blue-900 dark:text-white">R$ {total.toFixed(2).replace('.', ',')}</span>
         </div>
         
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-3">
              <button
                 onClick={() => setShowClearConfirm(true)}
                 disabled={submitting}
@@ -1061,24 +1307,45 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
              >
                <Share2 className="w-5 h-5" />
              </button>
+          </div>
+
+          <div className="flex flex-col gap-3 md:flex-row">
+            <button
+              onClick={handleSaveDraft}
+              disabled={submitting || !selectedCustomer || planLoading}
+              className="flex-1 py-4 bg-white dark:bg-slate-800 text-slate-800 dark:text-white border border-blue-300 dark:border-blue-700 font-bold rounded-lg shadow-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all flex justify-center items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {submitting ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span>Salvando...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-5 h-5" />
+                  <span>Salvar Rascunho</span>
+                </>
+              )}
+            </button>
 
             <button
-              onClick={handleCheckout}
+              onClick={handleSendToERP}
               disabled={submitting || !selectedCustomer || planLoading}
               className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
             >
               {submitting ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Salvando...</span>
-                  </>
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Enviando...</span>
+                </>
               ) : (
-                  <>
-                    <Save className="w-5 h-5" />
-                    <span>Salvar (Pendente)</span>
-                  </>
+                <>
+                  <ArrowRight className="w-5 h-5" />
+                  <span>Enviar para ERP</span>
+                </>
               )}
             </button>
+          </div>
         </div>
       </div>
     </div>

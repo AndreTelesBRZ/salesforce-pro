@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle, ChevronRight, X } from 'lucide-react';
-import { apiService } from '../services/api';
+import { apiService, ClientSyncViewMode, ClientSyncViewResponse } from '../services/api';
 import { dbService } from '../services/db';
 import { Customer, DelinquencyItem } from '../types';
+import { calculateAverageTicket, AverageTicketResult } from '../salesMetrics';
+import { TicketMedioCard } from '../TicketMedioCard';
 
 interface DashboardProps {
   onNavigate: (view: string) => void;
@@ -33,13 +35,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
   const [delinquencyTotal, setDelinquencyTotal] = useState<number>(0);
   const [delinquencyCustomers, setDelinquencyCustomers] = useState<number>(0);
   const [delinquencyItems, setDelinquencyItems] = useState<DelinquencyItem[]>([]);
-  const [averageTicket, setAverageTicket] = useState<number>(0);
-  const [ordersSampleSize, setOrdersSampleSize] = useState<number>(0);
   const [delinquencyLoading, setDelinquencyLoading] = useState<boolean>(false);
   const [showDelinquencyModal, setShowDelinquencyModal] = useState<boolean>(false);
   const [inactiveCustomersList, setInactiveCustomersList] = useState<{ customer: Customer; lastSale: Date | null }[]>([]);
   const [inactiveLoading, setInactiveLoading] = useState<boolean>(false);
   const [showInactiveModal, setShowInactiveModal] = useState<boolean>(false);
+  const [clientSyncSelfView, setClientSyncSelfView] = useState<ClientSyncViewResponse | null>(null);
+  const [clientSyncAllView, setClientSyncAllView] = useState<ClientSyncViewResponse | null>(null);
+  const [clientSyncRecentView, setClientSyncRecentView] = useState<ClientSyncViewResponse | null>(null);
+  const [clientSyncLoading, setClientSyncLoading] = useState<boolean>(false);
+  const [averageTicketData, setAverageTicketData] = useState<AverageTicketResult | null>(null);
+  const [ticketLoading, setTicketLoading] = useState<boolean>(true);
 
   useEffect(() => {
      let isMounted = true;
@@ -71,74 +77,111 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         if (!current || value > current) map.set(key, value);
      };
 
-     (async () => {
+     const loadLocalFigures = async () => {
         setInactiveLoading(true);
-        const allOrders = await dbService.getOrders();
-        let customers: Customer[] = [];
+        setTicketLoading(true);
         try {
-          customers = await apiService.getCustomers();
-        } catch {
-          customers = [];
-        }
+          const allOrders = await dbService.getOrders();
+          let customers: Customer[] = [];
+          try {
+            customers = await apiService.getCustomers();
+          } catch {
+            customers = [];
+          }
 
-        if (!isMounted) return;
+          if (!isMounted) return;
 
-        const today = new Date().toDateString();
-        const todayOrders = allOrders.filter(o => new Date(o.createdAt).toDateString() === today);
-        const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
-        setTodayTotal(todaySum);
+          const today = new Date().toDateString();
+          const todayOrders = allOrders.filter(o => new Date(o.createdAt).toDateString() === today);
+          const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
+          const map: Record<string, number> = {};
+          allOrders.forEach(o => {
+             const key = o.customerName || 'Cliente';
+             map[key] = (map[key] || 0) + o.total;
+          });
+          const tops = Object.entries(map).map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total).slice(0,5);
 
-        const totalOrders = allOrders.length;
-        const totalSum = allOrders.reduce((sum, order) => sum + order.total, 0);
-        setOrdersSampleSize(totalOrders);
-        setAverageTicket(totalOrders > 0 ? totalSum / totalOrders : 0);
-
-        // Top clientes simples pelos pedidos salvos
-        const map: Record<string, number> = {};
-        allOrders.forEach(o => {
-           const key = o.customerName || 'Cliente';
-           map[key] = (map[key] || 0) + o.total;
-        });
-        const tops = Object.entries(map).map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total).slice(0,5);
-        setTopCustomers(tops);
-
-        const lastSaleById = new Map<string, Date>();
-        const lastSaleByDoc = new Map<string, Date>();
-        allOrders.forEach((o) => {
-          const orderDate = parseDateValue(o.createdAt);
-          if (!orderDate) return;
-          setLatestDate(lastSaleById, o.customerId, orderDate);
-          setLatestDate(lastSaleByDoc, o.customerDoc, orderDate);
-        });
-
-        const inactiveCutoff = new Date();
-        inactiveCutoff.setDate(inactiveCutoff.getDate() - 30);
-
-        const filteredCustomers = customers.filter((c) => c.id !== '0' && c.type !== 'TEMPORARIO');
-        const inactiveList = filteredCustomers
-          .map((customer) => {
-            const lastSale =
-              parseDateValue(customer.lastSaleDate) ||
-              lastSaleById.get(customer.id) ||
-              lastSaleByDoc.get(customer.document) ||
-              null;
-            return { customer, lastSale };
-          })
-          .filter(({ lastSale }) => !lastSale || lastSale < inactiveCutoff)
-          .sort((a, b) => {
-            if (!a.lastSale && !b.lastSale) return a.customer.name.localeCompare(b.customer.name);
-            if (!a.lastSale) return -1;
-            if (!b.lastSale) return 1;
-            return a.lastSale.getTime() - b.lastSale.getTime();
+          const lastSaleById = new Map<string, Date>();
+          const lastSaleByDoc = new Map<string, Date>();
+          allOrders.forEach((o) => {
+            const orderDate = parseDateValue(o.createdAt);
+            if (!orderDate) return;
+            setLatestDate(lastSaleById, o.customerId, orderDate);
+            setLatestDate(lastSaleByDoc, o.customerDoc, orderDate);
           });
 
-        setInactiveCustomersList(inactiveList);
-        setInactiveLoading(false);
-     })();
+          const inactiveCutoff = new Date();
+          inactiveCutoff.setDate(inactiveCutoff.getDate() - 60);
+
+          const filteredCustomers = customers.filter((c) => c.id !== '0' && c.type !== 'TEMPORARIO');
+          const inactiveList = filteredCustomers
+            .map((customer) => {
+              const lastSale =
+                parseDateValue(customer.lastSaleDate) ||
+                lastSaleById.get(customer.id) ||
+                lastSaleByDoc.get(customer.document) ||
+                null;
+              return { customer, lastSale };
+            })
+            .filter(({ lastSale }) => !lastSale || lastSale < inactiveCutoff)
+            .sort((a, b) => {
+              if (!a.lastSale && !b.lastSale) return a.customer.name.localeCompare(b.customer.name);
+              if (!a.lastSale) return -1;
+              if (!b.lastSale) return 1;
+              return a.lastSale.getTime() - b.lastSale.getTime();
+            });
+
+          const averageTicket = calculateAverageTicket(allOrders);
+
+          if (!isMounted) return;
+
+          setTodayTotal(todaySum);
+          setTopCustomers(tops);
+          setInactiveCustomersList(inactiveList);
+          setAverageTicketData(averageTicket);
+        } catch (error) {
+          console.error('Falha ao carregar métricas locais', error);
+        } finally {
+          if (isMounted) {
+            setInactiveLoading(false);
+            setTicketLoading(false);
+          }
+        }
+     };
+
+     loadLocalFigures();
 
      return () => {
         isMounted = false;
-     };
+      };
+ }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadClientSyncViews = async () => {
+      setClientSyncLoading(true);
+      try {
+        const [self, all, recent] = await Promise.all([
+          apiService.fetchClientSyncView('self'),
+          apiService.fetchClientSyncView('all'),
+          apiService.fetchClientSyncView('recent')
+        ]);
+        if (!isMounted) return;
+        setClientSyncSelfView(self);
+        setClientSyncAllView(all);
+        setClientSyncRecentView(recent);
+      } catch (error) {
+        console.error('Falha ao carregar dados de sincronização', error);
+      } finally {
+        if (isMounted) setClientSyncLoading(false);
+      }
+    };
+
+    loadClientSyncViews();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -216,7 +259,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     ? 'Atualizando carteira...'
     : inactiveCount > 0
       ? `${inactiveCount} cliente${inactiveCount > 1 ? 's' : ''} sem compra no mês`
-      : 'Carteira ativa nos últimos 30 dias';
+      : 'Carteira ativa nos últimos 60 dias';
   const inactiveMeta = inactiveLoading ? 'Atualizando' : inactiveCount > 0 ? `${inactiveCount} cliente${inactiveCount > 1 ? 's' : ''}` : 'Em dia';
 
   const routineItems = [
@@ -243,7 +286,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     },
     {
       id: 'inactive',
-      title: 'Clientes sem compra há 30 dias',
+      title: 'Clientes sem compra há 60 dias',
       description: inactiveDescription,
       meta: inactiveMeta,
       tone: inactiveLoading ? ('neutral' as const) : inactiveCount > 0 ? ('neutral' as const) : ('success' as const),
@@ -254,6 +297,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           ? 'text-slate-600 dark:text-slate-300'
           : 'text-emerald-600',
     },
+  ];
+
+  const syncButtons: { mode: ClientSyncViewMode; label: string }[] = [
+    { mode: 'self', label: 'Minha carteira' },
+    { mode: 'all', label: 'Todos os clientes' },
+    { mode: 'recent', label: 'Clientes ativos 60 dias' }
   ];
 
   const toneStyles: Record<'danger' | 'warning' | 'success' | 'neutral', string> = {
@@ -294,21 +343,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300 flex items-center justify-center">
-              <Award className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500">TICKET MÉDIO</p>
-              <p className="text-xl font-bold text-slate-900 dark:text-white">R$ {formatCurrency(averageTicket)}</p>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wide">
-                base: {ordersSampleSize} pedido{ordersSampleSize === 1 ? '' : 's'}
-              </p>
-            </div>
-          </div>
-        </div>
-
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-rose-200 dark:border-rose-900/60">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-rose-100 text-rose-500 dark:bg-rose-500/10 dark:text-rose-300 flex items-center justify-center">
@@ -340,6 +374,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
             </div>
           </div>
         </div>
+
+        <TicketMedioCard data={averageTicketData} loading={ticketLoading} />
       </div>
 
       <div className="max-w-md mx-auto mt-6 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
@@ -347,8 +383,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           <h3 className="text-sm font-bold text-slate-800 dark:text-white">Rotina de eventos</h3>
           <span className="text-[10px] font-semibold text-slate-400 uppercase">Hoje</span>
         </div>
-        <div className="mt-4 space-y-3">
-          {routineItems.map((item) => {
+      <div className="mt-4 space-y-3">
+        {routineItems.map((item) => {
             const isDelinquency = item.id === 'delinquency';
             const isInactive = item.id === 'inactive';
             const isClickable =
@@ -563,7 +599,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
               <div>
-                <h3 className="text-base font-bold text-slate-800 dark:text-white">Clientes sem compra há 30 dias</h3>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white">Clientes sem compra há 60 dias</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {inactiveCustomersList.length} cliente{inactiveCustomersList.length !== 1 ? 's' : ''}
                 </p>
@@ -604,7 +640,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-slate-500">Nenhum cliente sem compra há 30 dias.</p>
+                <p className="text-sm text-slate-500">Nenhum cliente sem compra há 60 dias.</p>
               )}
             </div>
           </div>
