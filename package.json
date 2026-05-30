@@ -1,4 +1,3 @@
-
 {
   "name": "salesforce-pro",
   "private": true,
@@ -9,7 +8,7 @@
     "start": "node server.js",
     "server": "node server.js",
     "client": "node ./run-vite-dev.js",
-    "build": "tsc && vite build",
+    "build": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
     "cap:sync": "npx cap sync",
     "cap:open": "npx cap open android"
