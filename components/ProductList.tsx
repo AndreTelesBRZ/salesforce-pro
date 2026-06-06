@@ -3,26 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Product, CartItem } from '../types';
 import { apiService } from '../services/api';
 import { geminiService } from '../services/geminiService';
-import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Minus, Save, Share2, RefreshCcw } from 'lucide-react';
-
-const normalizeCode = (value: string | undefined, length: number): string | null => {
-  if (!value) return null;
-  const text = String(value).trim();
-  if (!text) return null;
-  if (/^\d+$/.test(text)) return text.padStart(length, '0');
-  return text;
-};
-
-const buildGroupKey = (product: Product): { key: string; label: string } => {
-  const section = normalizeCode(product.sectionCode, 2);
-  const group = normalizeCode(product.groupCode, 3);
-  const subgroup = normalizeCode(product.subgroupCode, 3);
-  if (section && group && subgroup) {
-    const key = `${section}${group}${subgroup}`;
-    return { key, label: key };
-  }
-  return { key: 'sem-agrupamento', label: 'Sem agrupamento' };
-};
+import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2, RefreshCcw } from 'lucide-react';
 
 interface ProductListProps {
   onAddToCart: (product: Product) => void;
@@ -46,7 +27,6 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
   const [isTyping, setIsTyping] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   
   // Add Product Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -184,40 +164,6 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
     return ['Todas', ...Array.from(cats)];
   }, [products]);
 
-  const hasGroupingCodes = useMemo(() => {
-    return products.some(p => p.sectionCode || p.groupCode || p.subgroupCode);
-  }, [products]);
-
-  const groupedProducts = useMemo(() => {
-    const groups: Array<{ key: string; label: string; items: Array<{ product: Product; index: number }> }> = [];
-    const groupMap = new Map<string, { key: string; label: string; items: Array<{ product: Product; index: number }> }>();
-
-    products.forEach((product, index) => {
-      const { key, label } = buildGroupKey(product);
-      let group = groupMap.get(key);
-      if (!group) {
-        group = { key, label, items: [] };
-        groupMap.set(key, group);
-        groups.push(group);
-      }
-      group.items.push({ product, index });
-    });
-
-    return groups;
-  }, [products]);
-
-  const lastVisibleIndex = useMemo(() => {
-    if (!hasGroupingCodes) return products.length - 1;
-    let lastIndex = -1;
-    groupedProducts.forEach(group => {
-      const isExpanded = !!expandedGroups[group.key];
-      const items = isExpanded ? group.items : group.items.slice(0, 1);
-      const lastItem = items[items.length - 1];
-      if (lastItem) lastIndex = lastItem.index;
-    });
-    return lastIndex;
-  }, [expandedGroups, groupedProducts, hasGroupingCodes, products.length]);
-
   const getCartItem = (productId: string) => {
     return cart.find(i => i.id === productId);
   };
@@ -229,9 +175,6 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
     window.open(url, '_blank');
   };
 
-  const toggleGroup = useCallback((groupKey: string) => {
-    setExpandedGroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
-  }, []);
 
   if (loading && page === 1 && !searchTerm) {
     return (
@@ -455,32 +398,8 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
 
       {/* Lista de Produtos */}
       <div className={`px-4 pt-2 ${showImages ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'space-y-2'}`}>
-        {groupedProducts.map(group => (
-          <React.Fragment key={group.key}>
-            {hasGroupingCodes && (
-              <div className="col-span-full flex items-center justify-between px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Agrupamento</span>
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{group.label}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400">{group.items.length} itens</span>
-                  {group.items.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(group.key)}
-                      aria-expanded={!!expandedGroups[group.key]}
-                      title={expandedGroups[group.key] ? 'Recolher grupo' : 'Expandir grupo'}
-                      className="p-1 rounded-full border border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 dark:border-slate-600 dark:text-slate-300 dark:hover:text-slate-100"
-                    >
-                      {expandedGroups[group.key] ? <Minus className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-            {(hasGroupingCodes ? (expandedGroups[group.key] ? group.items : group.items.slice(0, 1)) : group.items).map(({ product, index }) => {
-              const isLastElement = index === lastVisibleIndex;
+        {products.map((product, index) => {
+              const isLastElement = index === products.length - 1;
               const cartItem = getCartItem(product.id);
               const isInCart = !!cartItem;
               const isOutOfStock = (typeof product.stock === 'number' ? product.stock : 0) <= 0;
@@ -655,8 +574,6 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                 </div>
               );
             })}
-          </React.Fragment>
-        ))}
 
         {loadingMore && (
             <div className="py-4 text-center flex justify-center items-center gap-2 text-slate-500">

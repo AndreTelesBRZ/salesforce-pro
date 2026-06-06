@@ -1454,6 +1454,26 @@ class ApiService {
   }
 
   private toNumber(value: any): number {
+      if (typeof value === 'number') {
+          return Number.isFinite(value) ? value : 0;
+      }
+      if (typeof value === 'string') {
+          const normalized = value.trim();
+          if (!normalized) return 0;
+          const compact = normalized.replace(/\s+/g, '');
+          const hasComma = compact.includes(',');
+          const hasDot = compact.includes('.');
+          let canonical = compact;
+
+          if (hasComma && hasDot) {
+              canonical = compact.replace(/\./g, '').replace(',', '.');
+          } else if (hasComma) {
+              canonical = compact.replace(',', '.');
+          }
+
+          const parsed = Number(canonical);
+          return Number.isFinite(parsed) ? parsed : 0;
+      }
       const numeric = Number(value);
       return Number.isFinite(numeric) ? numeric : 0;
   }
@@ -1587,8 +1607,7 @@ class ApiService {
   }
 
   private mapProduct(item: any): Product {
-      let rawPrice = item.preco_promocao1 || item.preco || item.price || 0;
-      if (typeof rawPrice === 'string') rawPrice = parseFloat(rawPrice.replace(',', '.'));
+      const rawPrice = this.toNumber(item.preco_promocao1 ?? item.preco ?? item.price ?? 0);
 
       const readCode = (value: unknown): string | undefined => {
           if (value === null || value === undefined) return undefined;
@@ -1613,10 +1632,10 @@ class ApiService {
         name: productName,
         // Evita duplicação se a descrição for igual ao nome
         description: (item.descricao_completa && item.descricao_completa !== productName) ? item.descricao_completa : (item.description || ''),
-        price: Number(rawPrice) || 0,
+        price: rawPrice,
         category: item.categoria || item.category || 'Geral',
-        // AJUSTE: Prioriza estoque_disponivel
-        stock: Number(item.estoque_disponivel ?? item.estoque ?? item.stock ?? 0),
+        // AJUSTE: Prioriza estoque_disponivel e normaliza formatos como 47,05
+        stock: this.toNumber(item.estoque_disponivel ?? item.estoque ?? item.stock ?? 0),
         unit: item.unidade || item.unit || 'un',
         imageUrl: this.resolveImageUrl(item.imagem_url || item.image_url || item.imagemUrl || item.imageUrl),
         sectionCode,
