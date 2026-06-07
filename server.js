@@ -1426,7 +1426,7 @@ const renderReceiptPDF = (doc, receipt, store) => {
   };
 
   const metaTop = marginTop;
-  const metaHeight = 112;
+  const metaHeight = 128;
   const orderCardWidth = 150;
   const companyWidth = pageWidth - orderCardWidth - 16;
 
@@ -1443,20 +1443,42 @@ const renderReceiptPDF = (doc, receipt, store) => {
 
   const companyX = marginLeft + 18 + logoOffset;
   const companyY = metaTop + 16;
-  writeLabel('Comprovante de Pedido', companyX, companyY, companyWidth - logoOffset);
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(20).text(store?.trade_name || 'SalesForce Pro', companyX, companyY + 14, { width: companyWidth - logoOffset });
-  doc.fillColor('#475569').font('Helvetica').fontSize(10).text(store?.legal_name || 'Documento comercial de pedido', companyX, companyY + 40, { width: companyWidth - logoOffset });
+  const companyTextWidth = companyWidth - logoOffset - 10;
+  const companyBottomLimit = metaTop + metaHeight - 14;
+
+  writeLabel('Comprovante de Pedido', companyX, companyY, companyTextWidth);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(18).text(store?.trade_name || 'SalesForce Pro', companyX, companyY + 14, { width: companyTextWidth, lineBreak: false });
+
+  let companyCursorY = companyY + 40;
+  doc.fillColor('#475569').font('Helvetica').fontSize(9.5).text(store?.legal_name || 'Documento comercial de pedido', companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+  companyCursorY += 16;
+
   if (store?.document) {
-    doc.fontSize(9).text(`CNPJ/CPF: ${store.document}`, companyX, companyY + 56, { width: companyWidth - logoOffset });
+    doc.fontSize(8.5).text(`CNPJ/CPF: ${store.document}`, companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+    companyCursorY += 12;
   }
+
   const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip]
     .filter(Boolean)
     .join(' - ');
+
   if (addr) {
-    doc.fontSize(8.5).text(addr, companyX, companyY + 70, { width: companyWidth - logoOffset });
+    const addressOptions = { width: companyTextWidth, lineGap: -1 };
+    const addrHeight = doc.fontSize(7.8).heightOfString(addr, addressOptions);
+    doc.text(addr, companyX, companyCursorY, addressOptions);
+    companyCursorY += addrHeight + 4;
   }
-  if (store?.phone) {
-    doc.fontSize(8.5).text(`Fone: ${store.phone}`, companyX, metaTop + metaHeight - 22, { width: companyWidth - logoOffset });
+
+  const contactLine = [store?.phone ? `Fone: ${store.phone}` : null, store?.email || null]
+    .filter(Boolean)
+    .join('  •  ');
+
+  if (contactLine && companyCursorY < companyBottomLimit) {
+    doc.fontSize(7.8).text(contactLine, companyX, Math.min(companyCursorY, companyBottomLimit - 8), {
+      width: companyTextWidth,
+      lineBreak: false,
+      ellipsis: true
+    });
   }
 
   const orderX = marginLeft + pageWidth - orderCardWidth - 16;

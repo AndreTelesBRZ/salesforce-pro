@@ -97,7 +97,7 @@ export default function App() {
           basePrice,
           category: product?.category || '',
           stock: product?.stock ?? 0,
-          unit: product?.unit || item.unidade || 'un',
+          unit: item.unidade || product?.unit || 'un',
           quantity: item.quantidade,
           sectionCode: product?.sectionCode,
           groupCode: product?.groupCode,
@@ -205,7 +205,7 @@ export default function App() {
 
   const refreshStoreInfo = async () => {
     try {
-      const res = await apiService.fetchWithAuth('/api/store/public');
+      const res = await apiService.fetchAppLocal('/api/store/public');
       if (res.ok) {
         const data = await res.json();
         setStoreInfo(data);

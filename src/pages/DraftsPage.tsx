@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowUpRight, Edit3, Loader2, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Download, Edit3, Loader2, Trash2 } from 'lucide-react';
 import { Order } from '../../types';
 import { OrderDraft } from '../types/orderDraft';
 import { apiService } from '../../services/api';
@@ -65,6 +65,7 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft 
   const [error, setError] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
 
   const refreshDrafts = async () => {
     setLoading(true);
@@ -125,6 +126,54 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft 
     }
   };
 
+
+  const handleDownloadPdf = async (draft: OrderDraft) => {
+    setDownloadingPdfId(draft.id);
+    try {
+      const order = buildOrderFromDraft(draft);
+      const payload = {
+        id: order.id,
+        displayId: order.displayId,
+        createdAt: order.createdAt,
+        customer: order.customerName,
+        customerDoc: order.customerDoc,
+        sellerName: order.sellerName,
+        sellerId: order.sellerId,
+        notes: order.notes,
+        paymentMethod: order.paymentMethod,
+        shippingMethod: order.shippingMethod,
+        paymentPlanDescription: order.paymentPlanDescription,
+        paymentInstallments: order.paymentInstallments,
+        items: order.items,
+        total: order.total,
+      };
+      const res = await apiService.fetchAppLocal('/api/recibo/pdf/public', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Falha ao gerar PDF');
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'rascunho-' + (order.displayId || order.id) + '.pdf';
+      a.target = '_blank';
+      a.rel = 'noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        a.remove();
+      }, 1000);
+    } catch (err) {
+      console.error('Erro ao gerar PDF do rascunho', err);
+      alert('Não foi possível gerar o PDF do rascunho agora.');
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
   return (
     <div className="p-4">
       <div className="flex items-start justify-between gap-3 mb-4">
@@ -197,6 +246,14 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft 
             )}
 
             <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => handleDownloadPdf(draft)}
+                disabled={downloadingPdfId === draft.id}
+                className={downloadingPdfId === draft.id ? 'px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1 bg-emerald-100 text-emerald-700 border border-emerald-200' : 'px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1 bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700'}
+              >
+                <Download className="w-4 h-4" />
+                {downloadingPdfId === draft.id ? 'Gerando PDF...' : 'Baixar PDF'}
+              </button>
               <button
                 onClick={() => onEditDraft(draft)}
                 className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-semibold flex items-center gap-1"

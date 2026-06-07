@@ -430,7 +430,7 @@ class ApiService {
               state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
               zip: pick(loja, ['AGECEP','CEP'])
           };
-          await this.fetchWithAuth('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
+          await this.fetchAppLocal('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
           this.addLog('Dados da loja importados automaticamente.', 'success');
       } catch {}
   }
@@ -607,6 +607,11 @@ class ApiService {
           return this.normalizeBackendUrl(this.config.backendUrl);
       }
       return this.normalizeBackendUrl(FALLBACK_BACKEND_URL);
+  }
+
+  private getLocalAppBaseUrl(): string {
+      if (typeof window === "undefined") return "";
+      return window.location.origin.replace(/\/+$/, "");
   }
 
   private getTenantHeaders(): Record<string, string> {
@@ -793,6 +798,43 @@ class ApiService {
           }
           const msg = error.message || 'Erro desconhecido';
           this.addLog(`Erro fatal na requisição: ${msg}`, 'error');
+          throw error;
+      }
+  }
+
+  async fetchAppLocal(endpoint: string, options: RequestInit = {}): Promise<Response> {
+      const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+      const baseUrl = this.getLocalAppBaseUrl();
+      if (!baseUrl) {
+          throw new Error("Aplicação local indisponível.");
+      }
+
+      const targetUrl = `${baseUrl}${cleanEndpoint}`;
+      const resolvedHeaders = {
+          ...this.getAuthHeaders(),
+          ...(options.headers || {})
+      } as Record<string, string>;
+
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 10000);
+
+      try {
+          this.addLog(`Req local: ${targetUrl}`, "info");
+          const response = await fetch(targetUrl, {
+              ...options,
+              signal: controller.signal,
+              headers: resolvedHeaders
+          });
+          clearTimeout(id);
+          return response;
+      } catch (error: any) {
+          clearTimeout(id);
+          if (error.name === "AbortError") {
+              this.addLog("Timeout: O servidor local demorou muito para responder.", "error");
+              throw new Error("Timeout: servidor local indisponível.");
+          }
+          const msg = error.message || "Erro desconhecido";
+          this.addLog(`Erro fatal na requisição local: ${msg}`, "error");
           throw error;
       }
   }

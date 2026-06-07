@@ -74,7 +74,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
     if (fallbackStoreLoaded) return;
     const loadHeaderStore = async () => {
       try {
-        const res = await apiService.fetchWithAuth('/api/store/public');
+        const res = await apiService.fetchAppLocal('/api/store/public');
         if (res.ok) {
           const data = await res.json();
           setHeaderStore(data);
@@ -507,7 +507,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                       total: viewingReceipt.total,
                       store: headerStore
                     };
-                    const res = await apiService.fetchWithAuth('/api/recibo/pdf/public', {
+                    const res = await apiService.fetchAppLocal('/api/recibo/pdf/public', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify(payload)

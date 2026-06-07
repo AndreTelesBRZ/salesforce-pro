@@ -46,7 +46,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     let active = true;
     (async () => {
       try {
-        const res = await apiService.fetchWithAuth('/api/store/public');
+        const res = await apiService.fetchAppLocal('/api/store/public');
         if (!active) return;
         if (res.ok) {
           setStoreInfo(await res.json());
