@@ -621,16 +621,41 @@ app.post('/api/auth/send-code', async (req, res) => {
 
         await db.run("UPDATE users SET auth_code = ?, auth_code_expires = ? WHERE id = ?", [code, expiresAt, user.id]);
 
-        // SIMULAÇÃO DE ENVIO DE EMAIL
-        console.log(`\n============================================`);
-        console.log(`[EMAIL SIMULADO] Para: ${emailLower}`);
-        console.log(`[EMAIL SIMULADO] Seu código de acesso é: ${code}`);
-        console.log(`============================================\n`);
+        if (mailer) {
+            const subject = 'Seu codigo de acesso - SalesForce Pro';
+            const text = `Seu codigo de acesso e ${code}. Ele expira em 10 minutos.`;
+            const html = `
+                <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1f2937;">
+                    <h2 style="margin-bottom: 8px;">SalesForce Pro</h2>
+                    <p>Seu codigo de acesso e:</p>
+                    <p style="font-size: 28px; font-weight: 700; letter-spacing: 4px; margin: 16px 0;">${code}</p>
+                    <p>Esse codigo expira em 10 minutos.</p>
+                    <p>Se voce nao solicitou esse acesso, ignore este e-mail.</p>
+                </div>
+            `;
 
-        res.status(200).json({ success: true, message: 'Código enviado para o e-mail (Verifique o console do servidor).' });
+            await mailer.sendMail({
+                from: MAILER_FROM,
+                to: emailLower,
+                subject,
+                text,
+                html
+            });
+
+            return res.status(200).json({ success: true, message: 'Codigo enviado para o e-mail.' });
+        }
+
+        console.log(`
+============================================`);
+        console.log(`[EMAIL SIMULADO] Para: ${emailLower}`);
+        console.log(`[EMAIL SIMULADO] Seu codigo de acesso e: ${code}`);
+        console.log(`============================================
+`);
+
+        return res.status(200).json({ success: true, message: 'Codigo gerado. Mailer nao configurado; verifique o console do servidor.' });
     } catch (e) {
         console.error(e);
-        res.status(500).json({ message: 'Erro ao processar solicitação.' });
+        return res.status(500).json({ message: 'Erro ao processar solicitação.' });
     }
 });
 
@@ -1374,90 +1399,190 @@ const formatDateTimePtBr = (value) => {
 
 const renderReceiptPDF = (doc, receipt, store) => {
   const marginLeft = doc.page.margins.left;
-  const marginRight = doc.page.margins.right;
-  const pageWidth = doc.page.width - marginLeft - marginRight;
+  const marginTop = doc.page.margins.top;
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const dateLabel = formatDatePtBr(receipt.createdAt);
+  const total = Number(receipt.total || 0);
+  const items = Array.isArray(receipt.items) ? receipt.items : [];
+  const paymentPlan = receipt.paymentPlanDescription
+    ? `Plano: ${receipt.paymentPlanDescription}${receipt.paymentInstallments ? ` (${receipt.paymentInstallments}x)` : ''}`
+    : null;
 
-  doc.fontSize(16).text(store?.trade_name || 'SalesForce Pro', marginLeft, doc.y);
-  if (store?.legal_name) doc.fontSize(9).text(store.legal_name);
-  if (store?.document) doc.text(`CNPJ/CPF: ${store.document}`);
+  const drawBox = (x, y, width, height, options = {}) => {
+    const { fill = null, stroke = '#d7dee7', radius = 10, lineWidth = 1 } = options;
+    doc.save();
+    doc.lineWidth(lineWidth);
+    doc.roundedRect(x, y, width, height, radius);
+    if (fill) {
+      doc.fillAndStroke(fill, stroke);
+    } else {
+      doc.strokeColor(stroke).stroke();
+    }
+    doc.restore();
+  };
+
+  const writeLabel = (label, x, y, width, align = 'left', color = '#64748b') => {
+    doc.fillColor(color).font('Helvetica-Bold').fontSize(8).text(label.toUpperCase(), x, y, { width, align });
+  };
+
+  const metaTop = marginTop;
+  const metaHeight = 112;
+  const orderCardWidth = 150;
+  const companyWidth = pageWidth - orderCardWidth - 16;
+
+  drawBox(marginLeft, metaTop, pageWidth, metaHeight, { fill: '#f8fafc', stroke: '#d7dee7', radius: 14 });
+
+  let logoOffset = 0;
+  if (store?.logo_url) {
+    try {
+      doc.image(store.logo_url, marginLeft + 16, metaTop + 16, { fit: [54, 54], align: 'center', valign: 'center' });
+      drawBox(marginLeft + 12, metaTop + 12, 62, 62, { stroke: '#d7dee7', radius: 12 });
+      logoOffset = 72;
+    } catch {}
+  }
+
+  const companyX = marginLeft + 18 + logoOffset;
+  const companyY = metaTop + 16;
+  writeLabel('Comprovante de Pedido', companyX, companyY, companyWidth - logoOffset);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(20).text(store?.trade_name || 'SalesForce Pro', companyX, companyY + 14, { width: companyWidth - logoOffset });
+  doc.fillColor('#475569').font('Helvetica').fontSize(10).text(store?.legal_name || 'Documento comercial de pedido', companyX, companyY + 40, { width: companyWidth - logoOffset });
+  if (store?.document) {
+    doc.fontSize(9).text(`CNPJ/CPF: ${store.document}`, companyX, companyY + 56, { width: companyWidth - logoOffset });
+  }
   const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip]
     .filter(Boolean)
     .join(' - ');
-  if (addr) doc.text(addr);
-  if (store?.phone) doc.text(`Fone: ${store.phone}`);
-  doc.fontSize(9).text('Comprovante de Pedido');
-
-  doc.moveDown(0.5);
-  const infoY = doc.y;
-  doc.fontSize(10).text(`Pedido: #${receipt.displayId || ''}`, marginLeft, infoY, { width: pageWidth, align: 'right' });
-  doc.text(`Data: ${dateLabel}`, marginLeft, infoY + 12, { width: pageWidth, align: 'right' });
-  doc.moveDown(2);
-
-  doc.fontSize(10).text(`Cliente: ${receipt.customer || ''}`);
-  if (receipt.customerDoc) doc.text(`Documento: ${receipt.customerDoc}`);
-  if (receipt.sellerName || receipt.sellerId) {
-    doc.text(`Vendedor: ${receipt.sellerName || ''}${receipt.sellerId ? ` (${receipt.sellerId})` : ''}`);
+  if (addr) {
+    doc.fontSize(8.5).text(addr, companyX, companyY + 70, { width: companyWidth - logoOffset });
   }
-  doc.moveDown();
+  if (store?.phone) {
+    doc.fontSize(8.5).text(`Fone: ${store.phone}`, companyX, metaTop + metaHeight - 22, { width: companyWidth - logoOffset });
+  }
 
-  // Itens (tabela)
-  doc.fontSize(10).text('Itens', { underline: true });
-  doc.moveDown(0.5);
+  const orderX = marginLeft + pageWidth - orderCardWidth - 16;
+  const orderY = metaTop + 16;
+  drawBox(orderX, orderY, orderCardWidth, 80, { fill: '#ffffff', stroke: '#d7dee7', radius: 12 });
+  writeLabel('Pedido', orderX + 12, orderY + 10, orderCardWidth - 24);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(18).text(`#${receipt.displayId || ''}`, orderX + 12, orderY + 26, { width: orderCardWidth - 24 });
+  doc.save();
+  doc.moveTo(orderX + 12, orderY + 50).lineTo(orderX + orderCardWidth - 12, orderY + 50).strokeColor('#e2e8f0').lineWidth(1).stroke();
+  doc.restore();
+  writeLabel('Data de Emissão', orderX + 12, orderY + 58, orderCardWidth - 24);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(dateLabel, orderX + 12, orderY + 70, { width: orderCardWidth - 24 });
 
-  const colQty = marginLeft;
-  const colUnit = marginLeft + 40;
-  const colDesc = marginLeft + 70;
-  const colUnitPrice = marginLeft + pageWidth - 140;
-  const colTotal = marginLeft + pageWidth - 60;
-  const descWidth = colUnitPrice - colDesc - 10;
+  const infoTop = metaTop + metaHeight + 16;
+  const gap = 12;
+  const sellerWidth = 160;
+  const customerWidth = pageWidth - sellerWidth - gap;
+  const infoHeight = 72;
 
-  doc.fontSize(9).text('Qtd', colQty, doc.y, { width: 35 });
-  doc.text('Un', colUnit, doc.y, { width: 30 });
-  doc.text('Descrição', colDesc, doc.y, { width: descWidth });
-  doc.text('Unit', colUnitPrice, doc.y, { width: 60, align: 'right' });
-  doc.text('Total', colTotal, doc.y, { width: 60, align: 'right' });
-  doc.moveDown(0.6);
-  doc.moveTo(marginLeft, doc.y).lineTo(marginLeft + pageWidth, doc.y).strokeColor('#cbd5f5').stroke();
-  doc.moveDown(0.4);
+  drawBox(marginLeft, infoTop, customerWidth, infoHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Cliente', marginLeft + 14, infoTop + 12, customerWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11).text(receipt.customer || '—', marginLeft + 14, infoTop + 28, { width: customerWidth - 28 });
+  doc.fillColor('#475569').font('Helvetica').fontSize(9).text(`Doc: ${receipt.customerDoc || 'N/A'}`, marginLeft + 14, infoTop + 50, { width: customerWidth - 28 });
 
-  doc.fontSize(9);
-  (receipt.items || []).forEach((it) => {
-    const rowY = doc.y;
+  const sellerX = marginLeft + customerWidth + gap;
+  drawBox(sellerX, infoTop, sellerWidth, infoHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Vendedor', sellerX + 14, infoTop + 12, sellerWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11).text(receipt.sellerName || '—', sellerX + 14, infoTop + 28, { width: sellerWidth - 28 });
+  doc.fillColor('#475569').font('Helvetica').fontSize(9).text(`Matrícula: ${receipt.sellerId || '—'}`, sellerX + 14, infoTop + 50, { width: sellerWidth - 28 });
+
+  const tableTop = infoTop + infoHeight + 18;
+  const tableHeaderHeight = 34;
+  const colQty = marginLeft + 14;
+  const colUnit = marginLeft + 60;
+  const colDesc = marginLeft + 102;
+  const colUnitPrice = marginLeft + pageWidth - 150;
+  const colTotal = marginLeft + pageWidth - 82;
+  const descWidth = colUnitPrice - colDesc - 12;
+
+  drawBox(marginLeft, tableTop, pageWidth, tableHeaderHeight, { fill: '#f1f5f9', stroke: '#d7dee7', radius: 12 });
+  writeLabel('Itens do Pedido', marginLeft + 14, tableTop + 8, 180);
+  doc.fillColor('#334155').font('Helvetica-Bold').fontSize(9).text(`${items.length} item(ns)`, marginLeft + 14, tableTop + 18, { width: 180 });
+  doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text('Valores em reais', marginLeft, tableTop + 13, { width: pageWidth - 14, align: 'right' });
+
+  const headerY = tableTop + tableHeaderHeight + 8;
+  doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8.5);
+  doc.text('Qtd', colQty, headerY, { width: 34 });
+  doc.text('Un', colUnit, headerY, { width: 28 });
+  doc.text('Descrição', colDesc, headerY, { width: descWidth });
+  doc.text('Unit.', colUnitPrice, headerY, { width: 58, align: 'right' });
+  doc.text('Total', colTotal, headerY, { width: 58, align: 'right' });
+  doc.save();
+  doc.moveTo(marginLeft, headerY + 14).lineTo(marginLeft + pageWidth, headerY + 14).strokeColor('#d7dee7').lineWidth(1).stroke();
+  doc.restore();
+
+  let cursorY = headerY + 22;
+  items.forEach((it, index) => {
     const quantity = Number(it.quantity || 0);
     const unitPrice = Number(it.price || 0);
-    const total = quantity * unitPrice;
-    const desc = String(it.name || '');
-    const descHeight = doc.heightOfString(desc, { width: descWidth });
-    const rowHeight = Math.max(descHeight, 12);
+    const lineTotal = quantity * unitPrice;
+    const title = String(it.name || '');
+    const detail = String(it.description || it.id || '');
+    const descHeight = doc.heightOfString(title, { width: descWidth }) + doc.heightOfString(detail, { width: descWidth });
+    const rowHeight = Math.max(26, descHeight + 6);
 
-    doc.text(String(quantity), colQty, rowY, { width: 35 });
-    doc.text(String(it.unit || ''), colUnit, rowY, { width: 30 });
-    doc.text(desc, colDesc, rowY, { width: descWidth });
-    doc.text(formatMoney(unitPrice), colUnitPrice, rowY, { width: 60, align: 'right' });
-    doc.text(formatMoney(total), colTotal, rowY, { width: 60, align: 'right' });
-    doc.y = rowY + rowHeight + 4;
+    if (index % 2 === 0) {
+      doc.save();
+      doc.roundedRect(marginLeft + 4, cursorY - 4, pageWidth - 8, rowHeight + 4, 8).fill('#fcfdff');
+      doc.restore();
+    }
+
+    doc.fillColor('#334155').font('Helvetica').fontSize(9).text(String(quantity), colQty, cursorY, { width: 34 });
+    doc.text(String(it.unit || ''), colUnit, cursorY, { width: 28 });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').text(title, colDesc, cursorY, { width: descWidth });
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(detail, colDesc, cursorY + 12, { width: descWidth });
+    doc.fillColor('#334155').font('Helvetica').fontSize(9).text(formatMoney(unitPrice), colUnitPrice, cursorY, { width: 58, align: 'right' });
+    doc.font('Helvetica-Bold').text(formatMoney(lineTotal), colTotal, cursorY, { width: 58, align: 'right' });
+
+    cursorY += rowHeight + 8;
   });
 
-  doc.moveDown();
-  doc.fontSize(10).text('Observações', { underline: true });
-  doc.fontSize(9).text(receipt.notes || '—');
+  const lowerTop = cursorY + 8;
+  const notesWidth = pageWidth - 180 - gap;
+  const sideCardWidth = 180;
+  const notesHeight = 96;
 
-  doc.moveDown();
-  doc.fontSize(10).text('Forma de Pagamento', { underline: true });
-  doc.fontSize(9).text(receipt.paymentMethod || '—');
-  if (receipt.paymentPlanDescription) {
-    doc.text(`Plano: ${receipt.paymentPlanDescription}${receipt.paymentInstallments ? ` (${receipt.paymentInstallments}x)` : ''}`);
+  drawBox(marginLeft, lowerTop, notesWidth, notesHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Observações', marginLeft + 14, lowerTop + 12, notesWidth - 28);
+  doc.fillColor('#334155').font('Helvetica').fontSize(9.5).text(receipt.notes || 'Nenhuma observação informada.', marginLeft + 14, lowerTop + 28, { width: notesWidth - 28, height: 56 });
+
+  const summaryX = marginLeft + notesWidth + gap;
+  drawBox(summaryX, lowerTop, sideCardWidth, notesHeight, { fill: '#0f172a', stroke: '#0f172a', radius: 12 });
+  writeLabel('Resumo Financeiro', summaryX + 14, lowerTop + 12, sideCardWidth - 28, 'left', '#cbd5e1');
+  doc.fillColor('#cbd5e1').font('Helvetica').fontSize(9).text('Itens', summaryX + 14, lowerTop + 34, { width: 70 });
+  doc.fillColor('#ffffff').font('Helvetica-Bold').text(String(items.length), summaryX + 84, lowerTop + 34, { width: sideCardWidth - 98, align: 'right' });
+  doc.fillColor('#cbd5e1').font('Helvetica').text('Pagamento', summaryX + 14, lowerTop + 50, { width: 70 });
+  doc.fillColor('#ffffff').font('Helvetica-Bold').text(receipt.paymentMethod || '—', summaryX + 84, lowerTop + 50, { width: sideCardWidth - 98, align: 'right' });
+  doc.save();
+  doc.moveTo(summaryX + 14, lowerTop + 70).lineTo(summaryX + sideCardWidth - 14, lowerTop + 70).strokeColor('#334155').lineWidth(1).stroke();
+  doc.restore();
+  writeLabel('Total Geral', summaryX + 14, lowerTop + 76, sideCardWidth - 28, 'left', '#cbd5e1');
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(18).text(formatMoney(total), summaryX + 14, lowerTop + 88, { width: sideCardWidth - 28, align: 'left' });
+
+  const paymentTop = lowerTop + notesHeight + 16;
+  const paymentWidth = (pageWidth - gap) / 2;
+  const paymentHeight = 72;
+
+  drawBox(marginLeft, paymentTop, paymentWidth, paymentHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Forma de Pagamento', marginLeft + 14, paymentTop + 12, paymentWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(receipt.paymentMethod || '—', marginLeft + 14, paymentTop + 30, { width: paymentWidth - 28 });
+  if (paymentPlan) {
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text(paymentPlan, marginLeft + 14, paymentTop + 46, { width: paymentWidth - 28 });
   }
 
-  doc.moveDown();
-  doc.fontSize(10).text('Tipo de Frete', { underline: true });
-  doc.fontSize(9).text(receipt.shippingMethod || '—');
+  const shippingX = marginLeft + paymentWidth + gap;
+  drawBox(shippingX, paymentTop, paymentWidth, paymentHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Tipo de Frete', shippingX + 14, paymentTop + 12, paymentWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(receipt.shippingMethod || '—', shippingX + 14, paymentTop + 30, { width: paymentWidth - 28 });
 
-  doc.moveDown(1.2);
-  doc.fontSize(12).text(`Total Geral: ${formatMoney(receipt.total)}`, { align: 'right' });
-  doc.moveDown().fontSize(8).text('Emitido via SalesForce App');
-  doc.fontSize(8).text(formatDateTimePtBr());
+  const footerY = paymentTop + paymentHeight + 26;
+  doc.save();
+  doc.moveTo(marginLeft, footerY).lineTo(marginLeft + pageWidth, footerY).dash(3, { space: 3 }).strokeColor('#cbd5e1').lineWidth(1).stroke();
+  doc.undash();
+  doc.restore();
+  doc.fillColor('#94a3b8').font('Helvetica').fontSize(8.5).text('Emitido via SalesForce App', marginLeft, footerY + 12, { width: pageWidth, align: 'center' });
+  doc.text(formatDateTimePtBr(), marginLeft, footerY + 24, { width: pageWidth, align: 'center' });
 };
 
 // --- GERAR PDF DE RECIBO (SERVER-SIDE) ---

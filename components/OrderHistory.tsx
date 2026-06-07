@@ -36,6 +36,19 @@ const formatMoney = (value: number) => {
   return `R$ ${value.toFixed(2)}`;
 };
 
+const formatDate = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('pt-BR');
+};
+
+const formatDateTime = (value?: string | Date) => {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('pt-BR');
+};
+
 export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialTab = 'all', storeInfo }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -315,113 +328,148 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
             </div>
             <div className="p-8 bg-white text-slate-900 print-content overflow-y-auto flex-1">
               <div className="print-page print-compact">
-                <div className="flex justify-between items-start border-b-2 border-slate-800 pb-4">
-                  <div className="flex gap-4 items-start">
-                    {headerStore?.logo_url && (
-                      <img
-                        src={headerStore.logo_url}
-                        alt={headerStore.trade_name || 'Logotipo'}
-                        className="h-16 w-16 object-contain rounded border border-slate-200"
-                      />
-                    )}
-                    <div className="space-y-1">
-                      <h1 className="text-2xl font-bold uppercase tracking-wide">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
-                      <p className="text-sm text-slate-600">{headerStore?.legal_name}</p>
-                      {headerStore?.document && (
-                        <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
-                      )}
-                      {(headerStore?.street || headerStore?.city) && (
-                        <p className="text-xs text-slate-500">
-                          {headerStore?.street || ''} {headerStore?.number || ''} {headerStore?.neighborhood ? `- ${headerStore.neighborhood}` : ''} {headerStore?.city ? `• ${headerStore.city}/${headerStore.state || ''}` : ''} {headerStore?.zip ? `• ${headerStore.zip}` : ''}
-                        </p>
-                      )}
-                      {headerStore?.phone && (
-                        <p className="text-xs text-slate-500">Fone: {headerStore.phone}</p>
-                      )}
-                      <p className="text-xs text-slate-500 mt-2">Comprovante de Pedido</p>
+                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="px-6 py-5 border-b border-slate-200 bg-slate-50/80">
+                    <div className="flex justify-between items-start gap-6">
+                      <div className="flex gap-4 items-start flex-1">
+                        {headerStore?.logo_url && (
+                          <img
+                            src={headerStore.logo_url}
+                            alt={headerStore.trade_name || 'Logotipo'}
+                            className="h-16 w-16 object-contain rounded-xl border border-slate-200 bg-white p-2"
+                          />
+                        )}
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Comprovante de Pedido</p>
+                          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
+                          <p className="text-sm text-slate-600">{headerStore?.legal_name || 'Documento comercial de pedido'}</p>
+                          {headerStore?.document && (
+                            <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
+                          )}
+                          {(headerStore?.street || headerStore?.city) && (
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                              {headerStore?.street || ''} {headerStore?.number || ''} {headerStore?.neighborhood ? `- ${headerStore.neighborhood}` : ''} {headerStore?.city ? `• ${headerStore.city}/${headerStore.state || ''}` : ''} {headerStore?.zip ? `• ${headerStore.zip}` : ''}
+                            </p>
+                          )}
+                          {headerStore?.phone && (
+                            <p className="text-xs text-slate-500">Fone: {headerStore.phone}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="w-[220px] shrink-0 border border-slate-200 rounded-2xl bg-white px-4 py-3">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Pedido</p>
+                        <p className="text-2xl font-mono font-bold text-slate-900 mt-1">#{viewingReceipt.displayId}</p>
+                        <div className="mt-4 pt-3 border-t border-slate-100">
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Data de Emissão</p>
+                          <p className="text-sm font-semibold text-slate-800 mt-1">{formatDate(viewingReceipt.createdAt)}</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">Pedido</p>
-                    <p className="text-xl font-mono font-bold">#{viewingReceipt.displayId}</p>
-                    <p className="text-[10px] text-slate-500 uppercase font-bold mt-2">Data</p>
-                    <p className="font-medium">{new Date(viewingReceipt.createdAt).toLocaleDateString()}</p>
-                  </div>
-                </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
-                  <div className="border border-slate-200 p-3 rounded">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">Cliente</p>
-                    <p className="font-bold text-sm leading-tight">{viewingReceipt.customerName}</p>
-                    <p className="text-[11px] text-slate-600 font-mono mt-1">Doc: {viewingReceipt.customerDoc || 'N/A'}</p>
-                  </div>
-                  <div className="border border-slate-200 p-3 rounded">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">Vendedor</p>
-                    <p className="font-bold text-sm">
-                      {resolveSellerName(viewingReceipt.sellerName)} {viewingReceipt.sellerId ? `(${viewingReceipt.sellerId})` : ''}
-                    </p>
-                  </div>
-                </div>
+                  <div className="px-6 py-5">
+                    <div className="grid grid-cols-3 gap-4 text-xs">
+                      <div className="col-span-2 border border-slate-200 rounded-2xl p-4">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Cliente</p>
+                        <p className="font-bold text-sm leading-tight text-slate-900 mt-2">{viewingReceipt.customerName}</p>
+                        <p className="text-[11px] text-slate-600 font-mono mt-2">Doc: {viewingReceipt.customerDoc || 'N/A'}</p>
+                      </div>
+                      <div className="border border-slate-200 rounded-2xl p-4">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Vendedor</p>
+                        <p className="font-bold text-sm text-slate-900 mt-2">
+                          {resolveSellerName(viewingReceipt.sellerName)}
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-2">
+                          Matrícula: {viewingReceipt.sellerId || '—'}
+                        </p>
+                      </div>
+                    </div>
 
-                <table className="w-full text-xs mt-6 border-t border-slate-300">
-                  <thead>
-                    <tr className="border-b border-slate-300">
-                      <th className="text-left py-2 font-bold text-slate-600 w-12">Qtd</th>
-                      <th className="text-left py-2 font-bold text-slate-600 w-12">Un</th>
-                      <th className="text-left py-2 font-bold text-slate-600">Descrição</th>
-                      <th className="text-right py-2 font-bold text-slate-600 w-20">Unit</th>
-                      <th className="text-right py-2 font-bold text-slate-600 w-20">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="font-mono text-slate-700">
-                    {viewingReceipt.items.map((item, idx) => (
-                      <tr key={idx} className="border-b border-slate-100">
-                        <td className="py-2 align-top">{item.quantity}</td>
-                        <td className="py-2 align-top">{item.unit}</td>
-                        <td className="py-2 align-top">
-                          <div className="font-bold text-slate-900">{item.name}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {item.description || item.id}
+                    <div className="mt-5 border border-slate-200 rounded-2xl overflow-hidden">
+                      <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Itens do Pedido</p>
+                          <p className="text-sm font-semibold text-slate-800 mt-1">{viewingReceipt.items.length} item(ns)</p>
+                        </div>
+                        <div className="text-right text-xs text-slate-500">
+                          <p>Valores em reais</p>
+                        </div>
+                      </div>
+
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-white">
+                            <th className="text-left py-3 px-4 font-bold text-slate-600 w-14">Qtd</th>
+                            <th className="text-left py-3 px-2 font-bold text-slate-600 w-14">Un</th>
+                            <th className="text-left py-3 px-2 font-bold text-slate-600">Descrição</th>
+                            <th className="text-right py-3 px-2 font-bold text-slate-600 w-24">Unit.</th>
+                            <th className="text-right py-3 px-4 font-bold text-slate-600 w-24">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="font-mono text-slate-700">
+                          {viewingReceipt.items.map((item, idx) => (
+                            <tr key={idx} className="border-b border-slate-100 last:border-b-0">
+                              <td className="py-3 px-4 align-top">{item.quantity}</td>
+                              <td className="py-3 px-2 align-top">{item.unit}</td>
+                              <td className="py-3 px-2 align-top">
+                                <div className="font-sans font-semibold text-slate-900">{item.name}</div>
+                                <div className="text-[10px] text-slate-500 mt-1">
+                                  {item.description || item.id}
+                                </div>
+                              </td>
+                              <td className="py-3 px-2 align-top text-right">{formatMoney(item.price)}</td>
+                              <td className="py-3 px-4 align-top text-right font-bold">{formatMoney(item.quantity * item.price)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="mt-5 grid grid-cols-3 gap-4 text-xs">
+                      <div className="col-span-2 border border-slate-200 rounded-2xl p-4 min-h-[112px]">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Observações</p>
+                        <p className="text-sm text-slate-700 mt-2 leading-relaxed">{viewingReceipt.notes || 'Nenhuma observação informada.'}</p>
+                      </div>
+                      <div className="border border-slate-900 rounded-2xl p-4 bg-slate-900 text-white">
+                        <p className="text-[10px] uppercase font-bold tracking-[0.2em] text-slate-300">Resumo Financeiro</p>
+                        <div className="mt-4 space-y-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-300">Itens</span>
+                            <span className="font-semibold">{viewingReceipt.items.length}</span>
                           </div>
-                        </td>
-                        <td className="py-2 align-top text-right">R$ {item.price.toFixed(2)}</td>
-                        <td className="py-2 align-top text-right font-bold">R$ {(item.quantity * item.price).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-300">Pagamento</span>
+                            <span className="font-semibold text-right ml-3">{viewingReceipt.paymentMethod || '—'}</span>
+                          </div>
+                          <div className="pt-3 border-t border-white/15">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-300">Total Geral</p>
+                            <p className="text-2xl font-bold mt-1">{formatMoney(viewingReceipt.total)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
-                <div className="mt-4">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Observações</p>
-                  <div className="border border-slate-200 rounded p-2 text-xs text-slate-700 min-h-[48px]">
-                    {viewingReceipt.notes || '—'}
+                    <div className="mt-5 grid grid-cols-2 gap-4 text-xs">
+                      <div className="border border-slate-200 rounded-2xl p-4">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Forma de Pagamento</p>
+                        <p className="font-semibold text-sm text-slate-900 mt-2">{viewingReceipt.paymentMethod || '—'}</p>
+                        {viewingReceipt.paymentPlanDescription && (
+                          <p className="text-[11px] text-slate-500 mt-2">
+                            Plano: {viewingReceipt.paymentPlanDescription} {viewingReceipt.paymentInstallments ? `(${viewingReceipt.paymentInstallments}x)` : ''}
+                          </p>
+                        )}
+                      </div>
+                      <div className="border border-slate-200 rounded-2xl p-4">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Tipo de Frete</p>
+                        <p className="font-semibold text-sm text-slate-900 mt-2">{viewingReceipt.shippingMethod || '—'}</p>
+                      </div>
+                    </div>
                   </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
-                  <div className="border border-slate-200 rounded p-3">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Forma de Pagamento</p>
-                    <p className="font-semibold">{viewingReceipt.paymentMethod || '—'}</p>
-                    {viewingReceipt.paymentPlanDescription && (
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        Plano: {viewingReceipt.paymentPlanDescription} {viewingReceipt.paymentInstallments ? `(${viewingReceipt.paymentInstallments}x)` : ''}
-                      </p>
-                    )}
-                  </div>
-                  <div className="border border-slate-200 rounded p-3">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Tipo de Frete</p>
-                    <p className="font-semibold">{viewingReceipt.shippingMethod || '—'}</p>
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-center border-t-2 border-slate-800 pt-4 mt-6">
-                  <span className="text-sm font-bold uppercase">Total Geral</span>
-                  <span className="text-xl font-bold">R$ {viewingReceipt.total.toFixed(2)}</span>
                 </div>
 
                 <div className="text-center text-xs text-slate-400 mt-6 pt-6 border-t border-dashed border-slate-300">
                   <p>Emitido via SalesForce App</p>
-                  <p>{new Date().toLocaleString()}</p>
+                  <p>{formatDateTime(new Date())}</p>
                 </div>
               </div>
             </div>
