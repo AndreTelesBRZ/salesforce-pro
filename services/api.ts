@@ -839,6 +839,27 @@ class ApiService {
       }
   }
 
+  async downloadProductCatalogPdf(searchTerm: string = '', category: string = 'Todas'): Promise<Blob> {
+      const query = new URLSearchParams();
+      if (searchTerm.trim()) query.set('search', searchTerm.trim());
+      if (category && category !== 'Todas') query.set('category', category);
+      const queryString = query.toString();
+      const response = await this.fetchWithAuth(`/api/catalogo-produtos/pdf${queryString ? `?${queryString}` : ''}`, {
+          method: 'GET',
+          headers: { Accept: 'application/pdf' }
+      });
+
+      if (!response.ok) {
+          let message = 'Falha ao gerar catálogo em PDF.';
+          try {
+              const data = await response.json();
+              if (data?.message) message = data.message;
+          } catch {}
+          throw new Error(message);
+      }
+
+      return response.blob();
+  }
   private mapNetworkError(error: any): string {
       const msg = error.message || '';
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
@@ -1611,6 +1632,31 @@ class ApiService {
     return this.fetchProductsFromNetwork(page, limit);
   }
 
+  async getAllProductsForReport(): Promise<Product[]> {
+    try {
+      const count = await dbService.countProducts();
+      if (count > 0) {
+        const localProducts = await dbService.getAllProducts();
+        if (localProducts.length > 0) return localProducts;
+      }
+
+      if (this.config.useMockData && count === 0) {
+        const demo: Product[] = [
+          { id:'IP14-128', name:'iPhone 14 128GB', description:'Smartphone Apple iPhone 14 128GB', price:4999, category:'Smartphone', stock:25, unit:'un' },
+          { id:'S23U-256', name:'Samsung Galaxy S23 Ultra 256GB', description:'Top de linha Samsung com S-Pen', price:5499, category:'Smartphone', stock:12, unit:'un' },
+          { id:'MAC-13M2', name:'MacBook Air 13" M2 8GB/256GB', description:'Notebook Apple M2', price:8999, category:'Notebook', stock:8, unit:'un' },
+          { id:'NOTE-I7', name:'Notebook i7 16GB/512GB', description:'Windows 11, SSD 512GB, 16GB RAM', price:4399, category:'Notebook', stock:14, unit:'un' },
+          { id:'TV-65OLED', name:'Smart TV 65" OLED 4K', description:'Dolby Vision/Atmos', price:6999, category:'TV', stock:6, unit:'un' },
+          { id:'FONE-ANC', name:'Fone Bluetooth com ANC', description:'Cancelamento ativo de ruído', price:699, category:'Acessórios', stock:40, unit:'un' }
+        ];
+        await dbService.bulkAddProducts(demo);
+        return dbService.getAllProducts();
+      }
+    } catch (e) {}
+
+    return this.fetchAllProductsFromNetwork();
+  }
+
   private async fetchProductsFromNetwork(page: number, limit: number): Promise<Product[]> {
     try {
       const response = await this.fetchWithAuth(this.buildProductsEndpoint({ page, limit, includeSeller: true }));
@@ -1623,6 +1669,36 @@ class ApiService {
     } catch (error) {
       return [];
     }
+  }
+
+  private async fetchAllProductsFromNetwork(): Promise<Product[]> {
+    const pageSize = 200;
+    const collected: Product[] = [];
+    const seen = new Set<string>();
+
+    try {
+      for (let page = 1; page <= 50; page++) {
+        const response = await this.fetchWithAuth(this.buildProductsEndpoint({ page, limit: pageSize, includeSeller: true }));
+        if (!response.ok) break;
+
+        const data = await response.json();
+        const list = Array.isArray(data) ? data : (data.data || []);
+        if (!Array.isArray(list) || list.length === 0) break;
+
+        const mapped = list.map((item: any) => this.mapProduct(item));
+        mapped.forEach((product) => {
+          if (seen.has(product.id)) return;
+          seen.add(product.id);
+          collected.push(product);
+        });
+
+        if (list.length < pageSize) break;
+      }
+    } catch (error) {
+      return collected;
+    }
+
+    return collected;
   }
 
   async syncFullCatalog(onProgress: (current: number, total: number | null) => void): Promise<{ success: boolean, count: number, message?: string }> {

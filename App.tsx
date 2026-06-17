@@ -8,19 +8,21 @@ import { Dashboard } from './components/Dashboard';
 import { CustomerList } from './components/CustomerList';
 import { OrderHistory } from './components/OrderHistory';
 import { SyncData } from './components/SyncData';
+import { ReportsPage } from './components/ReportsPage';
 import { DraftsPage } from './src/pages/DraftsPage';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
 import { Product, CartItem, ThemeMode } from './types';
 import { EnumProvider } from './contexts/EnumContext';
 import { OrderDraft } from './src/types/orderDraft';
-import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList } from 'lucide-react';
+import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList, BarChart3 } from 'lucide-react';
 
-type View = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
+type View = 'dashboard' | 'products' | 'reports' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
 
 const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ className?: string }>; }[] = [
   { view: 'dashboard', label: 'Início', icon: Store },
   { view: 'products', label: 'Catálogo', icon: LayoutGrid },
+  { view: 'reports', label: 'Relatórios', icon: BarChart3 },
   { view: 'cart', label: 'Carrinho', icon: ShoppingCart },
   { view: 'orders', label: 'Histórico', icon: FileText },
   { view: 'drafts', label: 'Rascunhos', icon: ClipboardList },
@@ -320,6 +322,7 @@ export default function App() {
     switch (currentView) {
       case 'dashboard': return 'Início';
       case 'products': return 'Catálogo';
+      case 'reports': return 'Relatórios';
       case 'cart': return 'Carrinho';
       case 'orders': return 'Meus Pedidos';
       case 'drafts': return 'Rascunhos';
@@ -420,6 +423,9 @@ export default function App() {
           )}
           {currentView === 'products' && (
             <ProductList onAddToCart={addToCart} onRemoveFromCart={removeFromCart} onToggleCart={toggleCartProduct} cart={cart} />
+          )}
+          {currentView === 'reports' && (
+            <ReportsPage storeInfo={storeInfo} />
           )}
           {currentView === 'cart' && (
             <Cart 

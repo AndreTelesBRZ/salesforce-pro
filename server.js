@@ -1607,6 +1607,158 @@ const renderReceiptPDF = (doc, receipt, store) => {
   doc.text(formatDateTimePtBr(), marginLeft, footerY + 24, { width: pageWidth, align: 'center' });
 };
 
+const renderProductCatalogPDF = (doc, payload = {}) => {
+  const products = Array.isArray(payload.products) ? payload.products : [];
+  const searchTerm = String(payload.searchTerm || '').trim();
+  const selectedCategory = String(payload.category || 'Todas').trim() || 'Todas';
+  const generatedAt = formatDateTimePtBr(new Date().toISOString());
+  const marginLeft = doc.page.margins.left;
+  const marginTop = doc.page.margins.top;
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const contentBottom = doc.page.height - doc.page.margins.bottom;
+  const colCode = marginLeft + 14;
+  const colDesc = marginLeft + 110;
+  const colMeta = marginLeft + pageWidth - 180;
+  const colPrice = marginLeft + pageWidth - 84;
+  const descWidth = colMeta - colDesc - 12;
+  let pageNumber = 0;
+  let cursorY = marginTop;
+
+  const grouped = products.reduce((acc, product) => {
+    const categoryName = String(product.category || 'Sem categoria').trim() || 'Sem categoria';
+    if (!acc.has(categoryName)) acc.set(categoryName, []);
+    acc.get(categoryName).push(product);
+    return acc;
+  }, new Map());
+
+  const drawPageHeader = () => {
+    doc.save();
+    doc.roundedRect(marginLeft, marginTop, pageWidth, 78, 14).fill('#f8fafc');
+    doc.restore();
+
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(20).text('Catálogo de Produtos', marginLeft + 18, marginTop + 16, {
+      width: pageWidth - 36
+    });
+    doc.fillColor('#475569').font('Helvetica').fontSize(9.5).text(
+      `Gerado em ${generatedAt}`,
+      marginLeft + 18,
+      marginTop + 42,
+      { width: pageWidth - 36 }
+    );
+
+    const filterSummary = [
+      searchTerm ? `Busca: "${searchTerm}"` : 'Busca: todas',
+      selectedCategory && selectedCategory.toLowerCase() !== 'todas' ? `Categoria: ${selectedCategory}` : 'Categoria: todas',
+      `Produtos: ${products.length}`
+    ].join('  •  ');
+
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text(
+      filterSummary,
+      marginLeft + 18,
+      marginTop + 56,
+      { width: pageWidth - 96 }
+    );
+
+    doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(8).text(
+      `Pág. ${pageNumber}`,
+      marginLeft,
+      marginTop + 58,
+      { width: pageWidth - 18, align: 'right' }
+    );
+
+    return marginTop + 98;
+  };
+
+  const startPage = () => {
+    if (pageNumber > 0) doc.addPage();
+    pageNumber += 1;
+    cursorY = drawPageHeader();
+  };
+
+  const ensureSpace = (requiredHeight) => {
+    if (cursorY + requiredHeight <= contentBottom - 24) return;
+    startPage();
+  };
+
+  const drawCategoryHeader = (categoryName, itemCount) => {
+    ensureSpace(34);
+    doc.save();
+    doc.roundedRect(marginLeft, cursorY, pageWidth, 24, 10).fill('#dbeafe');
+    doc.restore();
+    doc.fillColor('#1e3a8a').font('Helvetica-Bold').fontSize(11).text(categoryName, marginLeft + 12, cursorY + 7, {
+      width: pageWidth - 140
+    });
+    doc.fillColor('#1d4ed8').font('Helvetica-Bold').fontSize(8.5).text(
+      `${itemCount} item(ns)`,
+      marginLeft,
+      cursorY + 8,
+      { width: pageWidth - 12, align: 'right' }
+    );
+    cursorY += 32;
+  };
+
+  const drawProductRow = (product, index) => {
+    const code = String(product.id || product.plu || product.code || '-');
+    const title = String(product.name || 'Produto');
+    const detailParts = [
+      product.description ? String(product.description) : null,
+      product.unit ? `Unidade: ${product.unit}` : null,
+      Number.isFinite(Number(product.stock)) ? `Estoque: ${Number(product.stock)}` : null
+    ].filter(Boolean);
+    const detail = detailParts.join('  •  ');
+    const titleHeight = doc.heightOfString(title, { width: descWidth });
+    const detailHeight = detail ? doc.heightOfString(detail, { width: descWidth }) : 0;
+    const rowHeight = Math.max(38, titleHeight + detailHeight + 14);
+
+    ensureSpace(rowHeight + 8);
+
+    if (index % 2 === 0) {
+      doc.save();
+      doc.roundedRect(marginLeft + 4, cursorY - 2, pageWidth - 8, rowHeight, 8).fill('#fcfdff');
+      doc.restore();
+    }
+
+    doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8.5).text(code, colCode, cursorY + 4, { width: 86 });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(title, colDesc, cursorY + 4, { width: descWidth });
+    if (detail) {
+      doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(detail, colDesc, cursorY + 18, { width: descWidth });
+    }
+    doc.fillColor('#334155').font('Helvetica').fontSize(8.5).text(
+      `SKU ${code}`,
+      colMeta,
+      cursorY + 4,
+      { width: 72, align: 'right' }
+    );
+    doc.font('Helvetica-Bold').fontSize(10).text(
+      formatMoney(product.price),
+      colPrice,
+      cursorY + 4,
+      { width: 70, align: 'right' }
+    );
+
+    cursorY += rowHeight + 8;
+  };
+
+  startPage();
+
+  if (products.length === 0) {
+    doc.fillColor('#64748b').font('Helvetica').fontSize(11).text(
+      'Nenhum produto encontrado para os filtros informados.',
+      marginLeft,
+      cursorY + 16,
+      { width: pageWidth, align: 'center' }
+    );
+    return;
+  }
+
+  Array.from(grouped.entries())
+    .sort((left, right) => left[0].localeCompare(right[0], 'pt-BR'))
+    .forEach(([categoryName, items]) => {
+      drawCategoryHeader(categoryName, items.length);
+      items.forEach((product, index) => drawProductRow(product, index));
+      cursorY += 6;
+    });
+};
 // --- GERAR PDF DE RECIBO (SERVER-SIDE) ---
 // POST /api/recibo/pdf  -> Body: { id, displayId, customer, items:[{name,quantity,unit,price}], total, store? }
 app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
@@ -1663,6 +1815,58 @@ app.post('/api/recibo/pdf/public', async (req, res) => {
   }
 });
 
+app.get('/api/catalogo-produtos/pdf', verifyToken, async (req, res) => {
+  try {
+    const storeId = getStoreIdForProducts(req);
+    const searchTerm = String(req.query.search || '').trim();
+    const category = String(req.query.category || '').trim();
+    let query = `
+      SELECT plu, name, description, price, stock, category, unit
+      FROM products
+      WHERE (store_id = ? OR store_id IS NULL)
+    `;
+    const params = [storeId];
+
+    if (searchTerm) {
+      const normalizedSearch = `%${searchTerm.toLowerCase()}%`;
+      query += ` AND (
+        LOWER(COALESCE(plu, '')) LIKE ?
+        OR LOWER(COALESCE(name, '')) LIKE ?
+        OR LOWER(COALESCE(description, '')) LIKE ?
+      )`;
+      params.push(normalizedSearch, normalizedSearch, normalizedSearch);
+    }
+
+    if (category && category.toLowerCase() !== 'todas') {
+      query += ` AND LOWER(COALESCE(category, '')) = ?`;
+      params.push(category.toLowerCase());
+    }
+
+    query += ` ORDER BY category COLLATE NOCASE ASC, name COLLATE NOCASE ASC`;
+
+    const rows = await db.query(query, params);
+    const products = rows.map((product) => ({
+      id: product.plu,
+      name: product.name,
+      description: product.description,
+      price: Number(product.price || 0),
+      stock: Number(product.stock || 0),
+      category: product.category || 'Sem categoria',
+      unit: product.unit || 'UN'
+    }));
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="catalogo-produtos.pdf"');
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    doc.pipe(res);
+    renderProductCatalogPDF(doc, { products, searchTerm, category });
+    doc.end();
+  } catch (e) {
+    console.error('[PRODUCT_CATALOG_PDF_ERROR]', e);
+    res.status(500).json({ message: 'Falha ao gerar catálogo em PDF.' });
+  }
+});
 // Endpoint genérico para teste de envio de e-mail
 app.post('/api/sendmail', verifyToken, async (req, res) => {
   if (!mailer) return res.status(400).json({ message: 'Mailer não configurado.' });

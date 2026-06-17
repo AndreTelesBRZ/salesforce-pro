@@ -37,6 +37,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
   const [pitchLoadingId, setPitchLoadingId] = useState<string | null>(null);
   const [imageLoadingId, setImageLoadingId] = useState<string | null>(null);
   const [salesPitches, setSalesPitches] = useState<Record<string, string>>({});
+  const [exportingCatalog, setExportingCatalog] = useState(false);
 
   const observer = useRef<IntersectionObserver | null>(null);
 
@@ -71,6 +72,34 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
     loadFirstPage();
   };
 
+  const handleExportCatalogPdf = async () => {
+    if (exportingCatalog) return;
+
+    setExportingCatalog(true);
+    try {
+      const blob = await apiService.downloadProductCatalogPdf(searchTerm, selectedCategory);
+      const url = URL.createObjectURL(blob);
+      const suffix = selectedCategory && selectedCategory !== 'Todas'
+        ? `-${selectedCategory
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/(^-|-$)/g, '')}`
+        : '';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `catalogo-produtos${suffix}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err: any) {
+      alert(err?.message || 'Não foi possível gerar o catálogo em PDF.');
+    } finally {
+      setExportingCatalog(false);
+    }
+  };
   const loadMoreProducts = async () => {
     if (loadingMore || !hasMore) return;
     
@@ -334,6 +363,16 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
               <RefreshCcw className="w-4 h-4" />
             </button>
 
+            <button
+              type="button"
+              onClick={handleExportCatalogPdf}
+              disabled={loading || exportingCatalog}
+              title="Exportar catálogo em PDF"
+              className="px-3 py-3 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors disabled:opacity-50 disabled:cursor-default flex items-center justify-center gap-2"
+            >
+              {exportingCatalog ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span className="hidden sm:inline text-sm font-medium">PDF</span>
+            </button>
             {/* Botão Adicionar Produto */}
             <button 
                 onClick={() => setShowAddModal(true)}

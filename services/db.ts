@@ -216,6 +216,17 @@ class DatabaseService {
     });
   }
 
+  async getAllProducts(): Promise<Product[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_PRODUCTS], 'readonly');
+      const store = transaction.objectStore(STORE_PRODUCTS);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   async searchProducts(
     page: number = 1, 
     limit: number = 50, 
