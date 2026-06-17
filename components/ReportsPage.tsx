@@ -301,7 +301,7 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
                       <td className="px-3 py-2"><div className="font-semibold text-slate-900 dark:text-white leading-tight">{product.name}</div>{product.description ? <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{product.description}</div> : null}</td>
                       <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{product.category || '-'}</td>
                       <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{formatSectionTrail(product)}</td>
-                      <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{(Number(product.stock) || 0).toLocaleString('pt-BR')}</td>
+                      <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{'***'}</td>
                       <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{product.unit || '-'}</td>
                       <td className="px-3 py-2 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(Number(product.price) || 0)}</td>
                     </tr>
@@ -361,7 +361,7 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
                     <td><div className="report-print-product">{product.name}</div>{product.description ? <div className="report-print-description">{product.description}</div> : null}</td>
                     <td>{product.category || '-'}</td>
                     <td>{formatSectionTrail(product)}</td>
-                    <td className="report-print-number">{(Number(product.stock) || 0).toLocaleString('pt-BR')}</td>
+                    <td className="report-print-number">{'***'}</td>
                     <td className="report-print-number">{product.unit || '-'}</td>
                     <td className="report-print-number report-print-price-cell">{formatCurrency(Number(product.price) || 0)}</td>
                   </tr>
