@@ -63,6 +63,34 @@ const formatCurrency = (value: number) =>
 const formatSectionTrail = (product: Product) =>
   [product.sectionCode, product.groupCode, product.subgroupCode].filter(Boolean).join(' / ') || '-';
 
+const compareProductsBySectionTrail = (left: Product, right: Product) => {
+  const sectionCompare = String(left.sectionCode || '').localeCompare(String(right.sectionCode || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
+  if (sectionCompare !== 0) return sectionCompare;
+
+  const groupCompare = String(left.groupCode || '').localeCompare(String(right.groupCode || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
+  if (groupCompare !== 0) return groupCompare;
+
+  const subgroupCompare = String(left.subgroupCode || '').localeCompare(String(right.subgroupCode || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
+  if (subgroupCompare !== 0) return subgroupCompare;
+
+  const categoryCompare = String(left.category || '').localeCompare(String(right.category || ''), 'pt-BR', { sensitivity: 'base' });
+  if (categoryCompare !== 0) return categoryCompare;
+
+  const nameCompare = String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR', { sensitivity: 'base' });
+  if (nameCompare !== 0) return nameCompare;
+
+  return String(left.id || '').localeCompare(String(right.id || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
+};
+
+const chunkProductsForPrint = (products: Product[], pageSize: number): Product[][] => {
+  if (products.length === 0) return [];
+  const pages: Product[][] = [];
+  for (let index = 0; index < products.length; index += pageSize) {
+    pages.push(products.slice(index, index + pageSize));
+  }
+  return pages;
+};
+
 const formatStoreAddress = (storeInfo?: StoreInfo | null): string => {
   if (!storeInfo) return '';
   const line1 = [storeInfo.street, storeInfo.number, storeInfo.complement].filter(Boolean).join(', ');
@@ -115,23 +143,25 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
   const filteredProducts = useMemo(() => {
     const terms = normalizeText(appliedFilters.searchTerm).split(/\s+/).filter(Boolean);
 
-    return allProducts.filter((product) => {
-      if (appliedFilters.category !== 'Todas' && product.category !== appliedFilters.category) return false;
-      if (appliedFilters.sectionCode !== 'Todas' && (product.sectionCode || '') !== appliedFilters.sectionCode) return false;
-      if (appliedFilters.groupCode !== 'Todas' && (product.groupCode || '') !== appliedFilters.groupCode) return false;
-      if (appliedFilters.subgroupCode !== 'Todas' && (product.subgroupCode || '') !== appliedFilters.subgroupCode) return false;
-      if (appliedFilters.stockMode === 'in-stock' && (product.stock || 0) <= 0) return false;
-      if (appliedFilters.stockMode === 'out-of-stock' && (product.stock || 0) > 0) return false;
+    return allProducts
+      .filter((product) => {
+        if (appliedFilters.category !== 'Todas' && product.category !== appliedFilters.category) return false;
+        if (appliedFilters.sectionCode !== 'Todas' && (product.sectionCode || '') !== appliedFilters.sectionCode) return false;
+        if (appliedFilters.groupCode !== 'Todas' && (product.groupCode || '') !== appliedFilters.groupCode) return false;
+        if (appliedFilters.subgroupCode !== 'Todas' && (product.subgroupCode || '') !== appliedFilters.subgroupCode) return false;
+        if (appliedFilters.stockMode === 'in-stock' && (product.stock || 0) <= 0) return false;
+        if (appliedFilters.stockMode === 'out-of-stock' && (product.stock || 0) > 0) return false;
 
-      if (terms.length > 0) {
-        const haystack = normalizeText(
-          `${product.id} ${product.name} ${product.description} ${product.category} ${product.sectionCode} ${product.groupCode} ${product.subgroupCode}`
-        );
-        return terms.every((term) => haystack.includes(term));
-      }
+        if (terms.length > 0) {
+          const haystack = normalizeText(
+            `${product.id} ${product.name} ${product.description} ${product.category} ${product.sectionCode} ${product.groupCode} ${product.subgroupCode}`
+          );
+          return terms.every((term) => haystack.includes(term));
+        }
 
-      return true;
-    });
+        return true;
+      })
+      .sort(compareProductsBySectionTrail);
   }, [allProducts, appliedFilters]);
 
   useEffect(() => {
@@ -142,6 +172,11 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
   const selectedProducts = useMemo(
     () => filteredProducts.filter((product) => selectedIds.includes(product.id)),
     [filteredProducts, selectedIds]
+  );
+
+  const printProductPages = useMemo(
+    () => chunkProductsForPrint(selectedProducts, 24),
+    [selectedProducts]
   );
 
   const categories = useMemo(() => ['Todas', ...getUniqueValues(allProducts, (product) => product.category)], [allProducts]);
@@ -314,8 +349,8 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
       </div>
 
       <div className={`print-only report-print-root ${brandThemeClass}`}>
-        {selectedProducts.length === 0 ? null : (
-          <section className="report-print-sheet">
+        {printProductPages.length === 0 ? null : printProductPages.map((pageProducts, pageIndex) => (
+          <section key={`print-page-${pageIndex + 1}`} className="report-print-sheet">
             <header className="report-print-header">
               <div className="report-print-header-band" />
               <div className="report-print-brand">
@@ -338,6 +373,7 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
               <div className="report-print-meta">
                 <span>Itens filtrados: {filteredProducts.length}</span>
                 <span>Selecionados: {selectedProducts.length}</span>
+                <span>Página {pageIndex + 1} de {printProductPages.length}</span>
                 <span>Loja {currentStoreCode.padStart(5, '0')}</span>
               </div>
             </header>
@@ -355,8 +391,8 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
                 </tr>
               </thead>
               <tbody>
-                {selectedProducts.map((product) => (
-                  <tr key={product.id}>
+                {pageProducts.map((product) => (
+                  <tr key={`${pageIndex + 1}-${product.id}`}>
                     <td>{product.id}</td>
                     <td><div className="report-print-product">{product.name}</div>{product.description ? <div className="report-print-description">{product.description}</div> : null}</td>
                     <td>{product.category || '-'}</td>
@@ -369,7 +405,7 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
               </tbody>
             </table>
           </section>
-        )}
+        ))}
       </div>
     </div>
   );

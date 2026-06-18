@@ -1408,6 +1408,35 @@ const renderReceiptPDF = (doc, receipt, store) => {
     ? `Plano: ${receipt.paymentPlanDescription}${receipt.paymentInstallments ? ` (${receipt.paymentInstallments}x)` : ''}`
     : null;
 
+  const formatDisplayLabel = (value, fallback = '—') => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return fallback;
+
+    const dictionary = {
+      pix: 'PIX',
+      dinheiro: 'Dinheiro',
+      cartao: 'Cartão',
+      boleto: 'Boleto',
+      retirada: 'Retirada',
+      entrega_propria: 'Entrega Própria',
+      transportadora: 'Transportadora',
+      sem_frete: 'Sem frete',
+      fob: 'Retirada',
+      cif: 'Entrega'
+    };
+
+    if (dictionary[normalized]) return dictionary[normalized];
+
+    return normalized
+      .split(/[ _-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  };
+
+  const paymentMethodLabel = formatDisplayLabel(receipt.paymentMethod);
+  const shippingMethodLabel = formatDisplayLabel(receipt.shippingMethod);
+
   const drawBox = (x, y, width, height, options = {}) => {
     const { fill = null, stroke = '#d7dee7', radius = 10, lineWidth = 1 } = options;
     doc.save();
@@ -1560,27 +1589,36 @@ const renderReceiptPDF = (doc, receipt, store) => {
     cursorY += rowHeight + 8;
   });
 
-  const lowerTop = cursorY + 8;
-  const notesWidth = pageWidth - 180 - gap;
-  const sideCardWidth = 180;
-  const notesHeight = 96;
+  const lowerTop = cursorY + 12;
+  const notesWidth = pageWidth - 200 - gap;
+  const sideCardWidth = 200;
+  const notesHeight = 116;
 
   drawBox(marginLeft, lowerTop, notesWidth, notesHeight, { stroke: '#d7dee7', radius: 12 });
   writeLabel('Observações', marginLeft + 14, lowerTop + 12, notesWidth - 28);
-  doc.fillColor('#334155').font('Helvetica').fontSize(9.5).text(receipt.notes || 'Nenhuma observação informada.', marginLeft + 14, lowerTop + 28, { width: notesWidth - 28, height: 56 });
+  doc.fillColor('#334155').font('Helvetica').fontSize(9.5).text(receipt.notes || 'Nenhuma observação informada.', marginLeft + 14, lowerTop + 30, {
+    width: notesWidth - 28,
+    height: notesHeight - 44
+  });
 
   const summaryX = marginLeft + notesWidth + gap;
   drawBox(summaryX, lowerTop, sideCardWidth, notesHeight, { fill: '#0f172a', stroke: '#0f172a', radius: 12 });
-  writeLabel('Resumo Financeiro', summaryX + 14, lowerTop + 12, sideCardWidth - 28, 'left', '#cbd5e1');
-  doc.fillColor('#cbd5e1').font('Helvetica').fontSize(9).text('Itens', summaryX + 14, lowerTop + 34, { width: 70 });
-  doc.fillColor('#ffffff').font('Helvetica-Bold').text(String(items.length), summaryX + 84, lowerTop + 34, { width: sideCardWidth - 98, align: 'right' });
-  doc.fillColor('#cbd5e1').font('Helvetica').text('Pagamento', summaryX + 14, lowerTop + 50, { width: 70 });
-  doc.fillColor('#ffffff').font('Helvetica-Bold').text(receipt.paymentMethod || '—', summaryX + 84, lowerTop + 50, { width: sideCardWidth - 98, align: 'right' });
+  doc.fillColor('#cbd5e1').font('Helvetica-Bold').fontSize(7.6).text('RESUMO FINANCEIRO', summaryX + 14, lowerTop + 14, { width: sideCardWidth - 28 });
+  const summaryLabelWidth = 82;
+  const summaryValueX = summaryX + 14 + summaryLabelWidth;
+  const summaryValueWidth = sideCardWidth - 28 - summaryLabelWidth;
+  doc.fillColor('#cbd5e1').font('Helvetica').fontSize(8.3).text('Itens', summaryX + 14, lowerTop + 34, { width: summaryLabelWidth });
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.8).text(String(items.length), summaryValueX, lowerTop + 34, { width: summaryValueWidth, align: 'right' });
+  doc.fillColor('#cbd5e1').font('Helvetica').fontSize(8.3).text('Pagamento', summaryX + 14, lowerTop + 54, { width: summaryLabelWidth });
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.8).text(paymentMethodLabel, summaryValueX, lowerTop + 54, { width: summaryValueWidth, align: 'right' });
   doc.save();
-  doc.moveTo(summaryX + 14, lowerTop + 70).lineTo(summaryX + sideCardWidth - 14, lowerTop + 70).strokeColor('#334155').lineWidth(1).stroke();
+  doc.moveTo(summaryX + 14, lowerTop + 76).lineTo(summaryX + sideCardWidth - 14, lowerTop + 76).strokeColor('#334155').lineWidth(1).stroke();
   doc.restore();
-  writeLabel('Total Geral', summaryX + 14, lowerTop + 76, sideCardWidth - 28, 'left', '#cbd5e1');
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(18).text(formatMoney(total), summaryX + 14, lowerTop + 88, { width: sideCardWidth - 28, align: 'left' });
+  doc.fillColor('#cbd5e1').font('Helvetica-Bold').fontSize(7.8).text('TOTAL GERAL', summaryX + 14, lowerTop + 84, { width: sideCardWidth - 28 });
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(12.5).text(formatMoney(total), summaryX + 14, lowerTop + 98, {
+    width: sideCardWidth - 28,
+    align: 'right'
+  });
 
   const paymentTop = lowerTop + notesHeight + 16;
   const paymentWidth = (pageWidth - gap) / 2;
@@ -1588,7 +1626,7 @@ const renderReceiptPDF = (doc, receipt, store) => {
 
   drawBox(marginLeft, paymentTop, paymentWidth, paymentHeight, { stroke: '#d7dee7', radius: 12 });
   writeLabel('Forma de Pagamento', marginLeft + 14, paymentTop + 12, paymentWidth - 28);
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(receipt.paymentMethod || '—', marginLeft + 14, paymentTop + 30, { width: paymentWidth - 28 });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(paymentMethodLabel, marginLeft + 14, paymentTop + 30, { width: paymentWidth - 28 });
   if (paymentPlan) {
     doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text(paymentPlan, marginLeft + 14, paymentTop + 46, { width: paymentWidth - 28 });
   }
@@ -1596,7 +1634,7 @@ const renderReceiptPDF = (doc, receipt, store) => {
   const shippingX = marginLeft + paymentWidth + gap;
   drawBox(shippingX, paymentTop, paymentWidth, paymentHeight, { stroke: '#d7dee7', radius: 12 });
   writeLabel('Tipo de Frete', shippingX + 14, paymentTop + 12, paymentWidth - 28);
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(receipt.shippingMethod || '—', shippingX + 14, paymentTop + 30, { width: paymentWidth - 28 });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(shippingMethodLabel, shippingX + 14, paymentTop + 30, { width: paymentWidth - 28 });
 
   const footerY = paymentTop + paymentHeight + 26;
   doc.save();
