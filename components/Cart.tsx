@@ -81,14 +81,20 @@ interface NumericKeypadModalProps {
   initialValue: number;
   itemName: string;
   unit: string;
+  referenceValue?: number;
   onConfirm: (val: number) => void;
   onClose: () => void;
 }
 
-const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialValue, itemName, unit, onConfirm, onClose }) => {
+const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialValue, itemName, unit, referenceValue, onConfirm, onClose }) => {
   // Converte para string com vírgula para edição
   const [displayValue, setDisplayValue] = useState(initialValue.toString().replace('.', ','));
   const [hasTyped, setHasTyped] = useState(false); // Novo estado: sabe se o usuário começou a digitar
+  const normalizedValue = displayValue.replace(',', '.');
+  const previewValue = Number.parseFloat(normalizedValue);
+  const hasReferenceDiscount = typeof referenceValue === 'number' && Number.isFinite(referenceValue) && referenceValue > 0 && Number.isFinite(previewValue) && previewValue < referenceValue;
+  const discountAmount = hasReferenceDiscount ? referenceValue - previewValue : 0;
+  const discountPercent = hasReferenceDiscount ? (discountAmount / referenceValue) * 100 : 0;
 
   const handleNumber = (num: string) => {
     setDisplayValue(prev => {
@@ -176,6 +182,17 @@ const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialV
                 <Delete className="w-6 h-6" />
             </button>
           </div>
+          {hasReferenceDiscount && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Preço abaixo da tabela</span>
+              </div>
+              <div className="mt-1">
+                Desconto nominal: R$ {discountAmount.toFixed(2)} | Desconto percentual: {discountPercent.toFixed(2)}%
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Keypad Grid */}
@@ -457,7 +474,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
-  const [editingPrice, setEditingPrice] = useState<{ id: string, name: string, price: number, unit: string } | null>(null);
+  const [editingPrice, setEditingPrice] = useState<{ id: string, name: string, price: number, unit: string, basePrice: number } | null>(null);
 
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const { enums } = useEnums();
@@ -961,6 +978,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             initialValue={editingPrice.price}
             itemName={editingPrice.name}
             unit={editingPrice.unit}
+            referenceValue={editingPrice.basePrice}
             onClose={() => setEditingPrice(null)}
             onConfirm={(val) => {
                 if (onUpdatePrice) onUpdatePrice(editingPrice.id, val);
@@ -1211,6 +1229,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         {cart.map((item) => {
             const isFractional = item.unit.toLowerCase() === 'cto';
             const step = isFractional ? 0.01 : 1;
+            const referencePrice = Number(item.basePrice ?? item.price);
+            const hasDiscount = Number.isFinite(referencePrice) && referencePrice > 0 && item.price < referencePrice;
+            const discountAmount = hasDiscount ? referencePrice - item.price : 0;
+            const discountPercent = hasDiscount ? (discountAmount / referencePrice) * 100 : 0;
 
             return (
               <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-4 py-4 border-b border-slate-100 dark:border-slate-700 last:border-0">
@@ -1223,13 +1245,22 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                           </span>
                           <span>•</span>
                           <button
-                            onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit })}
+                            onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
                             className="underline decoration-dotted hover:decoration-solid"
                             title="Editar preço"
                           >
                             R$ {item.price.toFixed(2)} / {item.unit}
                           </button>
                       </p>
+                      {hasDiscount && (
+                        <div className="mt-2 inline-flex max-w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div>
+                            <div className="font-semibold">Preço abaixo da tabela</div>
+                            <div>Desconto nominal: R$ {discountAmount.toFixed(2)} | Desconto percentual: {discountPercent.toFixed(2)}%</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                 </div>
                 

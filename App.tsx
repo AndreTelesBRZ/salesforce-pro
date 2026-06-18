@@ -432,11 +432,13 @@ export default function App() {
               cart={cart} 
               onUpdateQuantity={updateQuantity} 
               onUpdatePrice={(id, newPrice) => {
-                 if (newPrice <= 0 || isNaN(newPrice)) return;
+                 if (isNaN(newPrice) || newPrice < 0) return;
+                 if (newPrice === 0) {
+                   removeFromCart(id);
+                   return;
+                 }
                  setCart(prev => prev.map(i => {
                    if (i.id !== id) return i;
-                   const floor = i.basePrice ?? i.price;
-                   if (newPrice < floor) return i;
                    return { ...i, price: newPrice };
                  }));
               }}

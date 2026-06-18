@@ -43,7 +43,7 @@ export interface Customer {
 
 export interface CartItem extends Product {
   quantity: number;
-  // Preço base de tabela para limitar redução
+  // Preço base de tabela usado apenas para referência visual no carrinho.
   basePrice?: number;
 }
 
