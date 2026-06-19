@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { apiService } from '../services/api';
 import { Product } from '../types';
 import { getStoreCodeForCurrentHost, isEdsonHostForCurrent, isLlfixHostForCurrent } from '../services/storeHost';
-import { BarChart3, CheckSquare, Filter, Loader2, Package, Printer, RefreshCcw, Search, Square } from 'lucide-react';
+import { BarChart3, CheckSquare, Filter, Loader2, Package, Printer, RefreshCcw, Search, Share2, Square } from 'lucide-react';
 
 interface StoreInfo {
   id?: number | string;
@@ -27,7 +27,7 @@ interface ReportFilters {
   sectionCode: string;
   groupCode: string;
   subgroupCode: string;
-  stockMode: 'all' | 'in-stock' | 'out-of-stock';
+  stockMode: 'all' | 'positive' | 'zero' | 'negative';
 }
 
 const DEFAULT_FILTERS: ReportFilters = {
@@ -82,12 +82,100 @@ const compareProductsBySectionTrail = (left: Product, right: Product) => {
   return String(left.id || '').localeCompare(String(right.id || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
 };
 
-const chunkProductsForPrint = (products: Product[], pageSize: number): Product[][] => {
-  if (products.length === 0) return [];
-  const pages: Product[][] = [];
-  for (let index = 0; index < products.length; index += pageSize) {
-    pages.push(products.slice(index, index + pageSize));
+interface ReportPrintSeparatorRow {
+  kind: 'separator';
+  key: string;
+  label: string;
+  level: 'section' | 'group' | 'subgroup';
+}
+
+interface ReportPrintProductRow {
+  kind: 'product';
+  key: string;
+  product: Product;
+}
+
+type ReportPrintRow = ReportPrintSeparatorRow | ReportPrintProductRow;
+
+const buildPrintRows = (products: Product[]): ReportPrintRow[] => {
+  const rows: ReportPrintRow[] = [];
+  let previousSection = '';
+  let previousGroup = '';
+  let previousSubgroup = '';
+
+  products.forEach((product, index) => {
+    const section = String(product.sectionCode || '').trim();
+    const group = String(product.groupCode || '').trim();
+    const subgroup = String(product.subgroupCode || '').trim();
+
+    if (section !== previousSection) {
+      rows.push({
+        kind: 'separator',
+        key: `section-${section || 'na'}-${index}`,
+        label: `Seção ${section || '-'}`,
+        level: 'section',
+      });
+    }
+
+    if (section !== previousSection || group !== previousGroup) {
+      rows.push({
+        kind: 'separator',
+        key: `group-${section || 'na'}-${group || 'na'}-${index}`,
+        label: `Grupo ${group || '-'}`,
+        level: 'group',
+      });
+    }
+
+    if (section !== previousSection || group !== previousGroup || subgroup !== previousSubgroup) {
+      rows.push({
+        kind: 'separator',
+        key: `subgroup-${section || 'na'}-${group || 'na'}-${subgroup || 'na'}-${index}`,
+        label: `Subgrupo ${subgroup || '-'}`,
+        level: 'subgroup',
+      });
+    }
+
+    rows.push({
+      kind: 'product',
+      key: `product-${product.id}-${index}`,
+      product,
+    });
+
+    previousSection = section;
+    previousGroup = group;
+    previousSubgroup = subgroup;
+  });
+
+  return rows;
+};
+
+const estimatePrintRowUnits = (row: ReportPrintRow): number => {
+  if (row.kind === 'separator') return 0.7;
+  return row.product.description ? 1.35 : 1;
+};
+
+const chunkPrintRowsForPrint = (rows: ReportPrintRow[], maxUnits: number): ReportPrintRow[][] => {
+  if (rows.length === 0) return [];
+
+  const pages: ReportPrintRow[][] = [];
+  let currentPage: ReportPrintRow[] = [];
+  let currentUnits = 0;
+
+  rows.forEach((row) => {
+    const nextUnits = estimatePrintRowUnits(row);
+    if (currentPage.length > 0 && currentUnits + nextUnits > maxUnits) {
+      pages.push(currentPage);
+      currentPage = [];
+      currentUnits = 0;
+    }
+    currentPage.push(row);
+    currentUnits += nextUnits;
+  });
+
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
   }
+
   return pages;
 };
 
@@ -149,8 +237,9 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
         if (appliedFilters.sectionCode !== 'Todas' && (product.sectionCode || '') !== appliedFilters.sectionCode) return false;
         if (appliedFilters.groupCode !== 'Todas' && (product.groupCode || '') !== appliedFilters.groupCode) return false;
         if (appliedFilters.subgroupCode !== 'Todas' && (product.subgroupCode || '') !== appliedFilters.subgroupCode) return false;
-        if (appliedFilters.stockMode === 'in-stock' && (product.stock || 0) <= 0) return false;
-        if (appliedFilters.stockMode === 'out-of-stock' && (product.stock || 0) > 0) return false;
+        if (appliedFilters.stockMode === 'positive' && (product.stock || 0) <= 0) return false;
+        if (appliedFilters.stockMode === 'zero' && (product.stock || 0) !== 0) return false;
+        if (appliedFilters.stockMode === 'negative' && (product.stock || 0) >= 0) return false;
 
         if (terms.length > 0) {
           const haystack = normalizeText(
@@ -174,9 +263,11 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
     [filteredProducts, selectedIds]
   );
 
+  const printRows = useMemo(() => buildPrintRows(selectedProducts), [selectedProducts]);
+
   const printProductPages = useMemo(
-    () => chunkProductsForPrint(selectedProducts, 24),
-    [selectedProducts]
+    () => chunkPrintRowsForPrint(printRows, 23.5),
+    [printRows]
   );
 
   const categories = useMemo(() => ['Todas', ...getUniqueValues(allProducts, (product) => product.category)], [allProducts]);
@@ -236,6 +327,67 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
     setSelectedIds([]);
   };
 
+  const handleShare = async () => {
+    if (selectedProducts.length === 0) return;
+
+    const stockModeLabel = {
+      all: 'Todos',
+      positive: 'Com estoque',
+      zero: 'Estoque zerado',
+      negative: 'Estoque negativo',
+    }[appliedFilters.stockMode];
+
+    const filterSummary = [
+      appliedFilters.category !== 'Todas' ? `Categoria: ${appliedFilters.category}` : null,
+      appliedFilters.sectionCode !== 'Todas' ? `Seção: ${appliedFilters.sectionCode}` : null,
+      appliedFilters.groupCode !== 'Todas' ? `Grupo: ${appliedFilters.groupCode}` : null,
+      appliedFilters.subgroupCode !== 'Todas' ? `Subgrupo: ${appliedFilters.subgroupCode}` : null,
+      appliedFilters.searchTerm ? `Busca: ${appliedFilters.searchTerm}` : null,
+      appliedFilters.stockMode !== 'all' ? `Estoque: ${stockModeLabel}` : null,
+    ].filter(Boolean).join(' • ');
+
+    const itemLines = selectedProducts.slice(0, 20).map((product) => (
+      `${product.id} • ${product.name} • ${formatSectionTrail(product)} • ${formatCurrency(Number(product.price) || 0)}`
+    ));
+
+    if (selectedProducts.length > 20) {
+      itemLines.push(`... e mais ${selectedProducts.length - 20} item(ns).`);
+    }
+
+    const shareText = [
+      `Relatório de produtos • ${storeName}`,
+      `Itens filtrados: ${filteredProducts.length}`,
+      `Selecionados: ${selectedProducts.length}`,
+      `Valor total: ${formatCurrency(selectedTotalValue)}`,
+      filterSummary || 'Filtros: padrão',
+      '',
+      ...itemLines,
+    ].join('\n');
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Relatório de produtos',
+          text: shareText,
+        });
+        return;
+      }
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareText);
+        window.alert('Resumo do relatório copiado para a área de transferência.');
+        return;
+      }
+
+      window.alert(shareText);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      window.alert('Não foi possível compartilhar o relatório.');
+    }
+  };
+
   const handlePrint = () => {
     if (selectedProducts.length === 0) return;
     window.print();
@@ -267,6 +419,9 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
             <button type="button" onClick={() => loadProducts(false)} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50">
               {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />} Atualizar
             </button>
+            <button type="button" onClick={handleShare} disabled={selectedProducts.length === 0} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60">
+              <Share2 className="w-4 h-4" /> Compartilhar relatório
+            </button>
             <button type="button" onClick={handlePrint} disabled={selectedProducts.length === 0} className="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50">
               <Printer className="w-4 h-4" /> Imprimir selecionados
             </button>
@@ -285,7 +440,7 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
           <label className="space-y-1"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Seção</span><select value={draftFilters.sectionCode} onChange={(event) => setDraftFilters((prev) => ({ ...prev, sectionCode: event.target.value }))} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm">{sections.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="space-y-1"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Grupo</span><select value={draftFilters.groupCode} onChange={(event) => setDraftFilters((prev) => ({ ...prev, groupCode: event.target.value }))} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm">{groups.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="space-y-1"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subgrupo</span><select value={draftFilters.subgroupCode} onChange={(event) => setDraftFilters((prev) => ({ ...prev, subgroupCode: event.target.value }))} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm">{subgroups.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-          <label className="space-y-1"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estoque</span><select value={draftFilters.stockMode} onChange={(event) => setDraftFilters((prev) => ({ ...prev, stockMode: event.target.value as ReportFilters['stockMode'] }))} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm"><option value="all">Todos</option><option value="in-stock">Somente com estoque</option><option value="out-of-stock">Somente sem estoque</option></select></label>
+          <label className="space-y-1"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estoque</span><select value={draftFilters.stockMode} onChange={(event) => setDraftFilters((prev) => ({ ...prev, stockMode: event.target.value as ReportFilters['stockMode'] }))} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm"><option value="all">Todos</option><option value="positive">Somente com estoque</option><option value="zero">Somente estoque zerado</option><option value="negative">Somente estoque negativo</option></select></label>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -391,16 +546,25 @@ export const ReportsPage: React.FC<{ storeInfo?: StoreInfo | null }> = ({ storeI
                 </tr>
               </thead>
               <tbody>
-                {pageProducts.map((product) => (
-                  <tr key={`${pageIndex + 1}-${product.id}`}>
-                    <td>{product.id}</td>
-                    <td><div className="report-print-product">{product.name}</div>{product.description ? <div className="report-print-description">{product.description}</div> : null}</td>
-                    <td>{product.category || '-'}</td>
-                    <td>{formatSectionTrail(product)}</td>
-                    <td className="report-print-number">{'***'}</td>
-                    <td className="report-print-number">{product.unit || '-'}</td>
-                    <td className="report-print-number report-print-price-cell">{formatCurrency(Number(product.price) || 0)}</td>
-                  </tr>
+                {pageProducts.map((row) => (
+                  row.kind === 'separator' ? (
+                    <tr key={`${pageIndex + 1}-${row.key}`} className={`report-print-separator-row report-print-separator-${row.level}`}>
+                      <td colSpan={7}>
+                        <div className="report-print-separator-line" />
+                        <div className="report-print-separator-label">{row.label}</div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={`${pageIndex + 1}-${row.product.id}`}>
+                      <td>{row.product.id}</td>
+                      <td><div className="report-print-product">{row.product.name}</div>{row.product.description ? <div className="report-print-description">{row.product.description}</div> : null}</td>
+                      <td>{row.product.category || '-'}</td>
+                      <td>{formatSectionTrail(row.product)}</td>
+                      <td className="report-print-number">{'***'}</td>
+                      <td className="report-print-number">{row.product.unit || '-'}</td>
+                      <td className="report-print-number report-print-price-cell">{formatCurrency(Number(row.product.price) || 0)}</td>
+                    </tr>
+                  )
                 ))}
               </tbody>
             </table>

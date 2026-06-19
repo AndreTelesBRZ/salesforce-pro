@@ -226,6 +226,44 @@ body {
     font-weight: 700;
   }
 
+  .report-print-separator-row td {
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+
+  .report-print-separator-line {
+    height: 1px;
+    background: #cbd5e1;
+    margin: 6px 0 3px;
+  }
+
+  .report-print-separator-label {
+    padding-bottom: 3px;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #475569;
+  }
+
+  .report-print-separator-section .report-print-separator-line {
+    height: 1.4px;
+    background: #1d4ed8;
+  }
+
+  .report-print-separator-section .report-print-separator-label {
+    color: #1e3a8a;
+  }
+
+  .report-print-separator-group .report-print-separator-line {
+    background: #94a3b8;
+  }
+
+  .report-print-separator-subgroup .report-print-separator-line {
+    background: #cbd5e1;
+  }
+
   .report-theme-default .report-print-header {
     border-bottom-color: #1e3a8a;
   }
