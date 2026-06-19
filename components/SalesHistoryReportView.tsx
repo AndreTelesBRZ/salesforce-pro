@@ -1,0 +1,174 @@
+import React, { useMemo } from 'react';
+import { AlertCircle, Package } from 'lucide-react';
+import type { SalesHistoryItem, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView as SalesHistoryReportViewData } from '../types';
+
+interface SalesHistoryReportViewProps {
+  reportView?: SalesHistoryReportViewData | null;
+  reportTruncated?: boolean;
+  fallbackItems?: SalesHistoryItem[];
+  loading?: boolean;
+}
+
+const currencyFormatter = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+});
+
+const formatCurrency = (value?: number): string => {
+  return currencyFormatter.format(Number(value) || 0);
+};
+
+const buildFallbackRows = (items: SalesHistoryItem[]): SalesHistoryReportGroup[] => {
+  const grouped = new Map<string, SalesHistoryReportGroup>();
+
+  items.forEach((item, index) => {
+    const sourceDate = item.notaData || item.dataMovimento || item.pedidoData || item.prevendaData || null;
+    const parsedDate = sourceDate ? new Date(sourceDate) : null;
+    const groupKey = parsedDate && !Number.isNaN(parsedDate.getTime())
+      ? parsedDate.toISOString().slice(0, 10)
+      : 'sem-data-' + index;
+    const groupLabel = parsedDate && !Number.isNaN(parsedDate.getTime())
+      ? parsedDate.toLocaleDateString('pt-BR')
+      : 'Sem data';
+
+    if (!grouped.has(groupKey)) {
+      grouped.set(groupKey, {
+        dataEmissao: sourceDate,
+        dataEmissaoDisplay: groupLabel,
+        rows: [],
+        totalDataEmissao: {
+          valorBruto: 0,
+          valorTotal: 0,
+        },
+      });
+    }
+
+    const valorBruto = Number(item.itemValorTotal || item.notaValorTotal || item.pedidoValorTotal || item.prevendaValorTotal || 0);
+    const valorTotal = Number(item.itemValorLiquido || item.itemValorTotal || item.notaValorTotal || item.pedidoValorTotal || item.prevendaValorTotal || 0);
+
+    const row: SalesHistoryReportRow = {
+      pedido: item.pedidoCodigo || item.prevendaCodigo || null,
+      status: item.documentoStatus || item.pedidoStatus || item.prevendaStatus || null,
+      statusCodigo: item.documentoStatus || item.pedidoStatus || item.prevendaStatus || null,
+      cliente: item.clienteRazaoSocial || item.clienteFantasia || item.clienteCodigo || '-',
+      clienteCodigo: item.clienteCodigo || null,
+      clienteNome: item.clienteRazaoSocial || item.clienteFantasia || null,
+      pedidoCliente: null,
+      emissao: sourceDate,
+      emissaoDisplay: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toLocaleDateString('pt-BR') : null,
+      vendedor: item.vendedorCodigo ? item.vendedorCodigo + '-' + (item.vendedorNome || '') : (item.vendedorNome || '-'),
+      valorBruto,
+      valorTotal,
+      notaNumero: item.notaNumero || null,
+      notaSerie: item.notaSerie || null,
+      saidaCodigo: item.saidaCodigo || null,
+      produtoCodigo: item.produtoCodigo || null,
+      produtoDescricao: item.produtoDescricao || null,
+      documentoTipo: item.documentoTipo || null,
+    };
+
+    const group = grouped.get(groupKey);
+    if (!group) return;
+    group.rows.push(row);
+    group.totalDataEmissao.valorBruto += valorBruto;
+    group.totalDataEmissao.valorTotal += valorTotal;
+  });
+
+  return Array.from(grouped.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, group]) => group);
+};
+
+const renderEmptyState = () => {
+  return (
+    <div className="p-10 text-center">
+      <Package className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+      <p className="font-medium text-slate-700 dark:text-slate-200">Nenhum resultado encontrado</p>
+      <p className="text-sm text-slate-500 dark:text-slate-400">Refine os filtros para visualizar o relatório.</p>
+    </div>
+  );
+};
+
+export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
+  reportView,
+  reportTruncated,
+  fallbackItems = [],
+  loading,
+}) => {
+  const fallbackGroups = useMemo(() => buildFallbackRows(fallbackItems), [fallbackItems]);
+  const groups = reportView?.groups?.length ? reportView.groups : fallbackGroups;
+  const totalGeral = reportView
+    ? reportView.totals.valorTotal
+    : fallbackGroups.reduce((sum, group) => sum + group.totalDataEmissao.valorTotal, 0);
+
+  if (loading) {
+    return (
+      <div className="p-10 text-center text-sm text-slate-500 dark:text-slate-400">
+        Carregando relatório...
+      </div>
+    );
+  }
+
+  if (groups.length === 0) {
+    return renderEmptyState();
+  }
+
+  return (
+    <div className="space-y-4">
+      {reportTruncated ? (
+        <div className="mx-4 mt-4 inline-flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertCircle className="mt-0.5 h-4 w-4" />
+          Relatório parcial. Refine os filtros para visualizar todos os registros.
+        </div>
+      ) : null}
+
+      <div className="divide-y divide-slate-200 dark:divide-slate-800">
+        {groups.map((group) => (
+          <section key={group.dataEmissaoDisplay + '-' + (group.dataEmissao || 'sem-data')} className="overflow-x-auto">
+            <div className="bg-yellow-100 dark:bg-yellow-500/20 px-4 py-2 font-semibold text-slate-900 dark:text-white">
+              {group.dataEmissaoDisplay}
+            </div>
+
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-950/60">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Pedido</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Status</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Cliente</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Ped. do cli.</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Emissão</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Vendedor</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Valor Bruto</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Valor Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.rows.map((row, index) => (
+                  <tr key={group.dataEmissaoDisplay + '-' + index} className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="px-3 py-2 font-mono text-xs">{row.pedido || '-'}</td>
+                    <td className="px-3 py-2">{row.status || '-'}</td>
+                    <td className="px-3 py-2">{row.cliente}</td>
+                    <td className="px-3 py-2">{row.pedidoCliente || '-'}</td>
+                    <td className="px-3 py-2">{row.emissaoDisplay || row.emissao || '-'}</td>
+                    <td className="px-3 py-2">{row.vendedor}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(row.valorBruto)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(row.valorTotal)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/40">
+                  <td colSpan={7} className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">Total por data de emissão</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-bold text-slate-900 dark:text-white">{formatCurrency(group.totalDataEmissao.valorTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        ))}
+      </div>
+
+      <div className="border-t border-slate-200 px-4 py-3 text-right dark:border-slate-800">
+        <span className="mr-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Total geral</span>
+        <span className="text-base font-bold text-slate-900 dark:text-white">{formatCurrency(totalGeral)}</span>
+      </div>
+    </div>
+  );
+};

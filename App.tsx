@@ -6,23 +6,25 @@ import { Settings } from './components/Settings';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { CustomerList } from './components/CustomerList';
+import { SalesHistoryPage } from './components/SalesHistoryPage';
 import { OrderHistory } from './components/OrderHistory';
 import { SyncData } from './components/SyncData';
 import { ReportsPage } from './components/ReportsPage';
 import { DraftsPage } from './src/pages/DraftsPage';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
-import { Product, CartItem, ThemeMode } from './types';
+import { Product, CartItem, ThemeMode, Customer } from './types';
 import { EnumProvider } from './contexts/EnumContext';
 import { OrderDraft } from './src/types/orderDraft';
 import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList, BarChart3 } from 'lucide-react';
 
-type View = 'dashboard' | 'products' | 'reports' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
+type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
 
 const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ className?: string }>; }[] = [
   { view: 'dashboard', label: 'Início', icon: Store },
   { view: 'products', label: 'Catálogo', icon: LayoutGrid },
   { view: 'reports', label: 'Relatórios', icon: BarChart3 },
+  { view: 'sales-history', label: 'Consulta de Vendas', icon: FileText },
   { view: 'cart', label: 'Carrinho', icon: ShoppingCart },
   { view: 'orders', label: 'Histórico', icon: FileText },
   { view: 'drafts', label: 'Rascunhos', icon: ClipboardList },
@@ -45,6 +47,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState('');
   const [sellerCode, setSellerCode] = useState<string | null>(null);
   const [storeInfo, setStoreInfo] = useState<any | undefined>(undefined);
+  const [salesHistoryCustomer, setSalesHistoryCustomer] = useState<Customer | null>(null);
 
   // Inicialização do App
   useEffect(() => {
@@ -323,6 +326,7 @@ export default function App() {
       case 'dashboard': return 'Início';
       case 'products': return 'Catálogo';
       case 'reports': return 'Relatórios';
+      case 'sales-history': return 'Consulta de Vendas';
       case 'cart': return 'Carrinho';
       case 'orders': return 'Meus Pedidos';
       case 'drafts': return 'Rascunhos';
@@ -427,6 +431,9 @@ export default function App() {
           {currentView === 'reports' && (
             <ReportsPage storeInfo={storeInfo} />
           )}
+          {currentView === 'sales-history' && (
+            <SalesHistoryPage initialCustomer={salesHistoryCustomer} />
+          )}
           {currentView === 'cart' && (
             <Cart 
               cart={cart} 
@@ -468,7 +475,12 @@ export default function App() {
             />
           )}
           {currentView === 'customers' && (
-            <CustomerList />
+            <CustomerList
+              onOpenSalesHistory={(customer) => {
+                setSalesHistoryCustomer(customer);
+                setCurrentView('sales-history');
+              }}
+            />
           )}
           {currentView === 'settings' && (
             <Settings 

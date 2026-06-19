@@ -139,6 +139,165 @@ export interface DelinquencyItem {
   lastSync?: string;
 }
 
+export interface SalesHistoryFilters {
+  cliente_codigo?: string;
+  vendedor_codigo?: string;
+  nota_numero?: string;
+  produto_codigo?: string;
+  data_inicio?: string;
+  data_fim?: string;
+  loja_codigo?: string;
+  pedido_codigo?: string;
+  saida_codigo?: string;
+  q?: string;
+}
+
+export interface SalesHistoryNoteItem {
+  produtoCodigo?: string;
+  produtoDescricao?: string;
+  itemQuantidade: number;
+  itemValorUnitario: number;
+  itemValorTotal: number;
+  itemValorLiquido: number;
+}
+
+export interface SalesHistoryNote {
+  lojaCodigo?: string;
+  prevendaCodigo?: string;
+  pedidoCodigo?: string;
+  saidaCodigo?: string;
+  notaData?: string;
+  notaSerie?: string;
+  notaNumero?: string;
+  notaValorTotal: number;
+  documentoStatus?: string;
+  nfeStatus?: string;
+  documentoTipo?: string;
+  itens?: SalesHistoryNoteItem[];
+}
+
+export interface SalesHistoryCustomerGrouped {
+  clienteCodigo: string;
+  clienteRazaoSocial?: string;
+  clienteFantasia?: string;
+  vendedorCodigo?: string;
+  vendedorNome?: string;
+  notas: SalesHistoryNote[];
+}
+
+export interface SalesHistoryItem {
+  clienteCodigo?: string;
+  clienteRazaoSocial?: string;
+  clienteFantasia?: string;
+  clienteCnpjCpf?: string;
+  clienteTelefone1?: string;
+  clienteTelefone2?: string;
+  clienteEndereco?: string;
+  clienteNumero?: string;
+  clienteComplemento?: string;
+  clienteBairro?: string;
+  clienteCidade?: string;
+  clienteEstado?: string;
+  clienteCep?: string;
+  vendedorCodigo?: string;
+  vendedorNome?: string;
+  lojaCodigo?: string;
+  prevendaCodigo?: string;
+  prevendaData?: string;
+  prevendaDataFaturamento?: string;
+  prevendaValorTotal: number;
+  prevendaFaturada?: boolean;
+  prevendaStatus?: string;
+  pedidoCodigo?: string;
+  pedidoData?: string;
+  pedidoValorTotal: number;
+  pedidoStatus?: string;
+  saidaCodigo?: string;
+  notaNumero?: string;
+  notaSerie?: string;
+  notaData?: string;
+  notaValorTotal: number;
+  documentoStatus?: string;
+  nfeStatus?: string;
+  documentoTipo?: string;
+  produtoCodigo?: string;
+  produtoDescricao?: string;
+  itemQuantidade: number;
+  itemValorUnitario: number;
+  itemValorTotal: number;
+  itemValorLiquido: number;
+  vendaIdOrigem?: string;
+  itemIdOrigem?: string;
+  dataMovimento?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PaginatedResults<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+export type SalesHistoryReportColumn =
+  | 'pedido'
+  | 'status'
+  | 'cliente'
+  | 'pedido_cliente'
+  | 'emissao'
+  | 'vendedor'
+  | 'valor_bruto'
+  | 'valor_total';
+
+export interface SalesHistoryReportRow {
+  pedido: string | null;
+  status: string | null;
+  statusCodigo: string | null;
+  cliente: string;
+  clienteCodigo: string | null;
+  clienteNome: string | null;
+  pedidoCliente: string | null;
+  emissao: string | null;
+  emissaoDisplay: string | null;
+  vendedor: string;
+  valorBruto: number;
+  valorTotal: number;
+  notaNumero: string | null;
+  notaSerie: string | null;
+  saidaCodigo: string | null;
+  produtoCodigo: string | null;
+  produtoDescricao: string | null;
+  documentoTipo: string | null;
+}
+
+export interface SalesHistoryReportGroup {
+  dataEmissao: string | null;
+  dataEmissaoDisplay: string;
+  rows: SalesHistoryReportRow[];
+  totalDataEmissao: {
+    valorBruto: number;
+    valorTotal: number;
+  };
+}
+
+export interface SalesHistoryReportView {
+  groupBy: 'data_emissao';
+  order: 'asc';
+  layout: 'resumo_por_emissao';
+  columns: SalesHistoryReportColumn[];
+  groups: SalesHistoryReportGroup[];
+  totals: {
+    valorBruto: number;
+    valorTotal: number;
+  };
+}
+
+export interface SalesHistoryResponse extends PaginatedResults<SalesHistoryItem> {
+  reportView: SalesHistoryReportView | null;
+  reportTruncated: boolean;
+}
+
 const FRACTIONAL_UNITS = new Set(['cto', 'kg']);
 
 export const isFractionalUnit = (unit?: string): boolean => {

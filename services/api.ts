@@ -1,5 +1,5 @@
 
-import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption } from '../types';
+import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption, PaginatedResults, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportColumn, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView, SalesHistoryResponse } from '../types';
 
 const PAGAMENTO_STATUS = {
   PENDENTE: 'aguardando',
@@ -1866,6 +1866,303 @@ class ApiService {
       }
       const data = await res.json();
       return this.mapCustomer(data);
+  }
+
+
+  private appendSalesHistoryFilters(params: URLSearchParams, filters: SalesHistoryFilters = {}, options: { includeCustomerCode?: boolean } = {}): URLSearchParams {
+      const includeCustomerCode = options.includeCustomerCode ?? true;
+      const entries: Array<[keyof SalesHistoryFilters, boolean]> = [
+          ['cliente_codigo', includeCustomerCode],
+          ['vendedor_codigo', true],
+          ['nota_numero', true],
+          ['produto_codigo', true],
+          ['data_inicio', true],
+          ['data_fim', true],
+          ['loja_codigo', true],
+          ['pedido_codigo', true],
+          ['saida_codigo', true],
+          ['q', true],
+      ];
+
+      entries.forEach(([key, allowed]) => {
+          if (!allowed) return;
+          const value = String(filters[key] || '').trim();
+          if (value) params.set(key, value);
+      });
+
+      return params;
+  }
+
+  private mapSalesHistoryNoteItem(item: any): SalesHistoryNoteItem {
+      return {
+          produtoCodigo: item.produto_codigo || item.product_code || item.produtoCodigo || '',
+          produtoDescricao: item.produto_descricao || item.product_description || item.produtoDescricao || '',
+          itemQuantidade: this.toNumber(item.item_quantidade),
+          itemValorUnitario: this.toNumber(item.item_valor_unitario),
+          itemValorTotal: this.toNumber(item.item_valor_total),
+          itemValorLiquido: this.toNumber(item.item_valor_liquido),
+      };
+  }
+
+  private mapSalesHistoryNote(item: any): SalesHistoryNote {
+      return {
+          lojaCodigo: item.loja_codigo || item.lojaCodigo || '',
+          prevendaCodigo: item.prevenda_codigo || item.pre_venda_codigo || item.prevendaCodigo || '',
+          pedidoCodigo: item.pedido_codigo || item.pedidoCodigo || '',
+          saidaCodigo: item.saida_codigo || item.saidaCodigo || '',
+          notaData: item.nota_data || item.notaData || '',
+          notaSerie: item.nota_serie || item.notaSerie || '',
+          notaNumero: item.nota_numero || item.notaNumero || '',
+          notaValorTotal: this.toNumber(item.nota_valor_total),
+          documentoStatus: item.documento_status || item.documentoStatus || '',
+          nfeStatus: item.nfe_status || item.nfeStatus || '',
+          documentoTipo: item.documento_tipo || item.documentoTipo || '',
+          itens: Array.isArray(item.itens) ? item.itens.map((noteItem: any) => this.mapSalesHistoryNoteItem(noteItem)) : undefined,
+      };
+  }
+
+  private mapSalesHistoryItem(item: any): SalesHistoryItem {
+      return {
+          clienteCodigo: item.cliente_codigo || item.clienteCodigo || '',
+          clienteRazaoSocial: item.cliente_razao_social || item.clienteRazaoSocial || '',
+          clienteFantasia: item.cliente_fantasia || item.clienteFantasia || '',
+          clienteCnpjCpf: item.cliente_cnpj_cpf || item.clienteCnpjCpf || '',
+          clienteTelefone1: item.cliente_telefone_1 || item.clienteTelefone1 || '',
+          clienteTelefone2: item.cliente_telefone_2 || item.clienteTelefone2 || '',
+          clienteEndereco: item.cliente_endereco || item.clienteEndereco || '',
+          clienteNumero: item.cliente_numero || item.clienteNumero || '',
+          clienteComplemento: item.cliente_complemento || item.clienteComplemento || '',
+          clienteBairro: item.cliente_bairro || item.clienteBairro || '',
+          clienteCidade: item.cliente_cidade || item.clienteCidade || '',
+          clienteEstado: item.cliente_estado || item.clienteEstado || '',
+          clienteCep: item.cliente_cep || item.clienteCep || '',
+          vendedorCodigo: item.vendedor_codigo || item.vendedorCodigo || '',
+          vendedorNome: item.vendedor_nome || item.vendedorNome || '',
+          lojaCodigo: item.loja_codigo || item.lojaCodigo || '',
+          prevendaCodigo: item.prevenda_codigo || item.prevendaCodigo || '',
+          prevendaData: item.prevenda_data || item.prevendaData || '',
+          prevendaDataFaturamento: item.prevenda_data_faturamento || item.prevendaDataFaturamento || '',
+          prevendaValorTotal: this.toNumber(item.prevenda_valor_total),
+          prevendaFaturada: this.toBoolean(item.prevenda_faturada),
+          prevendaStatus: item.prevenda_status || item.prevendaStatus || '',
+          pedidoCodigo: item.pedido_codigo || item.pedidoCodigo || '',
+          pedidoData: item.pedido_data || item.pedidoData || '',
+          pedidoValorTotal: this.toNumber(item.pedido_valor_total),
+          pedidoStatus: item.pedido_status || item.pedidoStatus || '',
+          saidaCodigo: item.saida_codigo || item.saidaCodigo || '',
+          notaNumero: item.nota_numero || item.notaNumero || '',
+          notaSerie: item.nota_serie || item.notaSerie || '',
+          notaData: item.nota_data || item.notaData || '',
+          notaValorTotal: this.toNumber(item.nota_valor_total),
+          documentoStatus: item.documento_status || item.documentoStatus || '',
+          nfeStatus: item.nfe_status || item.nfeStatus || '',
+          documentoTipo: item.documento_tipo || item.documentoTipo || '',
+          produtoCodigo: item.produto_codigo || item.produtoCodigo || '',
+          produtoDescricao: item.produto_descricao || item.produtoDescricao || '',
+          itemQuantidade: this.toNumber(item.item_quantidade),
+          itemValorUnitario: this.toNumber(item.item_valor_unitario),
+          itemValorTotal: this.toNumber(item.item_valor_total),
+          itemValorLiquido: this.toNumber(item.item_valor_liquido),
+          vendaIdOrigem: item.venda_id_origem || item.vendaIdOrigem || '',
+          itemIdOrigem: item.item_id_origem || item.itemIdOrigem || '',
+          dataMovimento: item.data_movimento || item.dataMovimento || '',
+          createdAt: item.created_at || item.createdAt || '',
+          updatedAt: item.updated_at || item.updatedAt || '',
+      };
+  }
+
+  private mapPaginatedSalesHistory<T>(payload: any, mapper: (item: any) => T): PaginatedResults<T> {
+      const source = payload as { count?: unknown; next?: unknown; previous?: unknown; results?: unknown };
+      const list = Array.isArray(source.results) ? source.results : [];
+      return {
+          count: this.toNumber(source.count),
+          next: typeof source.next === 'string' ? source.next : null,
+          previous: typeof source.previous === 'string' ? source.previous : null,
+          results: list.map((item) => mapper(item)),
+      };
+  }
+
+  private mapSalesHistoryReportColumn(value: unknown): SalesHistoryReportColumn | null {
+      const allowed: SalesHistoryReportColumn[] = ['pedido', 'status', 'cliente', 'pedido_cliente', 'emissao', 'vendedor', 'valor_bruto', 'valor_total'];
+      return allowed.includes(value as SalesHistoryReportColumn) ? (value as SalesHistoryReportColumn) : null;
+  }
+
+  private mapSalesHistoryReportRow(item: unknown): SalesHistoryReportRow {
+      const source = (item && typeof item === 'object') ? item as Record<string, unknown> : {};
+      return {
+          pedido: typeof source.pedido === 'string' ? source.pedido : null,
+          status: typeof source.status === 'string' ? source.status : null,
+          statusCodigo: typeof source.status_codigo === 'string' ? source.status_codigo : null,
+          cliente: typeof source.cliente === 'string' ? source.cliente : '-',
+          clienteCodigo: typeof source.cliente_codigo === 'string' ? source.cliente_codigo : null,
+          clienteNome: typeof source.cliente_nome === 'string' ? source.cliente_nome : null,
+          pedidoCliente: typeof source.pedido_cliente === 'string' ? source.pedido_cliente : null,
+          emissao: typeof source.emissao === 'string' ? source.emissao : null,
+          emissaoDisplay: typeof source.emissao_display === 'string' ? source.emissao_display : null,
+          vendedor: typeof source.vendedor === 'string' ? source.vendedor : '-',
+          valorBruto: this.toNumber(source.valor_bruto),
+          valorTotal: this.toNumber(source.valor_total),
+          notaNumero: typeof source.nota_numero === 'string' ? source.nota_numero : null,
+          notaSerie: typeof source.nota_serie === 'string' ? source.nota_serie : null,
+          saidaCodigo: typeof source.saida_codigo === 'string' ? source.saida_codigo : null,
+          produtoCodigo: typeof source.produto_codigo === 'string' ? source.produto_codigo : null,
+          produtoDescricao: typeof source.produto_descricao === 'string' ? source.produto_descricao : null,
+          documentoTipo: typeof source.documento_tipo === 'string' ? source.documento_tipo : null,
+      };
+  }
+
+  private mapSalesHistoryReportGroup(item: unknown): SalesHistoryReportGroup {
+      const source = (item && typeof item === 'object') ? item as Record<string, unknown> : {};
+      const totals = (source.total_data_emissao && typeof source.total_data_emissao === 'object') ? source.total_data_emissao as Record<string, unknown> : {};
+      const rows = Array.isArray(source.rows) ? source.rows.map((row) => this.mapSalesHistoryReportRow(row)) : [];
+      return {
+          dataEmissao: typeof source.data_emissao === 'string' ? source.data_emissao : null,
+          dataEmissaoDisplay: typeof source.data_emissao_display === 'string' ? source.data_emissao_display : 'Sem data',
+          rows,
+          totalDataEmissao: {
+              valorBruto: this.toNumber(totals.valor_bruto),
+              valorTotal: this.toNumber(totals.valor_total),
+          },
+      };
+  }
+
+  private mapSalesHistoryReportView(value: unknown): SalesHistoryReportView | null {
+      const source = (value && typeof value === 'object') ? value as Record<string, unknown> : null;
+      if (!source) return null;
+      const totals = (source.totals && typeof source.totals === 'object') ? source.totals as Record<string, unknown> : {};
+      const columns = Array.isArray(source.columns)
+          ? source.columns.map((column) => this.mapSalesHistoryReportColumn(column)).filter((column): column is SalesHistoryReportColumn => column !== null)
+          : [];
+
+      return {
+          groupBy: source.group_by === 'data_emissao' ? 'data_emissao' : 'data_emissao',
+          order: source.order === 'asc' ? 'asc' : 'asc',
+          layout: source.layout === 'resumo_por_emissao' ? 'resumo_por_emissao' : 'resumo_por_emissao',
+          columns,
+          groups: Array.isArray(source.groups) ? source.groups.map((group) => this.mapSalesHistoryReportGroup(group)) : [],
+          totals: {
+              valorBruto: this.toNumber(totals.valor_bruto),
+              valorTotal: this.toNumber(totals.valor_total),
+          },
+      };
+  }
+
+  private mapSalesHistoryResponse(payload: unknown): SalesHistoryResponse {
+      const source = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
+      const paginated = this.mapPaginatedSalesHistory(source, (item) => this.mapSalesHistoryItem(item));
+      const sortedResults = this.sortSalesHistoryItems(paginated.results);
+      return {
+          ...paginated,
+          results: sortedResults,
+          reportView: this.mapSalesHistoryReportView(source.report_view),
+          reportTruncated: Boolean(source.report_truncated),
+      };
+  }
+
+  private toTimestamp(value?: string): number {
+      if (!value) return 0;
+      const parsed = new Date(value).getTime();
+      return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private sortSalesHistoryItems(items: SalesHistoryItem[]): SalesHistoryItem[] {
+      return [...items].sort((left, right) => {
+          const dateDiff = this.toTimestamp(right.notaData) - this.toTimestamp(left.notaData);
+          if (dateDiff !== 0) return dateDiff;
+
+          const movementDiff = this.toTimestamp(right.dataMovimento) - this.toTimestamp(left.dataMovimento);
+          if (movementDiff !== 0) return movementDiff;
+
+          return String(right.notaNumero || '').localeCompare(String(left.notaNumero || ''), 'pt-BR', { numeric: true });
+      });
+  }
+
+  async getCustomerSalesHistory(clienteCodigo: string, filters: SalesHistoryFilters = {}): Promise<SalesHistoryCustomerGrouped> {
+      const customerCode = String(clienteCodigo || '').trim();
+      if (!customerCode) throw new Error('Cliente não informado.');
+
+      const query = this.appendSalesHistoryFilters(new URLSearchParams(), filters, { includeCustomerCode: false });
+      const queryString = query.toString();
+      const response = await this.fetchWithAuth(`/api/clientes/${encodeURIComponent(customerCode)}/historico-vendas/${queryString ? `?${queryString}` : ''}`);
+      if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Erro ao carregar histórico do cliente.');
+      }
+      const jsonCheck = await this.ensureJsonResponse(response, 'Histórico de vendas do cliente');
+      if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+      const payload = await response.json();
+      return {
+          clienteCodigo: payload.cliente_codigo || customerCode,
+          clienteRazaoSocial: payload.cliente_razao_social || '',
+          clienteFantasia: payload.cliente_fantasia || '',
+          vendedorCodigo: payload.vendedor_codigo || '',
+          vendedorNome: payload.vendedor_nome || '',
+          notas: Array.isArray(payload.notas) ? payload.notas.map((item: any) => this.mapSalesHistoryNote(item)) : [],
+      };
+  }
+
+  async getCustomerSalesNotes(clienteCodigo: string, filters: SalesHistoryFilters = {}): Promise<SalesHistoryNote[]> {
+      const customerCode = String(clienteCodigo || '').trim();
+      if (!customerCode) return [];
+      const query = this.appendSalesHistoryFilters(new URLSearchParams(), filters, { includeCustomerCode: false });
+      const queryString = query.toString();
+      const response = await this.fetchWithAuth(`/api/clientes/${encodeURIComponent(customerCode)}/notas/${queryString ? `?${queryString}` : ''}`);
+      if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Erro ao carregar notas do cliente.');
+      }
+      const jsonCheck = await this.ensureJsonResponse(response, 'Notas do cliente');
+      if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+      const payload = await response.json();
+      return Array.isArray(payload) ? payload.map((item: any) => this.mapSalesHistoryNote(item)) : [];
+  }
+
+  async getCustomerSalesNoteItems(clienteCodigo: string, notaNumero: string, filters: SalesHistoryFilters = {}): Promise<SalesHistoryNoteItem[]> {
+      const customerCode = String(clienteCodigo || '').trim();
+      const noteNumber = String(notaNumero || '').trim();
+      if (!customerCode || !noteNumber) return [];
+      const query = this.appendSalesHistoryFilters(new URLSearchParams(), filters, { includeCustomerCode: false });
+      const queryString = query.toString();
+      const response = await this.fetchWithAuth(`/api/clientes/${encodeURIComponent(customerCode)}/notas/${encodeURIComponent(noteNumber)}/itens/${queryString ? `?${queryString}` : ''}`);
+      if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Erro ao carregar itens da nota.');
+      }
+      const jsonCheck = await this.ensureJsonResponse(response, 'Itens da nota');
+      if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+      const payload = await response.json();
+      return Array.isArray(payload) ? payload.map((item: any) => this.mapSalesHistoryNoteItem(item)) : [];
+  }
+
+  async searchSalesHistory(q: string, page: number = 1, pageSize: number = 20): Promise<SalesHistoryResponse> {
+      const query = new URLSearchParams();
+      if (q.trim()) query.set('q', q.trim());
+      query.set('page', String(page));
+      query.set('page_size', String(pageSize));
+      const response = await this.fetchWithAuth(`/api/vendas/historico?${query.toString()}`);
+      if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Erro ao buscar histórico de vendas.');
+      }
+      const jsonCheck = await this.ensureJsonResponse(response, 'Busca de histórico de vendas');
+      if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+      const payload = await response.json();
+      return this.mapSalesHistoryResponse(payload);
+  }
+
+  async getSalesHistory(filters: SalesHistoryFilters = {}, page: number = 1, pageSize: number = 20): Promise<SalesHistoryResponse> {
+      const query = this.appendSalesHistoryFilters(new URLSearchParams(), filters);
+      query.set('page', String(page));
+      query.set('page_size', String(pageSize));
+      const response = await this.fetchWithAuth(`/api/vendas/historico?${query.toString()}`);
+      if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Erro ao carregar histórico de vendas.');
+      }
+      const jsonCheck = await this.ensureJsonResponse(response, 'Histórico de vendas');
+      if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
+      const payload = await response.json();
+      return this.mapSalesHistoryResponse(payload);
   }
 
   async getPaymentPlansForCustomer(customerId: string, pedidoTotal?: number): Promise<{ total: number; plans: PaymentPlan[] }> {

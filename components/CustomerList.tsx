@@ -4,7 +4,7 @@ import { apiService } from '../services/api';
 import { Customer } from '../types';
 import { Search, Loader2, UserCircle, MapPin, Phone, Building2, Store, Briefcase, Calendar, DollarSign, Users } from 'lucide-react';
 
-export const CustomerList: React.FC = () => {
+export const CustomerList: React.FC<{ onOpenSalesHistory?: (customer: Customer) => void }> = ({ onOpenSalesHistory }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -122,31 +122,41 @@ export const CustomerList: React.FC = () => {
                 </div>
                 
                 {/* Rodapé do Card com Dados de Venda */}
-                {(customer.sellerName || customer.lastSaleDate) && (
-                    <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-700 grid grid-cols-2 gap-2 text-xs">
-                        {customer.sellerName && (
-                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-                                <Briefcase className="w-3.5 h-3.5 text-slate-400" />
-                                <span className="truncate" title={customer.sellerName}>
-                                    Vend: <strong>{customer.sellerName}</strong>
-                                </span>
-                            </div>
-                        )}
-                        
-                        {customer.lastSaleDate && (
-                            <div className="flex flex-col items-end justify-center col-span-1 ml-auto">
+                {(customer.sellerName || customer.lastSaleDate || onOpenSalesHistory) && (
+                    <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div className="space-y-2">
+                            {customer.sellerName && (
+                                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                                    <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="truncate" title={customer.sellerName}>
+                                        Vend: <strong>{customer.sellerName}</strong>
+                                    </span>
+                                </div>
+                            )}
+                            {customer.lastSaleDate && (
                                 <div className="flex items-center gap-1.5 text-slate-500">
                                     <Calendar className="w-3.5 h-3.5" />
                                     <span>{formatDate(customer.lastSaleDate)}</span>
+                                    {(customer.lastSaleValue || 0) > 0 && (
+                                        <span className="inline-flex items-center gap-1 font-bold text-green-600 dark:text-green-400 ml-2">
+                                            <DollarSign className="w-3.5 h-3.5" />
+                                            R$ {customer.lastSaleValue?.toFixed(2)}
+                                        </span>
+                                    )}
                                 </div>
-                                {(customer.lastSaleValue || 0) > 0 && (
-                                    <div className="flex items-center gap-1 font-bold text-green-600 dark:text-green-400 mt-0.5">
-                                        <DollarSign className="w-3.5 h-3.5" />
-                                        <span>R$ {customer.lastSaleValue?.toFixed(2)}</span>
-                                    </div>
-                                )}
+                            )}
+                        </div>
+                        {onOpenSalesHistory && customer.id !== '0' ? (
+                            <div className="flex sm:justify-end items-center">
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenSalesHistory(customer)}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200 dark:hover:bg-blue-950/50"
+                                >
+                                    <Calendar className="w-3.5 h-3.5" /> Histórico de vendas
+                                </button>
                             </div>
-                        )}
+                        ) : null}
                     </div>
                 )}
             </div>
