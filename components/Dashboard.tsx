@@ -3,14 +3,28 @@ import React, { useState, useEffect } from 'react';
 import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle, ChevronRight, X, BarChart3 } from 'lucide-react';
 import { apiService, ClientSyncViewMode, ClientSyncViewResponse } from '../services/api';
 import { dbService } from '../services/db';
-import { Customer, DelinquencyItem } from '../types';
-import { calculateAverageTicket, AverageTicketResult } from '../salesMetrics';
+import { getBackendUrlForCurrentHost, getStoreCodeForApi, isLlfixHostForCurrent } from '../services/storeHost';
+import { Customer, DelinquencyItem, SalesHistoryFilters, SalesHistoryItem } from '../types';
+import { calculateAverageTicket, AverageTicketResult, summarizeSalesHistory } from '../salesMetrics';
 import { TicketMedioCard } from '../TicketMedioCard';
 
 interface DashboardProps {
   onNavigate: (view: string) => void;
   cartCount: number;
 }
+
+const formatInputDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return year + '-' + month + '-' + day;
+};
+
+const getForcedSalesHistoryStoreCode = (): string => {
+  if (isLlfixHostForCurrent()) return getStoreCodeForApi();
+  const resolvedBackend = getBackendUrlForCurrentHost() || apiService.getConfig().backendUrl || '';
+  return /apiforce.llfix.app.br/i.test(resolvedBackend) ? '000003' : '';
+};
 
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) => {
   const [localCount, setLocalCount] = useState<number | null>(null);
@@ -30,7 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
 
   // KPIs simples gerados localmente para demonstração
   const [todayTotal, setTodayTotal] = useState<number>(0);
-  const [monthGoal] = useState<number>(50000); // meta fixa de demonstração
+  const [monthGoal, setMonthGoal] = useState<number>(0);
   const [topCustomers, setTopCustomers] = useState<{name:string,total:number}[]>([]);
   const [delinquencyTotal, setDelinquencyTotal] = useState<number>(0);
   const [delinquencyCustomers, setDelinquencyCustomers] = useState<number>(0);
@@ -77,6 +91,54 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
         if (!current || value > current) map.set(key, value);
      };
 
+     const fetchAllSalesHistory = async (filters: SalesHistoryFilters): Promise<SalesHistoryItem[]> => {
+        const pageSize = 200;
+        const collected: SalesHistoryItem[] = [];
+
+        for (let currentPage = 1; currentPage <= 30; currentPage++) {
+          const response = await apiService.getSalesHistory(filters, currentPage, pageSize);
+          if (!Array.isArray(response.results) || response.results.length === 0) break;
+          collected.push(...response.results);
+          if (!response.next || response.results.length < pageSize) break;
+        }
+
+        return collected;
+     };
+
+     const loadSalesHistoryFigures = async () => {
+        try {
+          const today = new Date();
+          const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+          const forcedStoreCode = getForcedSalesHistoryStoreCode();
+          const baseFilters: SalesHistoryFilters = {
+            vendedor_codigo: apiService.getSellerId() || '',
+            loja_codigo: forcedStoreCode,
+          };
+
+          const [todayHistory, monthHistory] = await Promise.all([
+            fetchAllSalesHistory({
+              ...baseFilters,
+              data_inicio: formatInputDate(today),
+              data_fim: formatInputDate(today),
+            }),
+            fetchAllSalesHistory({
+              ...baseFilters,
+              data_inicio: formatInputDate(monthStart),
+              data_fim: formatInputDate(today),
+            }),
+          ]);
+
+          if (!isMounted) return;
+
+          const todaySummary = summarizeSalesHistory(todayHistory);
+          const monthSummary = summarizeSalesHistory(monthHistory);
+          setTodayTotal(todaySummary.total);
+          setMonthGoal(monthSummary.total);
+        } catch (error) {
+          console.warn('Falha ao carregar métricas pelo histórico de vendas', error);
+        }
+     };
+
      const loadLocalFigures = async () => {
         setInactiveLoading(true);
         setTicketLoading(true);
@@ -90,10 +152,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
           }
 
           if (!isMounted) return;
-
-          const today = new Date().toDateString();
-          const todayOrders = allOrders.filter(o => new Date(o.createdAt).toDateString() === today);
-          const todaySum = todayOrders.reduce((s,o)=> s + o.total, 0);
           const map: Record<string, number> = {};
           allOrders.forEach(o => {
              const key = o.customerName || 'Cliente';
@@ -135,7 +193,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
 
           if (!isMounted) return;
 
-          setTodayTotal(todaySum);
           setTopCustomers(tops);
           setInactiveCustomersList(inactiveList);
           setAverageTicketData(averageTicket);
@@ -150,6 +207,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
      };
 
      loadLocalFigures();
+     loadSalesHistoryFigures();
 
      return () => {
         isMounted = false;
@@ -235,6 +293,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
 
   const formatCurrency = (value: number) =>
     value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const monthProgress = monthGoal > 0 ? Math.min(100, (todayTotal / monthGoal) * 100) : 0;
 
   const formatDate = (value?: string) => {
     if (!value) return '';
@@ -366,12 +426,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
             <div className="w-full h-2 bg-blue-800/70 rounded-full">
               <div
                 className="h-2 bg-orange-500 rounded-full"
-                style={{ width: `${Math.min(100, (todayTotal / monthGoal) * 100).toFixed(0)}%` }}
+                style={{ width: `${monthProgress.toFixed(0)}%` }}
               />
             </div>
             <div className="flex justify-between text-[10px] text-blue-200 mt-2">
               <span>R$ 0</span>
-              <span>R$ {monthGoal.toLocaleString('pt-BR')}</span>
+              <span>R$ {monthGoal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
         </div>

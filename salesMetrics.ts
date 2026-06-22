@@ -1,4 +1,4 @@
-import { Order } from './types';
+import { Order, SalesHistoryItem } from './types';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export const DEFAULT_AVERAGE_TICKET_DAYS = 30;
@@ -15,6 +15,58 @@ export interface AverageTicketResult {
   total: number;
   periodDays: number;
 }
+
+export interface SalesHistorySummary {
+  total: number;
+  documentCount: number;
+}
+
+const parseHistoryDate = (item: SalesHistoryItem): Date | null => {
+  const candidates = [
+    item.notaData,
+    item.dataMovimento,
+    item.pedidoData,
+    item.prevendaData,
+    item.createdAt,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const parsed = new Date(candidate);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+};
+
+const resolveHistoryDocumentKey = (item: SalesHistoryItem, index: number): string => {
+  const primaryKey = [
+    item.lojaCodigo || '',
+    item.notaNumero || '',
+    item.notaSerie || '',
+    item.saidaCodigo || '',
+    item.pedidoCodigo || '',
+    item.prevendaCodigo || '',
+    item.vendaIdOrigem || '',
+  ].join('::');
+
+  if (primaryKey.replace(/[:]/g, '').trim()) return primaryKey;
+  if (item.itemIdOrigem) return 'item::' + item.itemIdOrigem;
+  return 'fallback::' + index;
+};
+
+const resolveHistoryDocumentAmount = (item: SalesHistoryItem): number => {
+  const candidates = [
+    item.notaValorTotal,
+    item.pedidoValorTotal,
+    item.prevendaValorTotal,
+    item.itemValorLiquido,
+    item.itemValorTotal,
+  ];
+
+  const value = candidates.find((candidate) => Number(candidate) > 0);
+  return Number(value) || 0;
+};
 
 export const calculateAverageTicket = (
   orders: Order[],
@@ -37,5 +89,33 @@ export const calculateAverageTicket = (
     orderCount: relevantOrders.length,
     total: totalValue,
     periodDays: effectiveDays,
+  };
+};
+
+export const summarizeSalesHistory = (items: SalesHistoryItem[]): SalesHistorySummary => {
+  const documents = new Map<string, { amount: number; date: Date | null }>();
+
+  items.forEach((item, index) => {
+    const key = resolveHistoryDocumentKey(item, index);
+    const amount = Math.max(resolveHistoryDocumentAmount(item), 0);
+    const date = parseHistoryDate(item);
+    const current = documents.get(key);
+
+    if (!current) {
+      documents.set(key, { amount, date });
+      return;
+    }
+
+    documents.set(key, {
+      amount: Math.max(current.amount, amount),
+      date: current.date || date,
+    });
+  });
+
+  const total = Array.from(documents.values()).reduce((sum, item) => sum + item.amount, 0);
+
+  return {
+    total,
+    documentCount: documents.size,
   };
 };

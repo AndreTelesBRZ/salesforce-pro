@@ -13,16 +13,92 @@ class DatabaseService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
 
+  private invalidateConnection() {
+    this.db = null;
+    this.initPromise = null;
+  }
+
+  private attachConnectionListeners(db: IDBDatabase) {
+    db.onversionchange = () => {
+      try {
+        db.close();
+      } catch {}
+      this.invalidateConnection();
+    };
+
+    if ('onclose' in db) {
+      (db as IDBDatabase & { onclose: ((this: IDBDatabase, ev: Event) => any) | null }).onclose = () => {
+        this.invalidateConnection();
+      };
+    }
+  }
+
+  private canUseDatabase(db: IDBDatabase): boolean {
+    try {
+      const tx = db.transaction([STORE_SETTINGS], 'readonly');
+      tx.abort();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private isClosedDatabaseError(error: unknown): boolean {
+    if (!error) return false;
+
+    const message = error instanceof Error ? error.message : String(error);
+    const name =
+      typeof error === 'object' && error && 'name' in error
+        ? String((error as { name?: unknown }).name || '')
+        : '';
+
+    return (
+      name === 'InvalidStateError' ||
+      /closed database/i.test(message) ||
+      /connection is closing/i.test(message)
+    );
+  }
+
+  private async withDatabaseRetry<T>(operation: (db: IDBDatabase) => Promise<T>): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const db = await this.getDB();
+
+      try {
+        return await operation(db);
+      } catch (error) {
+        lastError = error;
+
+        if (!this.isClosedDatabaseError(error) || attempt === 1) {
+          throw error;
+        }
+
+        try {
+          db.close();
+        } catch {}
+
+        this.invalidateConnection();
+      }
+    }
+
+    throw lastError;
+  }
+
   async init(): Promise<void> {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onerror = () => reject(request.error);
+      request.onerror = () => {
+        this.invalidateConnection();
+        reject(request.error);
+      };
       
       request.onsuccess = () => {
         this.db = request.result;
+        this.attachConnectionListeners(this.db);
         resolve();
       };
 
@@ -72,7 +148,20 @@ class DatabaseService {
   }
 
   private async getDB(): Promise<IDBDatabase> {
+    if (this.db && !this.canUseDatabase(this.db)) {
+      try {
+        this.db.close();
+      } catch {}
+      this.invalidateConnection();
+    }
+
     if (!this.db) await this.init();
+
+    if (this.db && !this.canUseDatabase(this.db)) {
+      this.invalidateConnection();
+      await this.init();
+    }
+
     return this.db!;
   }
 
@@ -95,19 +184,17 @@ class DatabaseService {
   // --- CONFIGURAÇÕES (SETTINGS) ---
 
   async saveSettings(config: AppConfig): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
         const transaction = db.transaction([STORE_SETTINGS], 'readwrite');
         const store = transaction.objectStore(STORE_SETTINGS);
         const request = store.put({ key: 'appConfig', value: config });
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async getSettings(): Promise<AppConfig | null> {
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
+      return this.withDatabaseRetry((db) => new Promise((resolve) => {
           try {
             const transaction = db.transaction([STORE_SETTINGS], 'readonly');
             const store = transaction.objectStore(STORE_SETTINGS);
@@ -119,15 +206,13 @@ class DatabaseService {
           } catch (e) {
               resolve(null);
           }
-      });
+      }));
   }
 
   // --- SEQUÊNCIA DE PEDIDOS ---
 
   async generateNextOrderId(): Promise<number> {
-    const db = await this.getDB();
-    
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
         const transaction = db.transaction([STORE_SETTINGS, STORE_ORDERS], 'readwrite');
         const settingsStore = transaction.objectStore(STORE_SETTINGS);
         const ordersStore = transaction.objectStore(STORE_ORDERS);
@@ -163,25 +248,23 @@ class DatabaseService {
         };
         
         getSettingReq.onerror = () => reject(getSettingReq.error);
-    });
+    }));
   }
 
   // --- MÉTODOS DE PRODUTOS ---
 
   async clearProducts(): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_PRODUCTS], 'readwrite');
       const store = transaction.objectStore(STORE_PRODUCTS);
       const request = store.clear();
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async bulkAddProducts(products: Product[]): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_PRODUCTS], 'readwrite');
       const store = transaction.objectStore(STORE_PRODUCTS);
       
@@ -191,40 +274,37 @@ class DatabaseService {
       products.forEach(product => {
         store.put(product);
       });
-    });
+    }));
   }
 
   async getProductById(id: string): Promise<Product | null> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_PRODUCTS], 'readonly');
       const store = transaction.objectStore(STORE_PRODUCTS);
       const request = store.get(id);
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async countProducts(): Promise<number> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_PRODUCTS], 'readonly');
       const store = transaction.objectStore(STORE_PRODUCTS);
       const request = store.count();
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async getAllProducts(): Promise<Product[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_PRODUCTS], 'readonly');
       const store = transaction.objectStore(STORE_PRODUCTS);
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async searchProducts(
@@ -233,15 +313,15 @@ class DatabaseService {
     searchTerm: string = '', 
     category: string = 'Todas'
   ): Promise<{ products: Product[], total: number }> {
-    const db = await this.getDB();
-    const products: Product[] = [];
-    const terms = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
-    
-    // Calcula offset e limite
-    const offset = (page - 1) * limit;
-    let skipped = 0;
+    return this.withDatabaseRetry((db) => {
+      const products: Product[] = [];
+      const terms = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
+      
+      // Calcula offset e limite
+      const offset = (page - 1) * limit;
+      let skipped = 0;
 
-    return new Promise((resolve, reject) => {
+      return new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_PRODUCTS], 'readonly');
       const store = transaction.objectStore(STORE_PRODUCTS);
       const request = store.openCursor();
@@ -292,25 +372,24 @@ class DatabaseService {
       };
       
       request.onerror = () => reject(request.error);
+      });
     });
   }
 
   // --- MÉTODOS DE CLIENTES ---
 
   async clearCustomers(): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_CUSTOMERS], 'readwrite');
       const store = transaction.objectStore(STORE_CUSTOMERS);
       const request = store.clear();
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async bulkAddCustomers(customers: Customer[]): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_CUSTOMERS], 'readwrite');
       const store = transaction.objectStore(STORE_CUSTOMERS);
       
@@ -320,47 +399,43 @@ class DatabaseService {
       customers.forEach(customer => {
         store.put(customer);
       });
-    });
+    }));
   }
 
   async getLocalCustomers(): Promise<Customer[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_CUSTOMERS], 'readonly');
       const store = transaction.objectStore(STORE_CUSTOMERS);
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async countCustomers(): Promise<number> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_CUSTOMERS], 'readonly');
       const store = transaction.objectStore(STORE_CUSTOMERS);
       const request = store.count();
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   // --- MÉTODOS DE INADIMPLÊNCIA ---
 
   async clearDelinquency(): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_DELINQUENCY], 'readwrite');
       const store = transaction.objectStore(STORE_DELINQUENCY);
       const request = store.clear();
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async bulkAddDelinquency(items: DelinquencyItem[]): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_DELINQUENCY], 'readwrite');
       const store = transaction.objectStore(STORE_DELINQUENCY);
 
@@ -370,58 +445,53 @@ class DatabaseService {
       items.forEach(item => {
         store.put(item);
       });
-    });
+    }));
   }
 
   async getDelinquency(): Promise<DelinquencyItem[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_DELINQUENCY], 'readonly');
       const store = transaction.objectStore(STORE_DELINQUENCY);
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async countDelinquency(): Promise<number> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_DELINQUENCY], 'readonly');
       const store = transaction.objectStore(STORE_DELINQUENCY);
       const request = store.count();
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   // --- MÉTODOS DE PEDIDOS (Store/Retrieve Local) ---
 
   async saveOrder(order: Order): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_ORDERS], 'readwrite');
       const store = transaction.objectStore(STORE_ORDERS);
       const request = store.put(order);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async bulkPutOrders(orders: Order[]): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_ORDERS], 'readwrite');
       const store = transaction.objectStore(STORE_ORDERS);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       orders.forEach(o => store.put(o));
-    });
+    }));
   }
 
   async getOrders(): Promise<Order[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_ORDERS], 'readonly');
       const store = transaction.objectStore(STORE_ORDERS);
       const index = store.index('createdAt');
@@ -429,30 +499,28 @@ class DatabaseService {
       const request = index.getAll();
       request.onsuccess = () => resolve(request.result.reverse());
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 
   async getPendingOrders(): Promise<Order[]> {
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
+      return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
         const transaction = db.transaction([STORE_ORDERS], 'readonly');
         const store = transaction.objectStore(STORE_ORDERS);
         const index = store.index('status');
         const request = index.getAll('pending');
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
-      });
+      }));
   }
 
   async deleteOrder(id: string): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_ORDERS], 'readwrite');
       const store = transaction.objectStore(STORE_ORDERS);
       const request = store.delete(id);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
-    });
+    }));
   }
 }
 

@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiService } from '../services/api';
 import { getBackendUrlForCurrentHost, getStoreCodeForApi, isLlfixHostForCurrent } from '../services/storeHost';
-import { Customer, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryResponse } from '../types';
-import { AlertCircle, BarChart3, Briefcase, Calendar, ChevronDown, ChevronUp, ClipboardList, FileText, Filter, Loader2,  RefreshCcw, Search, Store, Users } from 'lucide-react';
+import { Customer, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportRow, SalesHistoryResponse } from '../types';
+import { OrderDraft } from '../src/types/orderDraft';
+import { AlertCircle, BarChart3, Briefcase, Calendar, ChevronDown, ChevronUp, ClipboardList, Copy, FileText, Filter, Loader2, RefreshCcw, Search, Store, Users } from 'lucide-react';
 import { SalesHistoryReportView } from './SalesHistoryReportView';
 
 interface SalesHistoryPageProps {
   initialCustomer?: Customer | null;
+  onNavigate?: (view: 'cart') => void;
 }
 
 interface SelectedHistoryNoteContext {
@@ -15,6 +17,13 @@ interface SelectedHistoryNoteContext {
   sellerLabel?: string;
   note: SalesHistoryNote;
 }
+
+const createDraftId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `order-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};
 
 const formatInputDate = (date: Date): string => {
   const year = date.getFullYear();
@@ -36,7 +45,7 @@ const getDefaultFilters = (): SalesHistoryFilters => {
 
   return {
     cliente_codigo: '',
-    vendedor_codigo: '',
+    vendedor_codigo: apiService.getSellerId() || '',
     nota_numero: '',
     produto_codigo: '',
     data_inicio: formatInputDate(startOfMonth),
@@ -200,7 +209,32 @@ const groupHistoryByNote = (items: SalesHistoryItem[]): Array<{ key: string; not
   return Array.from(grouped.values());
 };
 
-export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCustomer }) => {
+const buildCustomerHistoryFallback = (items: SalesHistoryItem[], customerCode: string): { grouped: SalesHistoryCustomerGrouped | null; notes: SalesHistoryNote[] } => {
+  const normalizedCustomer = String(customerCode || '').trim();
+  if (!normalizedCustomer) return { grouped: null, notes: [] };
+
+  const filteredItems = items.filter((item) => String(item.clienteCodigo || '').trim() === normalizedCustomer);
+  const notes = groupHistoryByNote(filteredItems).map(({ note, items: noteItems }) => ({
+    ...note,
+    notaValorTotal: Number(note.notaValorTotal) || noteItems.reduce((sum, item) => sum + resolveHistoryRowAmount(item), 0),
+    itens: noteItems.map(mapHistoryItemToNoteItem),
+  }));
+
+  const referenceItem = filteredItems[0];
+  return {
+    grouped: {
+      clienteCodigo: normalizedCustomer,
+      clienteRazaoSocial: referenceItem?.clienteRazaoSocial || '',
+      clienteFantasia: referenceItem?.clienteFantasia || '',
+      vendedorCodigo: referenceItem?.vendedorCodigo || '',
+      vendedorNome: referenceItem?.vendedorNome || '',
+      notas: notes,
+    },
+    notes,
+  };
+};
+
+export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCustomer, onNavigate }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customersLoading, setCustomersLoading] = useState(true);
   const [draftFilters, setDraftFilters] = useState<SalesHistoryFilters>(() => getDefaultFilters());
@@ -212,9 +246,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   const [noteItems, setNoteItems] = useState<Record<string, { loading: boolean; error?: string; items: SalesHistoryNoteItem[] }>>({});
   const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
   const [loadingHistory, setLoadingHistory] = useState(true);
-  const [loadingCustomerHistory, setLoadingCustomerHistory] = useState(false);
   const [historyError, setHistoryError] = useState('');
-  const [customerHistoryError, setCustomerHistoryError] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -251,15 +283,21 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
     setPage(1);
   }, [initialCustomer]);
 
-  const selectedCustomer = useMemo(() => {
-    const customerCode = draftFilters.cliente_codigo || appliedFilters.cliente_codigo;
+  const selectedDraftCustomer = useMemo(() => {
+    const customerCode = String(draftFilters.cliente_codigo || '').trim();
     if (!customerCode) return null;
     return customers.find((customer) => customer.id === customerCode) || null;
-  }, [customers, draftFilters.cliente_codigo, appliedFilters.cliente_codigo]);
+  }, [customers, draftFilters.cliente_codigo]);
+
+  const selectedAppliedCustomer = useMemo(() => {
+    const customerCode = String(appliedFilters.cliente_codigo || '').trim();
+    if (!customerCode) return null;
+    return customers.find((customer) => customer.id === customerCode) || null;
+  }, [customers, appliedFilters.cliente_codigo]);
 
   const customerSuggestions = useMemo(() => {
     const query = normalizeText(customerQuery);
-    if (!query) return customers.slice(0, 8);
+    if (!query) return [];
     return customers
       .filter((customer) => {
         const haystack = normalizeText(customer.id + ' ' + customer.name + ' ' + (customer.fantasyName || '') + ' ' + customer.document);
@@ -267,6 +305,12 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
       })
       .slice(0, 8);
   }, [customers, customerQuery]);
+
+  const derivedCustomerHistory = useMemo(() => {
+    const customerCode = String(appliedFilters.cliente_codigo || '').trim();
+    if (!customerCode) return { grouped: null, notes: [] as SalesHistoryNote[] };
+    return buildCustomerHistoryFallback(flatHistory.results, customerCode);
+  }, [appliedFilters.cliente_codigo, flatHistory.results]);
 
   const noteList = useMemo(() => {
     if (selectedHistoryNote) return [selectedHistoryNote.note];
@@ -282,12 +326,12 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
     }
     if (customerGrouped) {
       return {
-        customerName: customerGrouped.clienteRazaoSocial || selectedCustomer?.name || customerGrouped.clienteCodigo,
+        customerName: customerGrouped.clienteRazaoSocial || selectedAppliedCustomer?.name || customerGrouped.clienteCodigo,
         sellerLabel: customerGrouped.vendedorNome || customerGrouped.vendedorCodigo || 'Vendedor conforme backend',
       };
     }
     return null;
-  }, [customerGrouped, selectedCustomer, selectedHistoryNote]);
+  }, [customerGrouped, selectedAppliedCustomer, selectedHistoryNote]);
 
   const customerTotals = useMemo(() => {
     const notes = selectedHistoryNote ? [selectedHistoryNote.note] : (customerGrouped?.notas || []);
@@ -325,6 +369,18 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   const pickCustomer = (customer: Customer) => {
     setDraftFilters((current) => ({ ...current, cliente_codigo: customer.id }));
     setCustomerQuery(customerLabel(customer));
+  };
+
+  const handleCustomerQueryChange = (value: string) => {
+    setCustomerQuery(value);
+    setDraftFilters((current) => {
+      if (!current.cliente_codigo) return current;
+      const matchedCustomer = customers.find((customer) => customer.id === current.cliente_codigo);
+      if (matchedCustomer && value === customerLabel(matchedCustomer)) {
+        return current;
+      }
+      return { ...current, cliente_codigo: '' };
+    });
   };
 
   const clearSelectedCustomer = () => {
@@ -380,93 +436,25 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   ]);
 
   useEffect(() => {
-    const customerCode = String(appliedFilters.cliente_codigo || '').trim();
-    if (!customerCode) {
+    if (!appliedFilters.cliente_codigo) {
       setCustomerGrouped(null);
       setCustomerNotes([]);
-      setCustomerHistoryError('');
       setExpandedNotes({});
       setNoteItems({});
-      if (!selectedHistoryNote) {
-        return;
-      }
-    }
-
-    if (!customerCode) return;
-
-    let active = true;
-    setLoadingCustomerHistory(true);
-    setCustomerHistoryError('');
-    setExpandedNotes({});
-    setNoteItems({});
-
-    Promise.all([
-      apiService.getCustomerSalesHistory(customerCode, appliedFilters),
-      apiService.getCustomerSalesNotes(customerCode, appliedFilters),
-    ])
-      .then(([grouped, notes]) => {
-        if (!active) return;
-        setCustomerGrouped(grouped);
-        setCustomerNotes(notes);
-      })
-      .catch((error: any) => {
-        if (!active) return;
-        setCustomerGrouped(null);
-        setCustomerNotes([]);
-        setCustomerHistoryError(error?.message || 'Não foi possível carregar o histórico agrupado do cliente.');
-      })
-      .finally(() => {
-        if (active) setLoadingCustomerHistory(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    appliedFilters.cliente_codigo,
-    appliedFilters.vendedor_codigo,
-    appliedFilters.nota_numero,
-    appliedFilters.produto_codigo,
-    appliedFilters.data_inicio,
-    appliedFilters.data_fim,
-    appliedFilters.loja_codigo,
-    appliedFilters.pedido_codigo,
-    appliedFilters.saida_codigo,
-    appliedFilters.q,
-    refreshTick,
-  ]);
-
-  const loadNoteItems = async (customerCode: string, noteNumber: string, noteSerie?: string, fallbackItems: SalesHistoryNoteItem[] = []) => {
-    if (fallbackItems.length > 0) {
-      setNoteItems((current) => ({
-        ...current,
-        [noteNumber]: { loading: false, items: fallbackItems },
-      }));
       return;
     }
 
+    setCustomerGrouped(derivedCustomerHistory.grouped);
+    setCustomerNotes(derivedCustomerHistory.notes);
+    setExpandedNotes({});
+    setNoteItems({});
+  }, [appliedFilters.cliente_codigo, derivedCustomerHistory]);
+
+  const loadNoteItems = async (_customerCode: string, noteNumber: string, _noteSerie?: string, fallbackItems: SalesHistoryNoteItem[] = []) => {
     setNoteItems((current) => ({
       ...current,
-      [noteNumber]: { loading: true, items: [] },
+      [noteNumber]: { loading: false, items: fallbackItems },
     }));
-
-    try {
-      const items = await apiService.getCustomerSalesNoteItems(customerCode, noteNumber, appliedFilters);
-      setNoteItems((current) => ({
-        ...current,
-        [noteNumber]: { loading: false, items },
-      }));
-    } catch (error: any) {
-      const message = String(error?.message || 'Erro ao carregar itens da nota.');
-      setNoteItems((current) => ({
-        ...current,
-        [noteNumber]: {
-          loading: false,
-          error: /404/.test(message) ? 'Itens da nota nao disponiveis neste endpoint.' : message,
-          items: [],
-        },
-      }));
-    }
   };
 
   const toggleNote = async (note: SalesHistoryNote, customerCodeOverride?: string) => {
@@ -482,6 +470,102 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
       ? note.itens
       : buildFallbackNoteItems(flatHistory.results, customerCode, noteNumber, noteSerie);
     await loadNoteItems(customerCode, noteNumber, noteSerie, fallbackItems);
+  };
+
+  const handleCloneNoteToCart = (note: SalesHistoryNote, customerCodeOverride?: string) => {
+    const customerCode = String(customerCodeOverride || appliedFilters.cliente_codigo || '').trim();
+    if (!customerCode) {
+      alert('Selecione um cliente para clonar o pedido.');
+      return;
+    }
+
+    const customer = customers.find((entry) => entry.id === customerCode)
+      || (selectedAppliedCustomer && selectedAppliedCustomer.id === customerCode ? selectedAppliedCustomer : null);
+    const noteNumber = String(note.notaNumero || '').trim();
+    const items = noteItems[noteNumber]?.items?.length
+      ? noteItems[noteNumber].items
+      : (note.itens || []);
+
+    if (!items.length) {
+      alert('Esta nota não possui itens para clonar.');
+      return;
+    }
+
+    const draft: OrderDraft = {
+      id: createDraftId(),
+      cliente_id: customerCode,
+      cliente_nome: customer?.name || selectedHistoryNote?.customerName || detailHeader?.customerName || customerCode,
+      cliente_documento: customer?.document,
+      cliente_tipo: customer?.type || 'NORMAL',
+      itens: items.map((item) => ({
+        codigo_produto: item.produtoCodigo || '',
+        quantidade: Number(item.itemQuantidade) || 0,
+        valor_unitario: Number(item.itemValorUnitario) || 0,
+        nome_produto: item.produtoDescricao || item.produtoCodigo || '',
+        descricao: item.produtoDescricao || '',
+      })),
+      total: Number(note.notaValorTotal) || items.reduce((sum, item) => sum + (Number(item.itemValorLiquido) || Number(item.itemValorTotal) || 0), 0),
+      data_criacao: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'DRAFT',
+      display_id: undefined,
+      notes: noteNumber ? `Clonado da NF-e ${noteNumber}` : 'Clonado da consulta de vendas',
+    };
+
+    try {
+      localStorage.setItem('orderDraftEdit', JSON.stringify(draft));
+      localStorage.removeItem('cartDraft');
+      onNavigate?.('cart');
+    } catch {
+      alert('Não foi possível preparar o pedido para clonagem.');
+    }
+  };
+
+  const handleReportRowDetail = async ({ row, item }: { row: SalesHistoryReportRow; item?: SalesHistoryItem }) => {
+    if (item) {
+      await handleHistoryRowSelect(item);
+      return;
+    }
+
+    const customerCode = String(row.clienteCodigo || appliedFilters.cliente_codigo || '').trim();
+    const noteNumber = String(row.notaNumero || '').trim();
+    const noteSerie = String(row.notaSerie || '').trim();
+    if (!noteNumber) return;
+
+    const matchingItems = flatHistory.results.filter((entry) => (
+      String(entry.notaNumero || '').trim() === noteNumber
+      && String(entry.notaSerie || '').trim() === noteSerie
+      && (!customerCode || String(entry.clienteCodigo || '').trim() === customerCode)
+    ));
+    const fallbackItems = matchingItems.map(mapHistoryItemToNoteItem);
+    const referenceItem = matchingItems[0];
+
+    const note: SalesHistoryNote = {
+      lojaCodigo: referenceItem?.lojaCodigo || undefined,
+      prevendaCodigo: referenceItem?.prevendaCodigo || undefined,
+      pedidoCodigo: referenceItem?.pedidoCodigo || String(row.pedido || '').trim() || undefined,
+      saidaCodigo: referenceItem?.saidaCodigo || String(row.saidaCodigo || '').trim() || undefined,
+      notaData: referenceItem?.notaData || String(row.emissao || '').trim() || undefined,
+      notaSerie: noteSerie || undefined,
+      notaNumero: noteNumber,
+      notaValorTotal: Number(referenceItem?.notaValorTotal) || Number(row.valorTotal) || 0,
+      documentoStatus: referenceItem?.documentoStatus || String(row.status || '').trim() || undefined,
+      nfeStatus: undefined,
+      documentoTipo: referenceItem?.documentoTipo || String(row.documentoTipo || '').trim() || undefined,
+      itens: fallbackItems,
+    };
+
+    setSelectedHistoryNote({
+      customerCode,
+      customerName: referenceItem?.clienteRazaoSocial || referenceItem?.clienteFantasia || row.clienteNome || row.cliente || customerCode || noteNumber,
+      sellerLabel: row.vendedor || referenceItem?.vendedorNome || referenceItem?.vendedorCodigo || '',
+      note,
+    });
+
+    setExpandedNotes((current) => ({ ...current, [noteNumber]: true }));
+    if (!noteItems[noteNumber]) {
+      await loadNoteItems(customerCode, noteNumber, noteSerie, fallbackItems);
+    }
   };
 
   const handleHistoryRowSelect = async (item: SalesHistoryItem) => {
@@ -509,7 +593,6 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
       sellerLabel: item.vendedorNome || item.vendedorCodigo || '',
       note,
     });
-    setCustomerHistoryError('');
     setExpandedNotes((current) => ({ ...current, [noteNumber]: true }));
     if (!noteItems[noteNumber]) {
       await loadNoteItems(customerCode, noteNumber, String(item.notaSerie || '').trim(), fallbackItems);
@@ -532,10 +615,10 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
           <button
             type="button"
             onClick={() => setRefreshTick((current) => current + 1)}
-            disabled={loadingHistory || loadingCustomerHistory}
+            disabled={loadingHistory}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
           >
-            {(loadingHistory || loadingCustomerHistory) ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+            {loadingHistory ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
             Atualizar
           </button>
         </div>
@@ -548,15 +631,15 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
               <input
                 type="text"
                 value={customerQuery}
-                onChange={(event) => setCustomerQuery(event.target.value)}
+                onChange={(event) => handleCustomerQueryChange(event.target.value)}
                 placeholder={customersLoading ? 'Carregando clientes...' : 'Código, razão social, fantasia ou CNPJ'}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 py-2 pl-9 pr-3 text-sm"
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              {selectedCustomer ? (
+              {selectedDraftCustomer ? (
                 <button type="button" onClick={clearSelectedCustomer} className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
-                  <Users className="w-3.5 h-3.5" /> {selectedCustomer.name} ({selectedCustomer.id}) • limpar
+                  <Users className="w-3.5 h-3.5" /> {selectedDraftCustomer.name} ({selectedDraftCustomer.id}) • limpar
                 </button>
               ) : null}
             </div>
@@ -573,7 +656,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                 </button>
               )) : (
                 <div className="px-3 py-4 text-sm text-slate-500 dark:text-slate-400">
-                  {customersLoading ? 'Carregando carteira...' : 'Nenhum cliente encontrado para a busca atual.'}
+                  {customersLoading ? 'Carregando carteira...' : customerQuery.trim() ? 'Nenhum cliente encontrado para a busca atual.' : 'Digite para buscar um cliente.'}
                 </div>
               )}
             </div>
@@ -586,7 +669,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
             </label>
             <label className="space-y-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vendedor</span>
-              <input type="text" value={draftFilters.vendedor_codigo || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, vendedor_codigo: event.target.value }))} placeholder="Código do vendedor" className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm" />
+              <input type="text" value={draftFilters.vendedor_codigo || ''} readOnly disabled placeholder="Código do vendedor" className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-500 dark:text-slate-300 cursor-not-allowed" />
             </label>
             <label className="space-y-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nota</span>
@@ -675,6 +758,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
             fallbackItems={flatHistory.results}
             loading={loadingHistory}
             onSelectRow={handleHistoryRowSelect}
+            onDetailRow={handleReportRowDetail}
           />
         )}
 
@@ -705,20 +789,16 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
             <p className="font-medium text-slate-700 dark:text-slate-200">Selecione um cliente para ver o detalhe por nota</p>
             <p className="text-sm text-slate-500 dark:text-slate-400">O resumo por data acima continua disponível mesmo sem cliente definido.</p>
           </div>
-        ) : loadingCustomerHistory ? (
+        ) : loadingHistory ? (
           <div className="p-10 text-center">
             <Loader2 className="w-8 h-8 mx-auto animate-spin text-blue-700 mb-3" />
             <p className="text-slate-500 dark:text-slate-400">Carregando notas do cliente...</p>
-          </div>
-        ) : customerHistoryError ? (
-          <div className="m-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200 inline-flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 mt-0.5" /> {customerHistoryError}
           </div>
         ) : noteList.length === 0 ? (
           <div className="p-10 text-center">
             <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" />
             <p className="font-medium text-slate-700 dark:text-slate-200">Nenhuma nota encontrada</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">O backend não retornou notas para os filtros aplicados.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma nota encontrada na lista atual para os filtros aplicados.</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -728,7 +808,18 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
               const expanded = !!expandedNotes[noteNumber];
               return (
                 <article key={noteNumber + '-' + (note.notaSerie || 'serie')} className="px-4 py-4 space-y-3">
-                  <button type="button" onClick={() => toggleNote(note, selectedHistoryNote?.customerCode)} className="w-full flex items-start justify-between gap-4 text-left">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleNote(note, selectedHistoryNote?.customerCode)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggleNote(note, selectedHistoryNote?.customerCode);
+                      }
+                    }}
+                    className="w-full flex items-start justify-between gap-4 text-left cursor-pointer"
+                  >
                     <div className="space-y-2 min-w-0">
                       <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         <span className="inline-flex items-center gap-1"><Store className="w-3.5 h-3.5" /> Loja {note.lojaCodigo || '-'}</span>
@@ -746,11 +837,23 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                     <div className="shrink-0 text-right">
                       <div className="text-xs text-slate-500 dark:text-slate-400">Valor total</div>
                       <div className="font-bold text-slate-900 dark:text-white">{formatCurrency(note.notaValorTotal)}</div>
-                      <div className="mt-2 text-blue-700 dark:text-blue-300 inline-flex items-center gap-1 text-sm font-semibold">
-                        {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />} {expanded ? 'Ocultar itens' : 'Ver itens'}
+                      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCloneNoteToCart(note, selectedHistoryNote?.customerCode);
+                          }}
+                          className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+                        >
+                          <Copy className="w-3 h-3" /> Clonar pedido
+                        </button>
+                        <div className="text-blue-700 dark:text-blue-300 inline-flex items-center gap-1 text-sm font-semibold">
+                          {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />} {expanded ? 'Ocultar itens' : 'Ver itens'}
+                        </div>
                       </div>
                     </div>
-                  </button>
+                  </div>
 
                   {expanded ? (
                     <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">

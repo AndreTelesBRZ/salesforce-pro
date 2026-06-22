@@ -30,6 +30,7 @@ Aplicativo de força de vendas híbrido (Web/Mobile) com backend Node/Express e 
 
    - Frontend roda em `http://localhost:3000`
 - Configure `VITE_BACKEND_URL=https://apiforce.edsondosparafusos.app.br` (ou o tenant desejado) para que todas as chamadas `fetchWithAuth('/api/...')` usem URLs absolutas diretamente no backend FastAPI/Django; o Vite não envia mais o tráfego por um servidor local nem depende de proxy para `/api`.
+- Configure `VITE_API_USERNAME` e `VITE_API_PASSWORD` com as credenciais técnicas usadas para obter o JWT remoto quando o app operar em modo token de integração.
    - Cada requisição envia `Authorization: Bearer <JWT>`, `X-App-Token: <APP_INTEGRATION_TOKEN>` e `Content-Type: application/json` para o backend remoto, então qualquer 401/403 vem do FastAPI verdadeiro e não de um bloqueio de CORS ou proxy local.
 
 4) Build de produção (gera `dist/`):

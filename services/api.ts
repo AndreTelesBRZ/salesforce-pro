@@ -14,6 +14,8 @@ const FRETE_MODALIDADE = {
 } as const;
 
 const FALLBACK_BACKEND_URL = 'https://apiforce.llfix.app.br';
+const FALLBACK_REMOTE_API_USERNAME = 'apiadmin';
+const FALLBACK_REMOTE_API_PASSWORD = 'TroqueEstaSenha!';
 
 const normalizeString = (value?: string): string => {
   return (value || '').toString().trim().toLowerCase();
@@ -34,6 +36,12 @@ const mapFreteModalidade = (value?: string): string => {
   if (normalized === 'transportadora') return FRETE_MODALIDADE.TRANSPORTADORA;
   if (normalized === 'sem_frete') return FRETE_MODALIDADE.SEM_FRETE;
   return FRETE_MODALIDADE.SEM_FRETE;
+};
+
+const isLikelyJwt = (value?: string | null): boolean => {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  return raw.split('.').length === 3;
 };
 import { dbService } from './db';
 import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isEdsonHostForCurrent, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
@@ -201,6 +209,87 @@ class ApiService {
       const envToken = this.getIntegrationTokenFromEnv();
       if (!envToken) return;
       this.config.apiToken = envToken;
+  }
+
+  private getRemoteApiCredentials(): { username: string; password: string } {
+      let username = FALLBACK_REMOTE_API_USERNAME;
+      let password = FALLBACK_REMOTE_API_PASSWORD;
+
+      try {
+          const env = (import.meta as any)?.env || {};
+          if (typeof env.VITE_API_USERNAME === 'string' && env.VITE_API_USERNAME.trim()) {
+              username = env.VITE_API_USERNAME.trim();
+          }
+          if (typeof env.VITE_API_PASSWORD === 'string' && env.VITE_API_PASSWORD.trim()) {
+              password = env.VITE_API_PASSWORD.trim();
+          }
+      } catch {}
+
+      return { username, password };
+  }
+
+  private hasJwtToken(): boolean {
+      return isLikelyJwt(this.token);
+  }
+
+  private async requestRemoteJwt(baseUrl: string): Promise<string | null> {
+      const normalizedBaseUrl = (baseUrl || '').trim();
+      if (!normalizedBaseUrl) return null;
+
+      const { username, password } = this.getRemoteApiCredentials();
+      const loginEndpoints = ['/auth/login', '/api/login'];
+      const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...this.getTenantHeaders(),
+      };
+      const appToken = this.resolveAppToken();
+      if (appToken) {
+          headers['X-App-Token'] = appToken;
+      }
+
+      for (const endpoint of loginEndpoints) {
+          try {
+              const response = await fetch(`${normalizedBaseUrl}${endpoint}`, {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify({ username, password }),
+              });
+              if (!response.ok) continue;
+
+              const contentType = response.headers.get('content-type') || '';
+              if (!contentType.includes('application/json')) continue;
+
+              const data = await response.json();
+              const accessToken =
+                  data?.token?.access_token ||
+                  data?.access_token ||
+                  data?.token ||
+                  '';
+
+              if (isLikelyJwt(accessToken)) {
+                  this.applyIdentityFromToken(accessToken);
+                  return accessToken;
+              }
+          } catch {}
+      }
+
+      return null;
+  }
+
+  private async ensureRemoteJwt(forceRefresh: boolean = false): Promise<string | null> {
+      if (!forceRefresh && this.hasJwtToken()) {
+          return this.token;
+      }
+      if (!this.resolveAppToken()) {
+          return this.hasJwtToken() ? this.token : null;
+      }
+
+      const jwt = await this.requestRemoteJwt(this.getBaseUrl());
+      if (!jwt) return null;
+
+      this.token = jwt;
+      localStorage.setItem('authToken', jwt);
+      return jwt;
   }
 
   constructor() {
@@ -473,6 +562,7 @@ class ApiService {
       // 3. Fallback: Login via Token de Configuração (Modo Terminal)
       const appToken = this.resolveAppToken();
       if (appToken) {
+          await this.ensureRemoteJwt();
           const result = await this.testConnection(this.config.backendUrl);
           
           // CRÍTICO: Se tiver sucesso OU se estiver offline (mas não rejeitado), liberamos o acesso.
@@ -508,10 +598,15 @@ class ApiService {
           return { success: false, message: 'Configure o Token primeiro.' };
       }
 
+      const jwt = await this.ensureRemoteJwt(true);
+      if (!jwt) {
+          return { success: false, message: 'Falha ao obter sessão JWT do backend remoto.' };
+      }
+
       const result = await this.testConnection(this.config.backendUrl);
       
       if (result.success) {
-          this.token = appToken;
+          this.token = jwt;
           localStorage.setItem('authToken', this.token);
 
           // Tenta pegar o nome real do dono do token
@@ -583,7 +678,7 @@ class ApiService {
           params.set('vendedor_codigo', sellerCode);
       }
       if (includeStore) {
-          const storeCode = getStoreCodeForApi();
+          const storeCode = this.resolveProtectedStoreCode();
           if (storeCode) {
               params.set('loja_codigo', storeCode);
           }
@@ -649,6 +744,28 @@ class ApiService {
 
   private shouldUseLlfixProductsEndpoint(): boolean {
       return isLlfixHostForCurrent();
+  }
+
+  private shouldUseLlfixCustomerSyncEndpoint(): boolean {
+      if (isLlfixHostForCurrent()) return true;
+      const backend = (getBackendUrlForCurrentHost() || this.config.backendUrl || '').trim();
+      return /apiforce\.llfix\.app\.br/i.test(backend);
+  }
+
+  private buildClientSyncEndpoint(mode: ClientSyncViewMode): string {
+      const params = new URLSearchParams();
+      const sellerCode = this.getSellerId();
+      if (sellerCode) {
+          params.set('vendedor_id', sellerCode);
+          params.set('cod_vendedor', sellerCode);
+          params.set('vendedor_codigo', sellerCode);
+      }
+      params.set('loja', getStoreCodeForApi());
+      params.set('loja_codigo', this.resolveProtectedStoreCode());
+      if (mode === 'recent') params.set('view', 'recent');
+      if (mode === 'all') params.set('view', 'all');
+      const queryString = params.toString();
+      return '/api/clientes-sync' + (queryString ? '?' + queryString : '');
   }
 
   private buildProductsEndpoint(params: { page?: number; limit?: number; includeSeller?: boolean } = {}): string {
@@ -720,7 +837,7 @@ class ApiService {
     if (tokenToUse) {
         headers['X-App-Token'] = tokenToUse;
     }
-    if (this.token) {
+    if (this.token && isLikelyJwt(this.token)) {
         headers['Authorization'] = `Bearer ${this.token.trim()}`;
     }
     return headers;
@@ -759,6 +876,7 @@ class ApiService {
   }
 
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
+      await this.ensureRemoteJwt();
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       const baseUrl = this.getBaseUrl();
       if (!baseUrl) {
@@ -2343,26 +2461,55 @@ class ApiService {
       }
   }
 
+  private getPreferredClientSyncEndpoint(mode: ClientSyncViewMode, queryString: string): string {
+      if (mode === 'all') {
+          return '/api/clientes/lista' + (queryString ? '?' + queryString : '');
+      }
+      return '/api/clientes' + (queryString ? '?' + queryString : '');
+  }
+
+  private getClientSyncEndpointCandidates(mode: ClientSyncViewMode, queryString: string): string[] {
+      const candidates = [
+          this.getPreferredClientSyncEndpoint(mode, queryString),
+          this.shouldUseLlfixCustomerSyncEndpoint()
+              ? this.buildClientSyncEndpoint(mode)
+              : this.getClientSyncViewPath(mode) + (queryString ? '?' + queryString : ''),
+      ];
+
+      const legacyApiSync = '/api/clientes-sync' + (queryString ? '?' + queryString : '');
+      const legacyPath = this.getClientSyncViewPath(mode) + (queryString ? '?' + queryString : '');
+      const apiClientes = this.getPreferredClientSyncEndpoint(mode, queryString);
+
+      for (const endpoint of [legacyApiSync, legacyPath, apiClientes]) {
+          if (!candidates.includes(endpoint)) {
+              candidates.push(endpoint);
+          }
+      }
+
+      return candidates;
+  }
+
   async fetchClientSyncView(mode: ClientSyncViewMode): Promise<ClientSyncViewResponse> {
       await this.resolveSellerIdFromProfile();
       const params = this.buildVendorQueryParams();
       const queryString = params.toString();
-      const endpoint = `${this.getClientSyncViewPath(mode)}${queryString ? `?${queryString}` : ''}`;
-      try {
-        const res = await this.fetchWithAuth(endpoint);
-        if (!res.ok) throw new Error(`Erro ${res.status}`);
-        return await res.json();
-      } catch (error: any) {
-        if (mode === 'recent') {
-          const fallback = await this.fetchWithAuth(`/api/clientes${queryString ? `?${queryString}` : ''}`);
-          if (!fallback.ok) throw new Error(`Fallback falhou: ${fallback.status}`);
-          const jsonCheck = await this.ensureJsonResponse(fallback, 'Clientes');
-          if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
-          const data = await fallback.json();
+      const endpoints = this.getClientSyncEndpointCandidates(mode, queryString);
+      let lastError: Error | null = null;
+
+      for (const endpoint of endpoints) {
+        try {
+          const res = await this.fetchWithAuth(endpoint);
+          if (!res.ok) throw new Error(`${endpoint}: ${res.status}`);
+          const jsonCheck = await this.ensureJsonResponse(res, 'Clientes');
+          if (!jsonCheck.ok) throw new Error(`${endpoint}: ${jsonCheck.message || 'Resposta inválida.'}`);
+          const data = await res.json();
           return { data: Array.isArray(data) ? data : (data.data || []) };
+        } catch (error: any) {
+          lastError = error instanceof Error ? error : new Error(String(error));
         }
-        throw error;
       }
+
+      throw lastError || new Error('Nenhum endpoint de clientes respondeu com sucesso.');
   }
 
   getClientSyncViewUrl(mode: ClientSyncViewMode): string {

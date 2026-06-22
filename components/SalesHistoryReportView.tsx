@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { AlertCircle, Package } from 'lucide-react';
+import { AlertCircle, Package, Search } from 'lucide-react';
 import type { SalesHistoryItem, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView as SalesHistoryReportViewData } from '../types';
 
 interface SalesHistoryReportViewProps {
@@ -8,6 +8,7 @@ interface SalesHistoryReportViewProps {
   fallbackItems?: SalesHistoryItem[];
   loading?: boolean;
   onSelectRow?: (item: SalesHistoryItem) => void;
+  onDetailRow?: (payload: { row: SalesHistoryReportRow; item?: SalesHistoryItem }) => void;
 }
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -87,6 +88,35 @@ const buildFallbackRows = (items: SalesHistoryItem[]): SalesHistoryReportGroup[]
     .map(([, group]) => group);
 };
 
+const resolveSourceItem = (row: SalesHistoryReportRow, fallbackItems: SalesHistoryItem[]): SalesHistoryItem | undefined => {
+  const customerCode = String(row.clienteCodigo || '').trim();
+  const noteNumber = String(row.notaNumero || '').trim();
+  const noteSerie = String(row.notaSerie || '').trim();
+  const orderCode = String(row.pedido || '').trim();
+
+  if (!noteNumber) return undefined;
+
+  const exactMatch = fallbackItems.find((item) => (
+    String(item.clienteCodigo || '').trim() === customerCode
+    && String(item.notaNumero || '').trim() === noteNumber
+    && String(item.notaSerie || '').trim() === noteSerie
+    && String(item.pedidoCodigo || item.prevendaCodigo || '').trim() === orderCode
+  ));
+  if (exactMatch) return exactMatch;
+
+  const noteMatch = fallbackItems.find((item) => (
+    String(item.clienteCodigo || '').trim() === customerCode
+    && String(item.notaNumero || '').trim() === noteNumber
+    && String(item.notaSerie || '').trim() === noteSerie
+  ));
+  if (noteMatch) return noteMatch;
+
+  return fallbackItems.find((item) => (
+    String(item.notaNumero || '').trim() === noteNumber
+    && String(item.notaSerie || '').trim() === noteSerie
+  ));
+};
+
 const renderEmptyState = () => {
   return (
     <div className="p-10 text-center">
@@ -103,6 +133,7 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
   fallbackItems = [],
   loading,
   onSelectRow,
+  onDetailRow,
 }) => {
   const fallbackGroups = useMemo(() => buildFallbackRows(fallbackItems), [fallbackItems]);
   const groups = reportView?.groups?.length ? reportView.groups : fallbackGroups;
@@ -152,13 +183,8 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
               </thead>
               <tbody>
                 {group.rows.map((row, index) => {
-                  const sourceItem = fallbackItems.find((item) => (
-                    String(item.clienteCodigo || '') === String(row.clienteCodigo || '')
-                    && String(item.notaNumero || '') === String(row.notaNumero || '')
-                    && String(item.notaSerie || '') === String(row.notaSerie || '')
-                    && String(item.pedidoCodigo || item.prevendaCodigo || '') === String(row.pedido || '')
-                  ));
-                  const isSelectable = !!sourceItem && !!row.notaNumero && !!row.clienteCodigo;
+                  const sourceItem = resolveSourceItem(row, fallbackItems);
+                  const isSelectable = !!sourceItem && !!row.notaNumero;
                   return (
                   <tr
                     key={group.dataEmissaoDisplay + '-' + index}
@@ -169,7 +195,23 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
                   >
                     <td className="px-3 py-2">{row.status || '-'}</td>
                     <td className="px-3 py-2">{row.cliente}</td>
-                    <td className="px-3 py-2">{formatNfeLabel(row)}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span>{formatNfeLabel(row)}</span>
+                        {row.notaNumero && onDetailRow ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onDetailRow({ row, item: sourceItem });
+                            }}
+                            className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200 dark:hover:bg-blue-900/40"
+                          >
+                            <Search className="h-3 w-3" /> Detalhar
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-3 py-2">{row.emissaoDisplay || row.emissao || '-'}</td>
                     <td className="px-3 py-2">{row.vendedor}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(row.valorBruto)}</td>

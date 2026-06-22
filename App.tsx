@@ -440,7 +440,7 @@ export default function App() {
             <ReportsPage storeInfo={storeInfo} />
           )}
           {currentView === 'sales-history' && (
-            <SalesHistoryPage initialCustomer={salesHistoryCustomer} />
+            <SalesHistoryPage initialCustomer={salesHistoryCustomer} onNavigate={() => setCurrentView('cart')} />
           )}
           {currentView === 'cart' && (
             <Cart 
