@@ -34,6 +34,13 @@ const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ cla
   { view: 'settings', label: 'Ajustes', icon: SettingsIcon },
 ];
 
+const resolveProtectedStoreLabel = (): string => {
+  const backend = (apiService.getConfig().backendUrl || '').trim();
+  if (/apiforce\.llfix\.app\.br/i.test(backend)) return '00003';
+  if (/apiforce\.edsondosparafusos\.app\.br/i.test(backend)) return '00001';
+  return '';
+};
+
 export default function App() {
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -210,6 +217,7 @@ export default function App() {
 
   const refreshStoreInfo = async () => {
     try {
+      await apiService.refreshProtectedStoreFromERP();
       const res = await apiService.fetchAppLocal('/api/store/public');
       if (res.ok) {
         const data = await res.json();
@@ -380,7 +388,7 @@ export default function App() {
                 <div className="text-left text-xs">
                   <p className="font-semibold leading-none">{storeInfo.trade_name || storeInfo.legal_name || 'SalesForce Pro'}</p>
                   <p className="text-[10px] uppercase tracking-wider text-white/70">
-                    Loja {storeInfo.id?.toString().padStart(2, '0')}
+                    Loja {resolveProtectedStoreLabel() || storeInfo.id?.toString().padStart(2, '0')}
                   </p>
                 </div>
               </div>

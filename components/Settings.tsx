@@ -29,6 +29,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const isLlfixHost = isLlfixHostForCurrent();
   const isEdsonHost = isEdsonHostForCurrent();
   const showForceLLFix = isLlfixHost && !isEdsonHost;
+  const protectedStoreLabel = /apiforce\.llfix\.app\.br/i.test(resolvedBackendUrl || '') ? '00003' : (/apiforce\.edsondosparafusos\.app\.br/i.test(resolvedBackendUrl || '') ? '00001' : '');
   const [storeInfo, setStoreInfo] = useState<any | null>(null);
 
   // Auto-teste
@@ -46,6 +47,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     let active = true;
     (async () => {
       try {
+        await apiService.refreshProtectedStoreFromERP();
         const res = await apiService.fetchAppLocal('/api/store/public');
         if (!active) return;
         if (res.ok) {
@@ -58,7 +60,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
       setStoreInfo(null);
     })();
     return () => { active = false; };
-  }, []);
+  }, [resolvedBackendUrl]);
 
   // Carrega dados da loja ao abrir
   const refreshLogs = () => {
@@ -236,8 +238,8 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                     {storeInfo.trade_name || storeInfo.legal_name || 'SalesForce Pro'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    Loja {storeInfo.id ? String(storeInfo.id).padStart(2, '0') : '—'}
-                    {isEdsonHost ? ' • 00001 (Edson)' : isLlfixHost ? ' • 00003 (LLFIX)' : ''}
+                    Loja {protectedStoreLabel || (storeInfo.id ? String(storeInfo.id).padStart(2, '0') : '—')}
+                    {isEdsonHost ? ' • 00001 (Edson)' : isLlfixHost || protectedStoreLabel === '00003' ? ' • 00003 (LLFIX)' : ''}
                   </p>
                 </div>
               </div>

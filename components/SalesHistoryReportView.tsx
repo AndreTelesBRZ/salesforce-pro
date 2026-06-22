@@ -7,6 +7,7 @@ interface SalesHistoryReportViewProps {
   reportTruncated?: boolean;
   fallbackItems?: SalesHistoryItem[];
   loading?: boolean;
+  onSelectRow?: (item: SalesHistoryItem) => void;
 }
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -16,6 +17,13 @@ const currencyFormatter = new Intl.NumberFormat('pt-BR', {
 
 const formatCurrency = (value?: number): string => {
   return currencyFormatter.format(Number(value) || 0);
+};
+
+const formatNfeLabel = (row: SalesHistoryReportRow): string => {
+  const numero = String(row.notaNumero || "").trim();
+  const serie = String(row.notaSerie || "").trim();
+  if (!numero) return "-";
+  return serie ? numero + "/" + serie : numero;
 };
 
 const buildFallbackRows = (items: SalesHistoryItem[]): SalesHistoryReportGroup[] => {
@@ -94,6 +102,7 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
   reportTruncated,
   fallbackItems = [],
   loading,
+  onSelectRow,
 }) => {
   const fallbackGroups = useMemo(() => buildFallbackRows(fallbackItems), [fallbackItems]);
   const groups = reportView?.groups?.length ? reportView.groups : fallbackGroups;
@@ -132,10 +141,9 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-950/60">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Pedido</th>
                   <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Status</th>
                   <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Cliente</th>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Ped. do cli.</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Nf-e</th>
                   <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Emissão</th>
                   <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Vendedor</th>
                   <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Valor Bruto</th>
@@ -143,20 +151,34 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {group.rows.map((row, index) => (
-                  <tr key={group.dataEmissaoDisplay + '-' + index} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="px-3 py-2 font-mono text-xs">{row.pedido || '-'}</td>
+                {group.rows.map((row, index) => {
+                  const sourceItem = fallbackItems.find((item) => (
+                    String(item.clienteCodigo || '') === String(row.clienteCodigo || '')
+                    && String(item.notaNumero || '') === String(row.notaNumero || '')
+                    && String(item.notaSerie || '') === String(row.notaSerie || '')
+                    && String(item.pedidoCodigo || item.prevendaCodigo || '') === String(row.pedido || '')
+                  ));
+                  const isSelectable = !!sourceItem && !!row.notaNumero && !!row.clienteCodigo;
+                  return (
+                  <tr
+                    key={group.dataEmissaoDisplay + '-' + index}
+                    className={"border-t border-slate-100 dark:border-slate-800" + (isSelectable ? " cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40" : "")}
+                    onClick={() => {
+                      if (sourceItem && onSelectRow) onSelectRow(sourceItem);
+                    }}
+                  >
                     <td className="px-3 py-2">{row.status || '-'}</td>
                     <td className="px-3 py-2">{row.cliente}</td>
-                    <td className="px-3 py-2">{row.pedidoCliente || '-'}</td>
+                    <td className="px-3 py-2">{formatNfeLabel(row)}</td>
                     <td className="px-3 py-2">{row.emissaoDisplay || row.emissao || '-'}</td>
                     <td className="px-3 py-2">{row.vendedor}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(row.valorBruto)}</td>
                     <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(row.valorTotal)}</td>
                   </tr>
-                ))}
+                  );
+                })}
                 <tr className="border-t-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/40">
-                  <td colSpan={7} className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">Total por data de emissão</td>
+                  <td colSpan={6} className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">Total por data de emissão</td>
                   <td className="px-3 py-2 text-right tabular-nums font-bold text-slate-900 dark:text-white">{formatCurrency(group.totalDataEmissao.valorTotal)}</td>
                 </tr>
               </tbody>

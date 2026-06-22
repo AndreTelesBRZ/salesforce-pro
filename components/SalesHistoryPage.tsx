@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiService } from '../services/api';
-import { getStoreCodeForCurrentHost } from '../services/storeHost';
+import { getBackendUrlForCurrentHost, getStoreCodeForApi, isLlfixHostForCurrent } from '../services/storeHost';
 import { Customer, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryResponse } from '../types';
-import { AlertCircle, BarChart3, Briefcase, Calendar, ChevronDown, ChevronUp, ClipboardList, FileText, Filter, Loader2, Package, RefreshCcw, Search, Store, Users } from 'lucide-react';
+import { AlertCircle, BarChart3, Briefcase, Calendar, ChevronDown, ChevronUp, ClipboardList, FileText, Filter, Loader2,  RefreshCcw, Search, Store, Users } from 'lucide-react';
 import { SalesHistoryReportView } from './SalesHistoryReportView';
 
 interface SalesHistoryPageProps {
   initialCustomer?: Customer | null;
+}
+
+interface SelectedHistoryNoteContext {
+  customerCode: string;
+  customerName?: string;
+  sellerLabel?: string;
+  note: SalesHistoryNote;
 }
 
 const formatInputDate = (date: Date): string => {
@@ -16,18 +23,25 @@ const formatInputDate = (date: Date): string => {
   return year + '-' + month + '-' + day;
 };
 
+const getForcedSalesHistoryStoreCode = (): string => {
+  if (isLlfixHostForCurrent()) return getStoreCodeForApi();
+  const resolvedBackend = getBackendUrlForCurrentHost() || apiService.getConfig().backendUrl || '';
+  return /apiforce.llfix.app.br/i.test(resolvedBackend) ? '000003' : '';
+};
+
 const getDefaultFilters = (): SalesHistoryFilters => {
   const today = new Date();
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const forcedStoreCode = getForcedSalesHistoryStoreCode();
 
   return {
     cliente_codigo: '',
-    vendedor_codigo: apiService.getSellerId() || '',
+    vendedor_codigo: '',
     nota_numero: '',
     produto_codigo: '',
     data_inicio: formatInputDate(startOfMonth),
     data_fim: formatInputDate(today),
-    loja_codigo: getStoreCodeForCurrentHost(),
+    loja_codigo: forcedStoreCode,
     pedido_codigo: '',
     saida_codigo: '',
     q: '',
@@ -124,6 +138,31 @@ const groupHistoryByEmissionDate = (items: SalesHistoryItem[]): Array<{ key: str
   return Array.from(grouped.values()).sort((left, right) => left.key.localeCompare(right.key));
 };
 
+const mapHistoryItemToNoteItem = (item: SalesHistoryItem): SalesHistoryNoteItem => ({
+  produtoCodigo: item.produtoCodigo || '',
+  produtoDescricao: item.produtoDescricao || '',
+  itemQuantidade: Number(item.itemQuantidade) || 0,
+  itemValorUnitario: Number(item.itemValorUnitario) || 0,
+  itemValorTotal: Number(item.itemValorTotal) || 0,
+  itemValorLiquido: Number(item.itemValorLiquido) || Number(item.itemValorTotal) || 0,
+});
+
+const buildFallbackNoteItems = (items: SalesHistoryItem[], customerCode: string, noteNumber: string, noteSerie?: string): SalesHistoryNoteItem[] => {
+  const normalizedCustomer = String(customerCode || '').trim();
+  const normalizedNote = String(noteNumber || '').trim();
+  const normalizedSerie = String(noteSerie || '').trim();
+  if (!normalizedCustomer || !normalizedNote) return [];
+
+  return items
+    .filter((item) => (
+      String(item.clienteCodigo || '').trim() === normalizedCustomer
+      && String(item.notaNumero || '').trim() === normalizedNote
+      && (!normalizedSerie || String(item.notaSerie || '').trim() === normalizedSerie)
+      && (String(item.produtoCodigo || '').trim() || String(item.produtoDescricao || '').trim())
+    ))
+    .map(mapHistoryItemToNoteItem);
+};
+
 const groupHistoryByNote = (items: SalesHistoryItem[]): Array<{ key: string; note: SalesHistoryNote; items: SalesHistoryItem[] }> => {
   const grouped = new Map<string, { key: string; note: SalesHistoryNote; items: SalesHistoryItem[] }>();
 
@@ -179,6 +218,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [selectedHistoryNote, setSelectedHistoryNote] = useState<SelectedHistoryNoteContext | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -228,21 +268,44 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
       .slice(0, 8);
   }, [customers, customerQuery]);
 
+  const noteList = useMemo(() => {
+    if (selectedHistoryNote) return [selectedHistoryNote.note];
+    return customerNotes;
+  }, [customerNotes, selectedHistoryNote]);
+
+  const detailHeader = useMemo(() => {
+    if (selectedHistoryNote) {
+      return {
+        customerName: selectedHistoryNote.customerName || selectedHistoryNote.customerCode,
+        sellerLabel: selectedHistoryNote.sellerLabel || 'Vendedor conforme backend',
+      };
+    }
+    if (customerGrouped) {
+      return {
+        customerName: customerGrouped.clienteRazaoSocial || selectedCustomer?.name || customerGrouped.clienteCodigo,
+        sellerLabel: customerGrouped.vendedorNome || customerGrouped.vendedorCodigo || 'Vendedor conforme backend',
+      };
+    }
+    return null;
+  }, [customerGrouped, selectedCustomer, selectedHistoryNote]);
+
   const customerTotals = useMemo(() => {
-    const notes = customerGrouped?.notas || [];
+    const notes = selectedHistoryNote ? [selectedHistoryNote.note] : (customerGrouped?.notas || []);
     return {
       notes: notes.length,
       items: notes.reduce((sum, note) => sum + (note.itens?.length || 0), 0),
       total: notes.reduce((sum, note) => sum + (Number(note.notaValorTotal) || 0), 0),
     };
-  }, [customerGrouped]);
+  }, [customerGrouped, selectedHistoryNote]);
 
-  const paginatedGroups = useMemo(() => groupHistoryByNote(flatHistory.results), [flatHistory.results]);
   const emissionGroups = useMemo(() => flatHistory.reportView?.groups || groupHistoryByEmissionDate(flatHistory.results), [flatHistory.reportView, flatHistory.results]);
   const totalPages = Math.max(1, Math.ceil(flatHistory.count / pageSize));
 
   const applyFilters = () => {
     setAppliedFilters({ ...draftFilters });
+    setSelectedHistoryNote(null);
+    setExpandedNotes({});
+    setNoteItems({});
     setPage(1);
   };
 
@@ -255,6 +318,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
     setCustomerNotes([]);
     setExpandedNotes({});
     setNoteItems({});
+    setSelectedHistoryNote(null);
     setPage(1);
   };
 
@@ -323,8 +387,12 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
       setCustomerHistoryError('');
       setExpandedNotes({});
       setNoteItems({});
-      return;
+      if (!selectedHistoryNote) {
+        return;
+      }
     }
+
+    if (!customerCode) return;
 
     let active = true;
     setLoadingCustomerHistory(true);
@@ -368,12 +436,14 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
     refreshTick,
   ]);
 
-  const toggleNote = async (note: SalesHistoryNote) => {
-    const noteNumber = String(note.notaNumero || '').trim();
-    if (!noteNumber || !appliedFilters.cliente_codigo) return;
-
-    setExpandedNotes((current) => ({ ...current, [noteNumber]: !current[noteNumber] }));
-    if (expandedNotes[noteNumber] || noteItems[noteNumber]) return;
+  const loadNoteItems = async (customerCode: string, noteNumber: string, noteSerie?: string, fallbackItems: SalesHistoryNoteItem[] = []) => {
+    if (fallbackItems.length > 0) {
+      setNoteItems((current) => ({
+        ...current,
+        [noteNumber]: { loading: false, items: fallbackItems },
+      }));
+      return;
+    }
 
     setNoteItems((current) => ({
       ...current,
@@ -381,16 +451,68 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
     }));
 
     try {
-      const items = await apiService.getCustomerSalesNoteItems(appliedFilters.cliente_codigo, noteNumber, appliedFilters);
+      const items = await apiService.getCustomerSalesNoteItems(customerCode, noteNumber, appliedFilters);
       setNoteItems((current) => ({
         ...current,
         [noteNumber]: { loading: false, items },
       }));
     } catch (error: any) {
+      const message = String(error?.message || 'Erro ao carregar itens da nota.');
       setNoteItems((current) => ({
         ...current,
-        [noteNumber]: { loading: false, error: error?.message || 'Erro ao carregar itens da nota.', items: [] },
+        [noteNumber]: {
+          loading: false,
+          error: /404/.test(message) ? 'Itens da nota nao disponiveis neste endpoint.' : message,
+          items: [],
+        },
       }));
+    }
+  };
+
+  const toggleNote = async (note: SalesHistoryNote, customerCodeOverride?: string) => {
+    const noteNumber = String(note.notaNumero || '').trim();
+    const noteSerie = String(note.notaSerie || '').trim();
+    const customerCode = String(customerCodeOverride || appliedFilters.cliente_codigo || '').trim();
+    if (!noteNumber || !customerCode) return;
+
+    setExpandedNotes((current) => ({ ...current, [noteNumber]: !current[noteNumber] }));
+    if (expandedNotes[noteNumber] || noteItems[noteNumber]) return;
+
+    const fallbackItems = note.itens?.length
+      ? note.itens
+      : buildFallbackNoteItems(flatHistory.results, customerCode, noteNumber, noteSerie);
+    await loadNoteItems(customerCode, noteNumber, noteSerie, fallbackItems);
+  };
+
+  const handleHistoryRowSelect = async (item: SalesHistoryItem) => {
+    const customerCode = String(item.clienteCodigo || '').trim();
+    const noteNumber = String(item.notaNumero || '').trim();
+    if (!customerCode || !noteNumber) return;
+
+    const fallbackItems = buildFallbackNoteItems(flatHistory.results, customerCode, noteNumber, String(item.notaSerie || '').trim());
+    const note: SalesHistoryNote = {
+      lojaCodigo: item.lojaCodigo,
+      saidaCodigo: item.saidaCodigo,
+      notaData: item.notaData,
+      notaSerie: item.notaSerie,
+      notaNumero: item.notaNumero,
+      notaValorTotal: Number(item.notaValorTotal) || Number(item.itemValorLiquido) || Number(item.itemValorTotal) || 0,
+      documentoStatus: item.documentoStatus,
+      nfeStatus: item.nfeStatus,
+      documentoTipo: item.documentoTipo,
+      itens: fallbackItems,
+    };
+
+    setSelectedHistoryNote({
+      customerCode,
+      customerName: item.clienteRazaoSocial || item.clienteFantasia || customerCode,
+      sellerLabel: item.vendedorNome || item.vendedorCodigo || '',
+      note,
+    });
+    setCustomerHistoryError('');
+    setExpandedNotes((current) => ({ ...current, [noteNumber]: true }));
+    if (!noteItems[noteNumber]) {
+      await loadNoteItems(customerCode, noteNumber, String(item.notaSerie || '').trim(), fallbackItems);
     }
   };
 
@@ -552,6 +674,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
             reportTruncated={flatHistory.reportTruncated}
             fallbackItems={flatHistory.results}
             loading={loadingHistory}
+            onSelectRow={handleHistoryRowSelect}
           />
         )}
 
@@ -568,15 +691,15 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
             <h3 className="font-semibold text-slate-900 dark:text-white">Detalhe agrupado por nota</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">Detalhe fiscal do cliente selecionado com expansão dos itens da nota.</p>
           </div>
-          {customerGrouped ? (
+          {detailHeader ? (
             <div className="text-right text-xs text-slate-500 dark:text-slate-400">
-              <div>{customerGrouped.clienteRazaoSocial || selectedCustomer?.name || customerGrouped.clienteCodigo}</div>
-              <div>{customerGrouped.vendedorNome || customerGrouped.vendedorCodigo || 'Vendedor conforme backend'}</div>
+              <div>{detailHeader.customerName}</div>
+              <div>{detailHeader.sellerLabel}</div>
             </div>
           ) : null}
         </div>
 
-        {!appliedFilters.cliente_codigo ? (
+        {!appliedFilters.cliente_codigo && !selectedHistoryNote ? (
           <div className="p-10 text-center">
             <Users className="w-12 h-12 mx-auto text-slate-300 mb-3" />
             <p className="font-medium text-slate-700 dark:text-slate-200">Selecione um cliente para ver o detalhe por nota</p>
@@ -591,7 +714,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
           <div className="m-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200 inline-flex items-start gap-2">
             <AlertCircle className="w-4 h-4 mt-0.5" /> {customerHistoryError}
           </div>
-        ) : customerNotes.length === 0 ? (
+        ) : noteList.length === 0 ? (
           <div className="p-10 text-center">
             <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" />
             <p className="font-medium text-slate-700 dark:text-slate-200">Nenhuma nota encontrada</p>
@@ -599,17 +722,16 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
           </div>
         ) : (
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
-            {customerNotes.map((note) => {
+            {noteList.map((note) => {
               const noteNumber = String(note.notaNumero || 'sem-nota');
               const itemState = noteItems[noteNumber];
               const expanded = !!expandedNotes[noteNumber];
               return (
                 <article key={noteNumber + '-' + (note.notaSerie || 'serie')} className="px-4 py-4 space-y-3">
-                  <button type="button" onClick={() => toggleNote(note)} className="w-full flex items-start justify-between gap-4 text-left">
+                  <button type="button" onClick={() => toggleNote(note, selectedHistoryNote?.customerCode)} className="w-full flex items-start justify-between gap-4 text-left">
                     <div className="space-y-2 min-w-0">
                       <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         <span className="inline-flex items-center gap-1"><Store className="w-3.5 h-3.5" /> Loja {note.lojaCodigo || '-'}</span>
-                        <span className="inline-flex items-center gap-1"><ClipboardList className="w-3.5 h-3.5" /> Pedido {note.pedidoCodigo || '-'}</span>
                         <span className="inline-flex items-center gap-1"><Briefcase className="w-3.5 h-3.5" /> Saída {note.saidaCodigo || '-'}</span>
                       </div>
                       <div>
@@ -618,7 +740,6 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                           <span className="inline-flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {formatDateTime(note.notaData)}</span>
                           <span>Status doc: {note.documentoStatus || '-'}</span>
                           <span>NFe: {note.nfeStatus || '-'}</span>
-                          <span>Pré-venda: {note.prevendaCodigo || '-'}</span>
                         </div>
                       </div>
                     </div>
@@ -674,82 +795,6 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
         )}
       </section>
 
-      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-semibold text-slate-900 dark:text-white">Detalhes da página por nota</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Complemento da página consultada, agrupando as linhas recebidas por nota.</p>
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 text-right">
-            <div>{paginatedGroups.length} nota(s) nesta página</div>
-          </div>
-        </div>
-
-        {loadingHistory ? (
-          <div className="p-10 text-center"><Loader2 className="w-8 h-8 mx-auto animate-spin text-blue-700 mb-3" /><p className="text-slate-500 dark:text-slate-400">Carregando detalhes...</p></div>
-        ) : historyError ? (
-          <div className="m-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200 inline-flex items-start gap-2"><AlertCircle className="w-4 h-4 mt-0.5" /> {historyError}</div>
-        ) : paginatedGroups.length === 0 ? (
-          <div className="p-10 text-center"><Package className="w-12 h-12 mx-auto text-slate-300 mb-3" /><p className="font-medium text-slate-700 dark:text-slate-200">Nenhuma nota encontrada</p><p className="text-sm text-slate-500 dark:text-slate-400">Ajuste os filtros e tente novamente.</p></div>
-        ) : (
-          <div className="divide-y divide-slate-200 dark:divide-slate-800">
-            {paginatedGroups.map((group) => (
-              <article key={group.key} className="px-4 py-4 space-y-3">
-                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                  <div className="space-y-2 min-w-0">
-                    <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {group.items[0]?.clienteRazaoSocial || group.items[0]?.clienteFantasia || group.items[0]?.clienteCodigo || 'Cliente'}</span>
-                      <span className="inline-flex items-center gap-1"><Briefcase className="w-3.5 h-3.5" /> Vend. {group.items[0]?.vendedorNome || group.items[0]?.vendedorCodigo || '-'}</span>
-                      <span className="inline-flex items-center gap-1"><Store className="w-3.5 h-3.5" /> Loja {group.note.lojaCodigo || '-'}</span>
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white">Nota {group.note.notaNumero || '-'} • Série {group.note.notaSerie || '-'}</h4>
-                      <div className="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                        <span className="inline-flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {formatDateTime(group.note.notaData)}</span>
-                        <span>Pré-venda: {group.note.prevendaCodigo || '-'}</span>
-                        <span>Pedido: {group.note.pedidoCodigo || '-'}</span>
-                        <span>Saída: {group.note.saidaCodigo || '-'}</span>
-                        <span>Status: {group.note.documentoStatus || group.note.nfeStatus || '-'}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Total da nota</div>
-                    <div className="font-bold text-slate-900 dark:text-white">{formatCurrency(group.note.notaValorTotal)}</div>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50 dark:bg-slate-950/60">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Produto</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Descrição</th>
-                        <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Qtd.</th>
-                        <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Unit.</th>
-                        <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Total</th>
-                        <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Líquido</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.items.map((item, index) => (
-                        <tr key={group.key + '-' + index} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 font-mono text-xs">{item.produtoCodigo || '-'}</td>
-                          <td className="px-3 py-2">{item.produtoDescricao || '-'}</td>
-                          <td className="px-3 py-2 text-right">{item.itemQuantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}</td>
-                          <td className="px-3 py-2 text-right">{formatCurrency(item.itemValorUnitario)}</td>
-                          <td className="px-3 py-2 text-right">{formatCurrency(item.itemValorTotal)}</td>
-                          <td className="px-3 py-2 text-right font-semibold">{formatCurrency(item.itemValorLiquido)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
     </div>
   );
 };

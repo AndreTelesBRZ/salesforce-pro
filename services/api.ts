@@ -395,6 +395,15 @@ class ApiService {
       return null;
   }
 
+  private resolveProtectedStoreCode(): string {
+      if (isLlfixHostForCurrent()) return '00003';
+      if (isEdsonHostForCurrent()) return '00001';
+      const backend = (getBackendUrlForCurrentHost() || this.config.backendUrl || '').trim();
+      if (/apiforce\.llfix\.app\.br/i.test(backend)) return '00003';
+      if (/apiforce\.edsondosparafusos\.app\.br/i.test(backend)) return '00001';
+      return getStoreCodeForCurrentHost();
+  }
+
   // Importa dados de loja do ERP e grava no Node local (/api/store) se possível
   private async ensureStoreFromERP(): Promise<void> {
       if (this.config.useMockData) return;
@@ -409,7 +418,7 @@ class ApiService {
           const payload = await r.json();
           const data = Array.isArray(payload) ? payload : (payload.data || []);
           if (!data || data.length === 0) return;
-          const targetStoreCode = normalizeStoreCode(getStoreCodeForCurrentHost());
+          const targetStoreCode = normalizeStoreCode(this.resolveProtectedStoreCode());
           const loja = data.find((l:any)=> normalizeStoreCode(l.LOJCOD || l.lojcod || l.codigo || '') === targetStoreCode) || data[0];
           if (!loja) return;
           const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
@@ -439,6 +448,10 @@ class ApiService {
    * Valida a sessão. AGORA ACEITA TOKEN DE INTEGRAÇÃO COMO LOGIN VÁLIDO.
    * Modificado para aceitar Offline se o token estiver configurado.
    */
+  async refreshProtectedStoreFromERP(): Promise<void> {
+      await this.ensureStoreFromERP();
+  }
+
   async validateSession(): Promise<boolean> {
       // 1. Mock Data sempre passa
       if (this.config.useMockData) return true;
@@ -570,7 +583,7 @@ class ApiService {
           params.set('vendedor_codigo', sellerCode);
       }
       if (includeStore) {
-          const storeCode = getStoreCodeForCurrentHost();
+          const storeCode = getStoreCodeForApi();
           if (storeCode) {
               params.set('loja_codigo', storeCode);
           }
