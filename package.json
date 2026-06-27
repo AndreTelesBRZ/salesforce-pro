@@ -1,14 +1,15 @@
 {
   "name": "salesforce-pro",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.5",
   "type": "module",
   "scripts": {
     "dev": "node ./node_modules/concurrently/dist/bin/concurrently.js \"npm run server\" \"npm run client\"",
     "start": "node server.js",
     "server": "node server.js",
     "client": "node ./run-vite-dev.js",
-    "build": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build",
+    "build:info": "node ./scripts/generate-build-info.js",
+    "build": "node ./scripts/generate-build-info.js && node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
     "cap:sync": "npx cap sync",
     "cap:open": "npx cap open android"

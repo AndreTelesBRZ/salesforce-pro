@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { apiService, LogEntry } from '../services/api';
+import { apiService, ConnectionProfileSummary, LogEntry } from '../services/api';
 import { getBackendUrlForCurrentHost, isBackendUrlLockedForCurrent, isEdsonHostForCurrent, isLlfixHostForCurrent } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
+import { APP_VERSION_INFO } from '../src/version';
 
 interface SettingsProps {
   onClose: () => void;
@@ -23,20 +24,22 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [showToken, setShowToken] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [connectionProfile, setConnectionProfile] = useState<ConnectionProfileSummary | null>(null);
+  const [validationEndpoint, setValidationEndpoint] = useState('');
   const backendUrlLocked = isBackendUrlLockedForCurrent();
   const lockedBackendUrl = getBackendUrlForCurrentHost();
   const resolvedBackendUrl = backendUrlLocked ? lockedBackendUrl : config.backendUrl;
   const isLlfixHost = isLlfixHostForCurrent();
   const isEdsonHost = isEdsonHostForCurrent();
   const showForceLLFix = isLlfixHost && !isEdsonHost;
-  const protectedStoreLabel = /apiforce\.llfix\.app\.br/i.test(resolvedBackendUrl || '') ? '00003' : (/apiforce\.edsondosparafusos\.app\.br/i.test(resolvedBackendUrl || '') ? '00001' : '');
   const [storeInfo, setStoreInfo] = useState<any | null>(null);
+  const detectedStoreLabel = connectionProfile?.lojaCodigo || storeInfo?.store_code || storeInfo?.codigo || '';
 
   // Auto-teste
   useEffect(() => {
     refreshLogs();
     const delay = setTimeout(() => {
-        if (config.apiToken && config.backendUrl && !config.useMockData) {
+        if (config.apiToken && resolvedBackendUrl && !config.useMockData) {
            handleTestConnection();
         }
     }, 1500);
@@ -72,17 +75,44 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
       refreshLogs();
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const configToSave = backendUrlLocked
       ? { ...config, backendUrl: lockedBackendUrl }
       : config;
-    setConfig(configToSave);
-    apiService.saveConfig(configToSave);
-    if (onThemeChange) onThemeChange(config.theme);
-    setMessage('Configurações salvas!');
+
+    setTestStatus('testing');
+    setTestErrorMsg('');
+    setConnectionProfile(null);
+
+    const result = await apiService.testConnection(configToSave.backendUrl);
+    setValidationEndpoint(result.endpointUsed || '');
+    setConnectionProfile(result.profile || null);
+
+    if (!result.success || !result.valid) {
+      setTestStatus('error');
+      setTestErrorMsg(
+        result.message || 'Não foi possível validar a conexão com o servidor. Verifique o endereço da API, o token de integração e tente novamente.'
+      );
+      await apiService.clearInvalidSessionArtifacts({ preserveStoreCode: false });
+      refreshLogs();
+      return;
+    }
+
+    const validatedConfig = {
+      ...configToSave,
+      connectionValidated: true,
+      validatedAt: new Date().toISOString(),
+    };
+
+    setConfig(validatedConfig);
+    await apiService.saveConfig(validatedConfig);
+    if (onThemeChange) onThemeChange(validatedConfig.theme);
+    setTestStatus('success');
+    setMessage('Conexão validada e configuração técnica salva.');
+    refreshLogs();
     setTimeout(() => {
         setMessage('');
-        window.location.reload(); // Recarrega para aplicar novos defaults de API
+        window.location.reload();
     }, 1000);
   };
 
@@ -99,19 +129,25 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     }
     setTestStatus('testing');
     setTestErrorMsg('');
+    setConnectionProfile(null);
     
-    // Salva temp
     const configToTest = backendUrlLocked
       ? { ...config, backendUrl: lockedBackendUrl }
       : config;
-    apiService.saveConfig(configToTest);
     
-    const result = await apiService.testConnection(resolvedBackendUrl);
+    const result = await apiService.testConnection(configToTest.backendUrl);
     setTestStatus(result.success ? 'success' : 'error');
-    if (!result.success) setTestErrorMsg(result.message);
-    
-    refreshLogs(); // Atualiza logs após teste
-    
+    setConnectionProfile(result.profile || null);
+    setValidationEndpoint(result.endpointUsed || '');
+    if (!result.success) {
+      setTestErrorMsg(
+        result.message || 'Não foi possível validar a conexão com o servidor. Verifique o endereço da API, o token de integração e tente novamente.'
+      );
+      await apiService.clearInvalidSessionArtifacts({ preserveStoreCode: false });
+    }
+
+    refreshLogs();
+
     if (result.success) setTimeout(() => setTestStatus('idle'), 3000);
   };
 
@@ -196,7 +232,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                  </button>
              </div>
              <p className="text-[10px] text-slate-500 mt-2">
-                O token de integração ou seu login vinculará automaticamente sua carteira de clientes.
+                O token de integração é usado apenas para validar a conexão técnica com a loja. Ele não cria sessão de usuário.
              </p>
         </div>
 
@@ -205,6 +241,21 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             <div className="text-xs bg-red-50 text-red-600 p-3 rounded border border-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
                 <strong>Erro:</strong> {testErrorMsg}
             </div>
+        )}
+
+        {connectionProfile && (
+          <div className="bg-emerald-50 dark:bg-emerald-950/30 p-4 rounded-md border border-emerald-100 dark:border-emerald-900">
+            <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300 mb-2">
+              <User className="w-4 h-4" />
+              Conexão técnica validada
+            </div>
+            <div className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+              <p>Identificador retornado: <span className="font-medium">{connectionProfile.username || 'Não informado'}</span></p>
+              <p>Vendedor vinculado: <span className="font-medium">{connectionProfile.vendedorCodigo || 'Não informado'}</span></p>
+              <p>Loja/empresa vinculada: <span className="font-medium">{connectionProfile.lojaEmpresa || storeInfo?.trade_name || storeInfo?.legal_name || connectionProfile.lojaCodigo || 'Não informada'}</span></p>
+              <p>Endpoint usado: <span className="font-medium">{validationEndpoint || 'Não informado'}</span></p>
+            </div>
+          </div>
         )}
 
         {/* Mock Data Toggle */}
@@ -238,8 +289,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                     {storeInfo.trade_name || storeInfo.legal_name || 'SalesForce Pro'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    Loja {protectedStoreLabel || (storeInfo.id ? String(storeInfo.id).padStart(2, '0') : '—')}
-                    {isEdsonHost ? ' • 00001 (Edson)' : isLlfixHost || protectedStoreLabel === '00003' ? ' • 00003 (LLFIX)' : ''}
+                    Loja {detectedStoreLabel || (storeInfo.id ? String(storeInfo.id).padStart(2, '0') : '—')}
                   </p>
                 </div>
               </div>
@@ -329,6 +379,15 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                     </div>
                 </div>
             )}
+        </div>
+
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4 text-center">
+          <p className="text-xs text-slate-400">
+            {APP_VERSION_INFO.name} v{APP_VERSION_INFO.version}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Build {APP_VERSION_INFO.build}
+          </p>
         </div>
       </div>
     </div>

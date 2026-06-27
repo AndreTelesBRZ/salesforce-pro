@@ -14,8 +14,6 @@ const FRETE_MODALIDADE = {
 } as const;
 
 const FALLBACK_BACKEND_URL = 'https://apiforce.llfix.app.br';
-const FALLBACK_REMOTE_API_USERNAME = 'apiadmin';
-const FALLBACK_REMOTE_API_PASSWORD = 'TroqueEstaSenha!';
 
 const normalizeString = (value?: string): string => {
   return (value || '').toString().trim().toLowerCase();
@@ -43,8 +41,20 @@ const isLikelyJwt = (value?: string | null): boolean => {
   if (!raw) return false;
   return raw.split('.').length === 3;
 };
+
+const stripBearerPrefix = (value?: string | null): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.replace(/^Bearer\s+/i, '').trim();
+};
+
+const isBearerLikeToken = (value?: string | null): boolean => {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  return /^Bearer\s+/i.test(raw) || isLikelyJwt(stripBearerPrefix(raw));
+};
 import { dbService } from './db';
-import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isEdsonHostForCurrent, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
+import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode, resolveTenantFromHost } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -91,6 +101,24 @@ export interface LogEntry {
     type: 'info' | 'error' | 'warning' | 'success';
 }
 
+export interface ConnectionProfileSummary {
+    username: string;
+    vendedorCodigo: string;
+    lojaEmpresa: string;
+    lojaCodigo: string;
+}
+
+export interface ConnectionTestResult {
+    success: boolean;
+    valid?: boolean;
+    message: string;
+    authRejected?: boolean;
+    endpointUsed?: string;
+    profile?: ConnectionProfileSummary;
+    store?: Record<string, any> | null;
+    status?: number;
+}
+
 class ApiService {
   private config: AppConfig;
   private token: string | null = null;
@@ -134,7 +162,7 @@ class ApiService {
       const decoded = this.decodeToken(token);
       if (decoded.name) {
           const currentName = localStorage.getItem('username');
-          if (!currentName || currentName === 'Vendedor' || currentName === 'Terminal Vinculado') {
+          if (!currentName || this.isPlaceholderUsername(currentName)) {
               localStorage.setItem('username', decoded.name);
           }
       }
@@ -143,8 +171,25 @@ class ApiService {
       }
   }
 
+  private persistStoreCode(value?: string | number | null): string | null {
+      const raw = String(value ?? '').trim();
+      if (!raw) return null;
+      const normalized = normalizeStoreCode(raw).padStart(6, '0');
+      if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('erpStoreCode', normalized);
+      }
+      return normalized;
+  }
+
+  private getStoredStoreCode(): string | null {
+      if (typeof localStorage === 'undefined') return null;
+      const stored = localStorage.getItem('erpStoreCode');
+      if (!stored) return null;
+      return this.persistStoreCode(stored);
+  }
+
   private normalizeBackendUrl(value: string): string {
-      const trimmed = value.trim().replace(/\/$/, "").replace(/\/api$/i, "");
+      const trimmed = value.trim().replace(/\/+$/, "").replace(/\/api\/?$/i, "");
       if (typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(trimmed)) {
           return trimmed.replace(/^http:\/\//i, 'https://');
       }
@@ -156,7 +201,7 @@ class ApiService {
   }
 
   private getDefaultUsername(): string {
-      return this.resolveAppToken() ? 'Terminal Vinculado' : 'Vendedor';
+      return 'Vendedor';
   }
 
   private isPlaceholderUsername(value?: string | null): boolean {
@@ -170,7 +215,10 @@ class ApiService {
           normalized === 'token' ||
           normalized === 'integration_token' ||
           normalized === 'integracao' ||
-          normalized === 'integracao_token'
+          normalized === 'integracao_token' ||
+          normalized === 'auth_disabled' ||
+          normalized === 'apiadmin' ||
+          normalized === 'api_admin'
       );
   }
 
@@ -205,91 +253,67 @@ class ApiService {
       return configToken || null;
   }
 
+  private resolveBearerToken(): string | null {
+      const configuredToken = this.resolveAppToken();
+      if (configuredToken && isBearerLikeToken(configuredToken)) {
+          const normalizedConfigured = stripBearerPrefix(configuredToken);
+          if (normalizedConfigured) {
+              return normalizedConfigured;
+          }
+      }
+      const liveToken = stripBearerPrefix(this.token);
+      if (liveToken && isLikelyJwt(liveToken)) {
+          return liveToken;
+      }
+      return null;
+  }
+
+  private resolveIntegrationAppToken(): string | null {
+      const token = this.resolveAppToken();
+      if (!token || isBearerLikeToken(token)) {
+          return null;
+      }
+      return token;
+  }
+
   private applyIntegrationTokenFromEnv(): void {
       const envToken = this.getIntegrationTokenFromEnv();
       if (!envToken) return;
       this.config.apiToken = envToken;
   }
 
-  private getRemoteApiCredentials(): { username: string; password: string } {
-      let username = FALLBACK_REMOTE_API_USERNAME;
-      let password = FALLBACK_REMOTE_API_PASSWORD;
-
-      try {
-          const env = (import.meta as any)?.env || {};
-          if (typeof env.VITE_API_USERNAME === 'string' && env.VITE_API_USERNAME.trim()) {
-              username = env.VITE_API_USERNAME.trim();
-          }
-          if (typeof env.VITE_API_PASSWORD === 'string' && env.VITE_API_PASSWORD.trim()) {
-              password = env.VITE_API_PASSWORD.trim();
-          }
-      } catch {}
-
-      return { username, password };
-  }
-
   private hasJwtToken(): boolean {
       return isLikelyJwt(this.token);
   }
 
-  private async requestRemoteJwt(baseUrl: string): Promise<string | null> {
-      const normalizedBaseUrl = (baseUrl || '').trim();
-      if (!normalizedBaseUrl) return null;
-
-      const { username, password } = this.getRemoteApiCredentials();
-      const loginEndpoints = ['/auth/login', '/api/login'];
-      const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          ...this.getTenantHeaders(),
-      };
-      const appToken = this.resolveAppToken();
-      if (appToken) {
-          headers['X-App-Token'] = appToken;
+  private clearUserSession(options?: { preserveStoreCode?: boolean }): void {
+      this.token = null;
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('username');
+      localStorage.removeItem('sellerId');
+      if (!options?.preserveStoreCode) {
+          localStorage.removeItem('erpStoreCode');
       }
-
-      for (const endpoint of loginEndpoints) {
-          try {
-              const response = await fetch(`${normalizedBaseUrl}${endpoint}`, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({ username, password }),
-              });
-              if (!response.ok) continue;
-
-              const contentType = response.headers.get('content-type') || '';
-              if (!contentType.includes('application/json')) continue;
-
-              const data = await response.json();
-              const accessToken =
-                  data?.token?.access_token ||
-                  data?.access_token ||
-                  data?.token ||
-                  '';
-
-              if (isLikelyJwt(accessToken)) {
-                  this.applyIdentityFromToken(accessToken);
-                  return accessToken;
-              }
-          } catch {}
-      }
-
-      return null;
   }
 
-  private async ensureRemoteJwt(forceRefresh: boolean = false): Promise<string | null> {
-      if (!forceRefresh && this.hasJwtToken()) {
-          return this.token;
-      }
-      if (!this.resolveAppToken()) {
-          return this.hasJwtToken() ? this.token : null;
-      }
+  private clearConnectionValidationFlag(): void {
+      this.config.connectionValidated = false;
+      delete this.config.validatedAt;
+      localStorage.setItem('appConfig', JSON.stringify(this.config));
+  }
 
-      const jwt = await this.requestRemoteJwt(this.getBaseUrl());
-      if (!jwt) return null;
-
-      this.token = jwt;
-      localStorage.setItem('authToken', jwt);
-      return jwt;
+  private hasLocallyValidUserJwt(): boolean {
+      const bearerToken = this.resolveBearerToken();
+      if (!bearerToken || !isLikelyJwt(bearerToken)) return false;
+      try {
+          const parts = bearerToken.split('.');
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+          const exp = Number(payload?.exp || 0);
+          if (!exp) return true;
+          return (Date.now() / 1000) < exp;
+      } catch {
+          return false;
+      }
   }
 
   constructor() {
@@ -367,9 +391,105 @@ class ApiService {
       });
   }
 
+  private checkTenantMismatch(): boolean {
+      if (typeof window === 'undefined') return false;
+      const hostname = window.location.hostname;
+      const tenantConfig = resolveTenantFromHost(hostname);
+      
+      if (tenantConfig.tenant) {
+          // 1. Validar loja
+          const cachedStore = localStorage.getItem('erpStoreCode');
+          if (cachedStore && normalizeStoreCode(cachedStore) !== normalizeStoreCode(tenantConfig.storeCode)) {
+              return true;
+          }
+          
+          // 2. Validar backend URL no appConfig
+          const savedConfigStr = localStorage.getItem('appConfig');
+          if (savedConfigStr) {
+              try {
+                  const parsed = JSON.parse(savedConfigStr);
+                  if (parsed.backendUrl && this.normalizeBackendUrl(parsed.backendUrl) !== this.normalizeBackendUrl(tenantConfig.apiBaseUrl)) {
+                      return true;
+                  }
+              } catch {
+                  return true;
+              }
+          }
+      }
+      return false;
+  }
+
+  public async clearAllTenantIndexedDBCaches(): Promise<void> {
+      try {
+          const db = (dbService as any).db;
+          if (db) {
+              const stores = ['products', 'customers', 'orders', 'delinquency'];
+              const tx = db.transaction(stores, 'readwrite');
+              stores.forEach(s => {
+                  try {
+                      tx.objectStore(s).clear();
+                  } catch {}
+              });
+              await new Promise<void>((resolve) => {
+                  tx.oncomplete = () => resolve();
+                  tx.onerror = () => resolve();
+              });
+              this.addLog('Tabelas do IndexedDB limpas com sucesso.', 'success');
+          }
+      } catch (err) {
+          this.addLog(`Erro ao limpar IndexedDB: ${err}`, 'error');
+      }
+  }
+
+  public async clearInvalidSessionArtifacts(options?: { preserveStoreCode?: boolean }): Promise<void> {
+      this.clearUserSession({ preserveStoreCode: options?.preserveStoreCode });
+      localStorage.removeItem('user');
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('salesforce_user');
+      localStorage.removeItem('jwt');
+      if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem('user');
+          sessionStorage.removeItem('currentUser');
+          sessionStorage.removeItem('salesforce_user');
+          sessionStorage.removeItem('jwt');
+          sessionStorage.removeItem('authToken');
+      }
+      if (!options?.preserveStoreCode && typeof indexedDB !== 'undefined') {
+          indexedDB.deleteDatabase('SalesForceDB');
+      }
+      try {
+          await this.clearAllTenantIndexedDBCaches();
+      } catch {}
+  }
+
   // Inicialização
   async initializeConfig(): Promise<void> {
       try {
+          if (this.checkTenantMismatch()) {
+              this.addLog('Incompatibilidade de tenant detectada no carregamento inicial. Limpando caches...', 'warning');
+              if (typeof indexedDB !== 'undefined') {
+                  indexedDB.deleteDatabase('SalesForceDB');
+              }
+              localStorage.removeItem('authToken');
+              localStorage.removeItem('username');
+              localStorage.removeItem('sellerId');
+              localStorage.removeItem('erpStoreCode');
+              localStorage.removeItem('appConfig');
+              this.token = null;
+              
+              const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+              const tenantConfig = resolveTenantFromHost(hostname);
+              if (tenantConfig.tenant) {
+                  this.config = {
+                      backendUrl: tenantConfig.apiBaseUrl,
+                      apiToken: getIntegrationTokenForCurrentHost() || '',
+                      useMockData: false,
+                      theme: 'system'
+                  };
+                  localStorage.setItem('appConfig', JSON.stringify(this.config));
+              }
+          }
+
           await dbService.init();
           const dbConfig = await dbService.getSettings();
           
@@ -392,45 +512,70 @@ class ApiService {
   }
 
   async saveConfig(newConfig: AppConfig) {
-    this.config = newConfig;
+    const previousToken = typeof this.config.apiToken === 'string' ? this.config.apiToken.trim() : '';
+    const nextToken = typeof newConfig.apiToken === 'string' ? newConfig.apiToken.trim() : '';
+    const previousUrl = this.config.backendUrl || '';
+    const nextUrl = newConfig.backendUrl || '';
+    const connectionChanged =
+        previousToken !== nextToken ||
+        this.normalizeBackendUrl(previousUrl) !== this.normalizeBackendUrl(nextUrl);
+    const connectionValidated = Boolean(newConfig.connectionValidated && newConfig.validatedAt);
+
+    this.config = {
+        ...newConfig,
+        apiToken: nextToken,
+        connectionValidated,
+        validatedAt: connectionValidated ? newConfig.validatedAt : undefined,
+    };
     this.addLog('Configurações salvas.', 'info');
-    localStorage.setItem('appConfig', JSON.stringify(newConfig));
+    localStorage.setItem('appConfig', JSON.stringify(this.config));
+    
+    if (connectionChanged) {
+        this.clearUserSession();
+        this.addLog('Token ou URL alterados; limpando credenciais e caches do tenant...', 'warning');
+        try {
+            await this.clearAllTenantIndexedDBCaches();
+        } catch (e) {}
+    }
     try {
-        await dbService.saveSettings(newConfig);
+        await dbService.saveSettings(this.config);
     } catch (e) {}
   }
 
   async resetToLocalMode() {
       this.config.backendUrl = '';
       this.config.useMockData = false;
+      this.config.connectionValidated = false;
+      delete this.config.validatedAt;
       await this.saveConfig(this.config);
       this.addLog('Forçado modo local.', 'success');
   }
 
   isAuthenticated(): boolean {
     if (this.config.useMockData) return true;
-    const hasToken = !!this.resolveAppToken();
-    const hasUser = !!localStorage.getItem('username');
-    return hasToken && hasUser;
+    return this.hasLocallyValidUserJwt();
   }
 
   // Busca dados atualizados do perfil no servidor
   async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
       const endpoints = [
-          '/me',
-          '/api/user/me',
-          '/api/usuario/me',
-          '/api/usuarios/me',
-          '/api/profile',
+          '/api/me',
           '/api/auth/me',
           '/api/usuario/logado',
-          '/api/usuarios/logado'
+          '/api/usuarios/logado',
+          '/me'
       ];
       let lastError: any = null;
+      const storedSellerId = this.getStoredSellerId();
 
       for (const ep of endpoints) {
           try {
-              const res = await this.fetchWithAuth(ep);
+              let targetEp = ep;
+              if (storedSellerId) {
+                  const separator = ep.includes('?') ? '&' : '?';
+                  targetEp = `${ep}${separator}vendedor_codigo=${storedSellerId}`;
+              }
+              const res = await this.fetchWithAuth(targetEp);
               if (!res.ok) continue;
               const contentType = res.headers.get('content-type') || '';
               if (!contentType.includes('application/json')) {
@@ -457,6 +602,13 @@ class ApiService {
                 profile.vendedor_codigo ||
                 profile.vendedor_id;
               const paddedSellerId = this.persistSellerId(sellerId);
+              this.persistStoreCode(
+                  profile.loja_codigo ||
+                  profile.store_code ||
+                  profile.lojaCodigo ||
+                  profile.codigo_loja ||
+                  ''
+              );
 
               if (name && !this.isPlaceholderUsername(name)) {
                   this.addLog(`Perfil identificado: ${name}`, 'success');
@@ -468,7 +620,7 @@ class ApiService {
           }
       }
 
-      const tokenToDecode = this.token || this.config.apiToken;
+      const tokenToDecode = this.token;
       if (tokenToDecode) {
           const decoded = this.decodeToken(tokenToDecode);
               if (decoded.name) {
@@ -485,12 +637,37 @@ class ApiService {
   }
 
   private resolveProtectedStoreCode(): string {
-      if (isLlfixHostForCurrent()) return '00003';
-      if (isEdsonHostForCurrent()) return '00001';
+      const storedCode = this.getStoredStoreCode();
+      if (storedCode) return storedCode;
       const backend = (getBackendUrlForCurrentHost() || this.config.backendUrl || '').trim();
       if (/apiforce\.llfix\.app\.br/i.test(backend)) return '00003';
       if (/apiforce\.edsondosparafusos\.app\.br/i.test(backend)) return '00001';
-      return getStoreCodeForCurrentHost();
+      return getStoreCodeForApi();
+  }
+
+  private async cachePublicStoreData(store: Record<string, any> | null | undefined): Promise<void> {
+      if (!store) return;
+      const mapped = {
+          legal_name: store.legal_name || store.razao_social || '',
+          trade_name: store.trade_name || store.nome_fantasia || store.nome || '',
+          document: store.document || store.cnpj_cpf || '',
+          state_registration: store.state_registration || store.ie_rg || '',
+          municipal_registration: store.municipal_registration || '',
+          email: store.email || '',
+          phone: store.phone || store.telefone || store.telefone1 || '',
+          street: store.street || store.logradouro || '',
+          number: store.number || store.numero || '',
+          neighborhood: store.neighborhood || store.bairro || '',
+          city: store.city || store.cidade || '',
+          state: store.state || store.estado || '',
+          zip: store.zip || store.cep || '',
+          complement: store.complement || store.complemento || '',
+      };
+      await this.fetchAppLocal('/api/store/public', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(mapped),
+      });
   }
 
   // Importa dados de loja do ERP e grava no Node local (/api/store) se possível
@@ -528,101 +705,45 @@ class ApiService {
               state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
               zip: pick(loja, ['AGECEP','CEP'])
           };
-          await this.fetchAppLocal('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
+          await this.cachePublicStoreData(mapped);
           this.addLog('Dados da loja importados automaticamente.', 'success');
       } catch {}
   }
 
-  /**
-   * Valida a sessão. AGORA ACEITA TOKEN DE INTEGRAÇÃO COMO LOGIN VÁLIDO.
-   * Modificado para aceitar Offline se o token estiver configurado.
-   */
   async refreshProtectedStoreFromERP(): Promise<void> {
       await this.ensureStoreFromERP();
   }
 
   async validateSession(): Promise<boolean> {
-      // 1. Mock Data sempre passa
       if (this.config.useMockData) return true;
-
-      // 2. Se já tem token de usuário (Login Normal), valida ele
-      if (this.token) {
-           const result = await this.testConnection(this.config.backendUrl);
-           // Se sucesso OU erro de rede (offline), mantemos a sessão
-           if (result.success || result.message !== 'Token Inválido') {
-               // Tenta atualizar perfil em background se estiver online
-               if (result.success) this.fetchProfile();
-               return true; 
-           }
-           // Apenas se o servidor disser explicitamente que é inválido (401), limpamos
-           this.token = null;
-           localStorage.removeItem('authToken');
+      const bearerToken = this.resolveBearerToken();
+      if (!bearerToken || !this.hasLocallyValidUserJwt()) {
+          this.clearUserSession({ preserveStoreCode: true });
+          this.addLog('Nenhum JWT de usuário válido encontrado.', 'warning');
+          return false;
       }
 
-      // 3. Fallback: Login via Token de Configuração (Modo Terminal)
-      const appToken = this.resolveAppToken();
-      if (appToken) {
-          await this.ensureRemoteJwt();
-          const result = await this.testConnection(this.config.backendUrl);
-          
-          // CRÍTICO: Se tiver sucesso OU se estiver offline (mas não rejeitado), liberamos o acesso.
-          // Isso garante que o app abra mesmo sem internet se já foi configurado.
-          if (result.success || result.message !== 'Token Inválido') {
-              // "Loga" automaticamente usando o token da config
-              this.token = appToken;
-              localStorage.setItem('authToken', this.token);
+      this.token = bearerToken;
+      this.applyIdentityFromToken(this.token);
 
-              // Sempre tenta buscar perfil e loja (mesmo offline tentamos decode)
-              await this.fetchProfile();
-              this.applyIdentityFromToken(this.token);
-              await this.ensureStoreFromERP();
-
-              if (!localStorage.getItem('username')) localStorage.setItem('username', 'Terminal Vinculado');
-              this.addLog(result.success ? 'Sessão validada via Token.' : 'Sessão offline com Token.', result.success ? 'success' : 'warning');
-              return true;
-          } else {
-              this.addLog('Token de Integração rejeitado pelo servidor (401).', 'error');
-          }
-      }
-
-      this.addLog('Nenhuma sessão válida encontrada.', 'warning');
-      return false;
-  }
-
-  /**
-   * Tenta forçar o login usando o token de configuração
-   */
-  async loginViaSettingsToken(): Promise<{ success: boolean; message?: string }> {
-      const appToken = this.resolveAppToken();
-      if (!appToken) {
-          return { success: false, message: 'Configure o Token primeiro.' };
-      }
-
-      const jwt = await this.ensureRemoteJwt(true);
-      if (!jwt) {
-          return { success: false, message: 'Falha ao obter sessão JWT do backend remoto.' };
-      }
-
-      const result = await this.testConnection(this.config.backendUrl);
-      
-      if (result.success) {
-          this.token = jwt;
-          localStorage.setItem('authToken', this.token);
-
-          // Tenta pegar o nome real do dono do token
+      try {
           const profile = await this.fetchProfile();
-          this.applyIdentityFromToken(this.token);
-          const userName = profile?.name || localStorage.getItem('username') || 'Terminal Vinculado';
-          
-          this.addLog(`Login forçado: ${userName}`, 'success');
-          return { success: true };
-      } else {
-          return { success: false, message: 'O Token salvo nas configurações foi rejeitado pelo servidor.' };
+          if (!profile?.name || !profile?.seller_id) {
+              this.clearUserSession({ preserveStoreCode: true });
+              this.addLog('Sessão rejeitada: usuário autenticado sem identificação válida.', 'error');
+              return false;
+          }
+          await this.ensureStoreFromERP();
+          return true;
+      } catch (error: any) {
+          if (this.hasLocallyValidUserJwt()) {
+              this.addLog('Servidor indisponível; mantendo sessão local já autenticada.', 'warning');
+              return true;
+          }
+          this.clearUserSession({ preserveStoreCode: true });
+          this.addLog(error?.message || 'Falha ao validar sessão.', 'error');
+          return false;
       }
-  }
-
-  getAppToken(): string | null {
-      return this.resolveAppToken();
   }
 
   getUsername(): string {
@@ -637,6 +758,23 @@ class ApiService {
       const resolved = await this.resolveUsernameFromCustomers();
       if (resolved) return resolved;
       return this.getDefaultUsername();
+  }
+
+  private async requireResolvedUserIdentity(): Promise<{ name: string; seller_id: string } | null> {
+      let profile: { name: string; seller_id?: string } | null = null;
+      try {
+          profile = await this.fetchProfile();
+      } catch {}
+
+      const resolvedName = (profile?.name || '').trim() || await this.resolveDisplayName();
+      const resolvedSellerId = this.persistSellerId(profile?.seller_id || await this.resolveSellerIdFromProfile());
+
+      if (!resolvedName || this.isPlaceholderUsername(resolvedName) || !resolvedSellerId) {
+          return null;
+      }
+
+      localStorage.setItem('username', resolvedName);
+      return { name: resolvedName, seller_id: resolvedSellerId };
   }
   
   private padSellerDigits(value?: string | number | null): string {
@@ -690,7 +828,7 @@ class ApiService {
   getSellerId(): string | null {
       const stored = this.getStoredSellerId();
       if (stored) return stored;
-      const tokenToDecode = this.token || this.config.apiToken;
+      const tokenToDecode = this.token;
       if (!tokenToDecode) return null;
       const decoded = this.decodeToken(tokenToDecode);
       return this.persistSellerId(decoded.sellerId);
@@ -711,8 +849,23 @@ class ApiService {
   private getBaseUrl(): string {
       const hostBackend = getBackendUrlForCurrentHost();
       if (hostBackend) return this.normalizeBackendUrl(hostBackend);
-      if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
-          return this.normalizeBackendUrl(this.config.backendUrl);
+      
+      let configUrl = this.config.backendUrl && this.config.backendUrl.trim() !== '' 
+          ? this.normalizeBackendUrl(this.config.backendUrl) 
+          : '';
+          
+      if (typeof window !== 'undefined') {
+          const host = window.location.hostname;
+          if (host.includes('edsondosparafusos.app.br') || host.includes('edson')) {
+              return 'https://apiforce.edsondosparafusos.app.br';
+          }
+          if (host.includes('llfix.app.br') || host.includes('llfix')) {
+              return 'https://apiforce.llfix.app.br';
+          }
+      }
+      
+      if (configUrl) {
+          return configUrl;
       }
       return this.normalizeBackendUrl(FALLBACK_BACKEND_URL);
   }
@@ -833,14 +986,72 @@ class ApiService {
         'Content-Type': 'application/json',
         ...this.getTenantHeaders()
     };
-    const tokenToUse = this.resolveAppToken();
-    if (tokenToUse) {
-        headers['X-App-Token'] = tokenToUse;
+    const storeCode = this.getStoredStoreCode();
+    if (storeCode) {
+        headers['X-Loja-Codigo'] = storeCode;
     }
-    if (this.token && isLikelyJwt(this.token)) {
-        headers['Authorization'] = `Bearer ${this.token.trim()}`;
+    const bearerToken = this.resolveBearerToken();
+    if (bearerToken) {
+        headers['Authorization'] = `Bearer ${bearerToken}`;
     }
     return headers;
+  }
+
+  private getTechnicalAuthHeaders() {
+      const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...this.getTenantHeaders(),
+      };
+      const storeCode = this.getStoredStoreCode() || getStoreCodeForCurrentHost() || getStoreCodeForApi();
+      if (storeCode) {
+          headers['X-Loja-Codigo'] = normalizeStoreCode(storeCode).padStart(6, '0');
+      }
+      const appToken = this.resolveIntegrationAppToken();
+      if (appToken) {
+          headers['X-App-Token'] = appToken;
+      }
+      return headers;
+  }
+
+  private extractConnectionProfile(data: any): ConnectionProfileSummary {
+      const profile = data?.user || data || {};
+      const username = String(
+          profile.vendor_name ||
+          profile.name ||
+          profile.nome ||
+          profile.username ||
+          profile.user_name ||
+          profile.usuario ||
+          profile.email ||
+          ''
+      ).trim();
+      const vendedorCodigo = String(
+          profile.vendor_code ||
+          profile.vendedor_codigo ||
+          profile.seller_id ||
+          profile.sellerId ||
+          profile.codigo_vendedor ||
+          profile.cod_vendedor ||
+          ''
+      ).trim();
+      const lojaCodigo = String(
+          profile.loja_codigo ||
+          profile.store_code ||
+          profile.lojaCodigo ||
+          profile.codigo_loja ||
+          ''
+      ).trim();
+      const lojaEmpresa = String(
+          profile.loja_nome ||
+          profile.store_name ||
+          profile.empresa ||
+          profile.company ||
+          profile.company_name ||
+          profile.trade_name ||
+          profile.fantasia ||
+          ''
+      ).trim();
+      return { username, vendedorCodigo, lojaEmpresa, lojaCodigo };
   }
 
   private isAuthDebugEnabled(): boolean {
@@ -876,7 +1087,6 @@ class ApiService {
   }
 
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
-      await this.ensureRemoteJwt();
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       const baseUrl = this.getBaseUrl();
       if (!baseUrl) {
@@ -905,8 +1115,7 @@ class ApiService {
       const check401 = (res: Response) => {
           if (res.status === 401 && this.token) {
               this.addLog(`Sessão expirada.`, 'warning');
-              this.token = null;
-              localStorage.removeItem('authToken');
+              this.clearUserSession({ preserveStoreCode: true });
               this.notifySessionExpired();
           }
           return res;
@@ -1037,6 +1246,19 @@ class ApiService {
       }
   }
 
+  private validateStoreCodeForCurrentHost(storeCode?: string | null): { success: boolean; message?: string } {
+      if (!isStoreSelectionLockedForCurrent()) return { success: true };
+      const expected = normalizeStoreCode(getStoreCodeForCurrentHost());
+      const resolved = normalizeStoreCode(storeCode || '');
+      if (!resolved) {
+          return { success: false, message: 'Servidor não retornou o código da loja validada.' };
+      }
+      if (resolved !== expected) {
+          return { success: false, message: `Loja ${getStoreCodeForCurrentHost()} não corresponde à configuração retornada pelo ERP.` };
+      }
+      return { success: true };
+  }
+
   // --- AUTENTICAÇÃO ---
 
   async login(username: string, password: string): Promise<{ success: boolean; message?: string }> {
@@ -1102,6 +1324,11 @@ class ApiService {
                   localStorage.removeItem('sellerId');
               }
               this.applyIdentityFromToken(this.token);
+              const identity = await this.requireResolvedUserIdentity();
+              if (!identity) {
+                  this.logout();
+                  return { success: false, message: 'Não foi possível identificar nome e código do vendedor vinculado.' };
+              }
               
               return { success: true };
           }
@@ -1202,8 +1429,13 @@ class ApiService {
                       localStorage.removeItem('sellerId');
                   }
                   this.applyIdentityFromToken(this.token);
+                  const identity = await this.requireResolvedUserIdentity();
+                  if (!identity) {
+                      this.logout();
+                      return { success: false, message: 'Não foi possível identificar nome e código do vendedor vinculado.' };
+                  }
                   
-                  this.addLog(`Login com código: ${email}`, 'success');
+                  this.addLog(`Login com código: ${identity.name} [${identity.seller_id}]`, 'success');
                   return { success: true };
               }
           }
@@ -1318,39 +1550,16 @@ class ApiService {
   }
   
   logout() {
-    this.token = null;
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('username');
-    localStorage.removeItem('sellerId');
+    this.clearUserSession();
   }
 
-  async testConnection(url: string = ''): Promise<{ success: boolean; message: string }> {
+  async testConnection(url: string = ''): Promise<ConnectionTestResult> {
       const hostBackend = getBackendUrlForCurrentHost();
       const targetUrl = hostBackend
         ? this.normalizeBackendUrl(hostBackend)
         : (url.trim() ? this.normalizeBackendUrl(url) : this.getBaseUrl());
-      const endpoint = this.buildPaymentPlanCatalogEndpoint();
-      const connectionUrl = targetUrl ? `${targetUrl}${endpoint}` : endpoint;
-      const headers = { ...this.getAuthHeaders() };
-      
-      this.addLog(`Testando: ${connectionUrl}`, 'info');
-
-      const evaluateResponse = async (response: Response): Promise<{ success: boolean; message: string }> => {
-          if (response.ok) {
-              const jsonCheck = await this.ensureJsonResponse(response, 'Planos de Pagamento');
-              if (!jsonCheck.ok) return { success: false, message: jsonCheck.message || 'Resposta inválida.' };
-              const storeCheck = await this.validateStoreForCurrentHost();
-              if (!storeCheck.success) return { success: false, message: storeCheck.message || 'Loja inválida.' };
-              return { success: true, message: 'Conectado!' };
-          }
-          if (response.status === 401 || response.status === 403) {
-              return { success: false, message: 'Token Inválido' };
-          }
-          if (response.status === 404) {
-              return { success: false, message: 'Endpoint não encontrado (404).' };
-          }
-          return { success: false, message: `Erro HTTP ${response.status}` };
-      };
+      const endpoint = '/api/integration/validate';
+      const headers = { ...this.getTechnicalAuthHeaders() };
 
       const doFetch = async (target: string): Promise<Response> => {
           const controller = new AbortController();
@@ -1373,8 +1582,66 @@ class ApiService {
           if (!targetUrl) {
               throw new Error('Backend não configurado.');
           }
+          const connectionUrl = `${targetUrl}${endpoint}`;
+          this.addLog(`Validando conexão técnica: ${connectionUrl}`, 'info');
           const remoteResponse = await doFetch(connectionUrl);
-          return await evaluateResponse(remoteResponse);
+
+          if (remoteResponse.ok) {
+              const jsonCheck = await this.ensureJsonResponse(remoteResponse, 'Validação de conexão');
+              if (!jsonCheck.ok) {
+                  return { success: false, valid: false, message: jsonCheck.message || 'Resposta inválida.', endpointUsed: endpoint, status: remoteResponse.status };
+              }
+              const payload = await remoteResponse.json();
+              const profile = this.extractConnectionProfile(payload);
+              const store = payload?.store || payload?.loja || null;
+              const valid = Boolean(payload?.ok && payload?.valid && (profile.lojaCodigo || store?.codigo || store?.store_code));
+              if (!valid) {
+                  return {
+                      success: false,
+                      valid: false,
+                      message: 'Servidor respondeu sem dados válidos da loja.',
+                      endpointUsed: endpoint,
+                      profile,
+                      store,
+                      status: remoteResponse.status,
+                  };
+              }
+              if (profile.lojaCodigo) {
+                  this.persistStoreCode(profile.lojaCodigo);
+              } else if (store?.codigo || store?.store_code) {
+                  this.persistStoreCode(store.codigo || store.store_code);
+              }
+              const storeCheck = this.validateStoreCodeForCurrentHost(
+                  profile.lojaCodigo || store?.codigo || store?.store_code || null
+              );
+              if (!storeCheck.success) {
+                  return { success: false, valid: false, message: storeCheck.message || 'Loja inválida.', endpointUsed: endpoint, profile, store, status: remoteResponse.status };
+              }
+              await this.cachePublicStoreData(store);
+              return {
+                  success: true,
+                  valid: true,
+                  message: 'Conexão validada com sucesso.',
+                  endpointUsed: endpoint,
+                  profile,
+                  store,
+                  status: remoteResponse.status,
+              };
+          }
+
+          let detail = `Erro HTTP ${remoteResponse.status}`;
+          try {
+              const payload = await remoteResponse.clone().json();
+              detail = payload?.message || payload?.detail?.message || payload?.detail || detail;
+          } catch {}
+          return {
+              success: false,
+              valid: false,
+              message: detail,
+              authRejected: remoteResponse.status === 401 || remoteResponse.status === 403,
+              endpointUsed: endpoint,
+              status: remoteResponse.status,
+          };
       } catch (error: any) {
           const friendly = error?.name === 'AbortError'
             ? 'Timeout: O servidor demorou muito para responder.'
@@ -1382,21 +1649,19 @@ class ApiService {
           this.addLog(`Teste remoto falhou: ${friendly}`, 'warning');
           const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : 'Erro desconhecido';
           const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
-            ? 'Falha no fetch (possível CORS ou servidor indisponível).'
+            ? 'Erro de CORS, HTTPS ou servidor inacessível'
             : rawMessage;
           this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
-          return { success: false, message: `Sem conexão. ${friendlyDetail}` };
+          return { success: false, valid: false, message: `Sem conexão. ${friendlyDetail}` };
       }
   }
 
   // --- PEDIDOS ---
 
   async submitOrder(order: Order): Promise<SubmitOrderResult> {
-    // Validação de Token antes de enviar
-    const currentToken = this.token || this.config.apiToken;
-    if (!currentToken) {
-         this.addLog('ERRO: Tentativa de envio sem token autenticado.', 'error');
-         return { success: false, message: 'Token não configurado.' };
+    if (!this.hasLocallyValidUserJwt()) {
+         this.addLog('ERRO: Tentativa de envio sem JWT de usuário.', 'error');
+         return { success: false, message: 'Faça login novamente para enviar pedidos.' };
     }
 
     try {
@@ -2121,38 +2386,39 @@ class ApiService {
   private mapSalesHistoryReportRow(item: unknown): SalesHistoryReportRow {
       const source = (item && typeof item === 'object') ? item as Record<string, unknown> : {};
       return {
-          pedido: typeof source.pedido === 'string' ? source.pedido : null,
+          pedido: typeof (source.pedido ?? source.pedido_codigo) === 'string' ? String(source.pedido ?? source.pedido_codigo) : null,
           status: typeof source.status === 'string' ? source.status : null,
-          statusCodigo: typeof source.status_codigo === 'string' ? source.status_codigo : null,
+          statusCodigo: typeof (source.statusCodigo ?? source.status_codigo) === 'string' ? String(source.statusCodigo ?? source.status_codigo) : null,
           cliente: typeof source.cliente === 'string' ? source.cliente : '-',
-          clienteCodigo: typeof source.cliente_codigo === 'string' ? source.cliente_codigo : null,
-          clienteNome: typeof source.cliente_nome === 'string' ? source.cliente_nome : null,
-          pedidoCliente: typeof source.pedido_cliente === 'string' ? source.pedido_cliente : null,
+          clienteCodigo: typeof (source.clienteCodigo ?? source.cliente_codigo) === 'string' ? String(source.clienteCodigo ?? source.cliente_codigo) : null,
+          clienteNome: typeof (source.clienteNome ?? source.cliente_nome) === 'string' ? String(source.clienteNome ?? source.cliente_nome) : null,
+          pedidoCliente: typeof (source.pedidoCliente ?? source.pedido_cliente) === 'string' ? String(source.pedidoCliente ?? source.pedido_cliente) : null,
           emissao: typeof source.emissao === 'string' ? source.emissao : null,
-          emissaoDisplay: typeof source.emissao_display === 'string' ? source.emissao_display : null,
+          emissaoDisplay: typeof (source.emissaoDisplay ?? source.emissao_display) === 'string' ? String(source.emissaoDisplay ?? source.emissao_display) : null,
           vendedor: typeof source.vendedor === 'string' ? source.vendedor : '-',
-          valorBruto: this.toNumber(source.valor_bruto),
-          valorTotal: this.toNumber(source.valor_total),
-          notaNumero: typeof source.nota_numero === 'string' ? source.nota_numero : null,
-          notaSerie: typeof source.nota_serie === 'string' ? source.nota_serie : null,
-          saidaCodigo: typeof source.saida_codigo === 'string' ? source.saida_codigo : null,
-          produtoCodigo: typeof source.produto_codigo === 'string' ? source.produto_codigo : null,
-          produtoDescricao: typeof source.produto_descricao === 'string' ? source.produto_descricao : null,
-          documentoTipo: typeof source.documento_tipo === 'string' ? source.documento_tipo : null,
+          valorBruto: this.toNumber(source.valorBruto ?? source.valor_bruto),
+          valorTotal: this.toNumber(source.valorTotal ?? source.valor_total),
+          notaNumero: typeof (source.notaNumero ?? source.nota_numero) === 'string' ? String(source.notaNumero ?? source.nota_numero) : null,
+          notaSerie: typeof (source.notaSerie ?? source.nota_serie) === 'string' ? String(source.notaSerie ?? source.nota_serie) : null,
+          saidaCodigo: typeof (source.saidaCodigo ?? source.saida_codigo) === 'string' ? String(source.saidaCodigo ?? source.saida_codigo) : null,
+          produtoCodigo: typeof (source.produtoCodigo ?? source.produto_codigo) === 'string' ? String(source.produtoCodigo ?? source.produto_codigo) : null,
+          produtoDescricao: typeof (source.produtoDescricao ?? source.produto_descricao) === 'string' ? String(source.produtoDescricao ?? source.produto_descricao) : null,
+          documentoTipo: typeof (source.documentoTipo ?? source.documento_tipo) === 'string' ? String(source.documentoTipo ?? source.documento_tipo) : null,
       };
   }
 
   private mapSalesHistoryReportGroup(item: unknown): SalesHistoryReportGroup {
       const source = (item && typeof item === 'object') ? item as Record<string, unknown> : {};
-      const totals = (source.total_data_emissao && typeof source.total_data_emissao === 'object') ? source.total_data_emissao as Record<string, unknown> : {};
+      const totalSource = source.totalDataEmissao ?? source.total_data_emissao;
+      const totals = (totalSource && typeof totalSource === 'object') ? totalSource as Record<string, unknown> : {};
       const rows = Array.isArray(source.rows) ? source.rows.map((row) => this.mapSalesHistoryReportRow(row)) : [];
       return {
-          dataEmissao: typeof source.data_emissao === 'string' ? source.data_emissao : null,
-          dataEmissaoDisplay: typeof source.data_emissao_display === 'string' ? source.data_emissao_display : 'Sem data',
+          dataEmissao: typeof (source.dataEmissao ?? source.data_emissao) === 'string' ? String(source.dataEmissao ?? source.data_emissao) : null,
+          dataEmissaoDisplay: typeof (source.dataEmissaoDisplay ?? source.data_emissao_display) === 'string' ? String(source.dataEmissaoDisplay ?? source.data_emissao_display) : 'Sem data',
           rows,
           totalDataEmissao: {
-              valorBruto: this.toNumber(totals.valor_bruto),
-              valorTotal: this.toNumber(totals.valor_total),
+              valorBruto: this.toNumber(totals.valorBruto ?? totals.valor_bruto),
+              valorTotal: this.toNumber(totals.valorTotal ?? totals.valor_total),
           },
       };
   }
@@ -2166,14 +2432,14 @@ class ApiService {
           : [];
 
       return {
-          groupBy: source.group_by === 'data_emissao' ? 'data_emissao' : 'data_emissao',
+          groupBy: (source.groupBy ?? source.group_by) === 'data_emissao' ? 'data_emissao' : 'data_emissao',
           order: source.order === 'asc' ? 'asc' : 'asc',
           layout: source.layout === 'resumo_por_emissao' ? 'resumo_por_emissao' : 'resumo_por_emissao',
           columns,
           groups: Array.isArray(source.groups) ? source.groups.map((group) => this.mapSalesHistoryReportGroup(group)) : [],
           totals: {
-              valorBruto: this.toNumber(totals.valor_bruto),
-              valorTotal: this.toNumber(totals.valor_total),
+              valorBruto: this.toNumber(totals.valorBruto ?? totals.valor_bruto),
+              valorTotal: this.toNumber(totals.valorTotal ?? totals.valor_total),
           },
       };
   }

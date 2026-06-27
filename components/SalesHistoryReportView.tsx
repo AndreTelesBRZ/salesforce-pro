@@ -20,11 +20,44 @@ const formatCurrency = (value?: number): string => {
   return currencyFormatter.format(Number(value) || 0);
 };
 
+const formatDate = (value?: string | null): string => {
+  if (!value) return "-";
+  const trimmed = value.trim();
+  if (!trimmed) return "-";
+  
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const parts = trimmed.split('-');
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  
+  try {
+    const date = new Date(trimmed);
+    if (!Number.isNaN(date.getTime())) {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+  } catch {}
+  
+  return trimmed;
+};
+
 const formatNfeLabel = (row: SalesHistoryReportRow): string => {
-  const numero = String(row.notaNumero || "").trim();
+  const nota = String(row.notaNumero || "").trim();
   const serie = String(row.notaSerie || "").trim();
-  if (!numero) return "-";
-  return serie ? numero + "/" + serie : numero;
+  if (nota) {
+    return serie ? `${nota}/${serie}` : nota;
+  }
+  const saida = String(row.saidaCodigo || "").trim();
+  if (saida) {
+    return `Saída ${saida}`;
+  }
+  const ped = String(row.pedido || "").trim();
+  if (ped) {
+    return `Ped. ${ped}`;
+  }
+  return "-";
 };
 
 const buildFallbackRows = (items: SalesHistoryItem[]): SalesHistoryReportGroup[] => {
@@ -166,7 +199,7 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
         {groups.map((group) => (
           <section key={group.dataEmissaoDisplay + '-' + (group.dataEmissao || 'sem-data')} className="overflow-x-auto">
             <div className="bg-yellow-100 dark:bg-yellow-500/20 px-4 py-2 font-semibold text-slate-900 dark:text-white">
-              {group.dataEmissaoDisplay}
+              {formatDate(group.dataEmissaoDisplay)}
             </div>
 
             <table className="min-w-full text-sm">
@@ -212,7 +245,7 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-3 py-2">{row.emissaoDisplay || row.emissao || '-'}</td>
+                    <td className="px-3 py-2">{formatDate(row.emissaoDisplay || row.emissao)}</td>
                     <td className="px-3 py-2">{row.vendedor}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(row.valorBruto)}</td>
                     <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(row.valorTotal)}</td>

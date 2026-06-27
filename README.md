@@ -37,6 +37,12 @@ Aplicativo de força de vendas híbrido (Web/Mobile) com backend Node/Express e 
 
    `npm run build`
 
+   - O build executa `scripts/generate-build-info.js` antes do Vite e gera `src/buildInfo.ts`.
+   - A versão vem de `package.json`.
+   - O build code usa `YYYYMMDD.NNN` e, por padrão, gera `NNN=001`.
+   - Para publicar mais de um build no mesmo dia, defina a sequência:
+     `BUILD_SEQUENCE=002 npm run build`
+
 5) Executar somente backend servindo estáticos de `dist/`:
 
    `npm start`
@@ -104,5 +110,40 @@ Variáveis (via `.env`):
 - `npm run dev` — inicia backend e frontend juntos
 - `npm run server` — inicia apenas o backend
 - `npm run client` — inicia apenas o frontend
+- `npm run build:info` — gera `src/buildInfo.ts` com versão, build, commit e data
 - `npm run build` — compila TypeScript e build do Vite
 - `npm start` — inicia o servidor Express servindo `dist/`
+
+## Controle de Versao
+
+- Arquivo central no frontend: `src/version.ts`
+- Arquivo gerado no build: `src/buildInfo.ts`
+- Versao da aplicacao: campo `version` do `package.json`
+- Commit do build: `git rev-parse --short HEAD` quando o script consegue acessar o Git
+
+Onde aparece na interface:
+
+- Login: rodape do card com `vX.Y.Z • build YYYYMMDD.NNN`
+- Configuracao: rodape discreto da tela
+- App autenticado: rodape do menu lateral
+
+Como alterar manualmente:
+
+- Altere `package.json` em `version`
+- Se quiser forcar um build code especifico:
+  `VITE_APP_BUILD=20260627.003 npm run build`
+- Se quiser apenas trocar a sequencia do dia:
+  `BUILD_SEQUENCE=003 npm run build`
+
+Como confirmar a versao publicada no navegador:
+
+- Tela de login: confira o rodape do card
+- Dentro do app: abra o menu lateral ou a tela `Ajustes`
+- Em desenvolvimento, o console tambem registra a versao carregada
+
+Deploy/rebuild:
+
+- Rebuild local de producao: `npm run build`
+- Rebuild com sequencia manual: `BUILD_SEQUENCE=002 npm run build`
+- Deploy automatizado existente: `scripts/release-and-deploy.sh`
+- Deploy remoto da imagem atual: `scripts/deploy-stack.sh`

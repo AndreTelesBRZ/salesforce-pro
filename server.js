@@ -374,14 +374,15 @@ async function initDb() {
             await db.run(insertProd, ["0000002", "Chave Philips", "Chave Philips 3/16 x 4", 12.90, 50, "Ferramentas", "UN", DEFAULT_STORE_ID]);
         }
 
-        // Criar ou Atualizar Admin
-        const userCount = await db.get("SELECT count(*) as count FROM users WHERE lower(email) = ?", ['admin']);
-        if (!userCount || parseInt(userCount.count) === 0) {
-            const hash = bcrypt.hashSync("123456", 8);
-            const now = new Date().toISOString();
-            // Admin recebe seller_id 000002 por padrão para testes
-            await db.run("INSERT INTO users (name, email, password, created_at, seller_id) VALUES (?, ?, ?, ?, ?)", ["Administrador", "admin", hash, now, "000002"]);
-            console.log("Usuário 'admin' criado (senha: 123456) com seller_id=000002");
+        const allowDefaultAdmin = process.env.ALLOW_LOCAL_DEFAULT_ADMIN === '1' || process.env.NODE_ENV !== 'production';
+        if (allowDefaultAdmin) {
+            const userCount = await db.get("SELECT count(*) as count FROM users WHERE lower(email) = ?", ['admin']);
+            if (!userCount || parseInt(userCount.count) === 0) {
+                const hash = bcrypt.hashSync("123456", 8);
+                const now = new Date().toISOString();
+                await db.run("INSERT INTO users (name, email, password, created_at, seller_id) VALUES (?, ?, ?, ?, ?)", ["Administrador", "admin", hash, now, "000002"]);
+                console.log("Usuário 'admin' criado para ambiente local controlado.");
+            }
         }
         
         // Garante existência do Cliente Balcão (ID 0)
@@ -789,26 +790,14 @@ const verifyToken = (req, res, next) => {
       return res.status(403).json({ message: 'Token não fornecido.' });
   }
 
-  // BYPASS: Token de integração (Master Key ou APP_INTEGRATION_TOKEN)
-  if (isIntegrationTokenForRequest(req, authInfo.token) || isIntegrationTokenForRequest(req, appToken)) {
-      if (authInfo.token === MASTER_KEY || appToken === MASTER_KEY) {
-          console.log('[AUTH_SUCCESS] Acesso via Master Key');
-          req.userId = 'master-admin';
-      } else {
-          console.log('[AUTH_SUCCESS] Acesso via App Integration Token');
-          req.userId = 'integration-token';
-      }
-      return next();
-  }
-
   if (authInfo.invalid) {
       console.log('[AUTH_FAIL] Formato inválido de token');
       return res.status(403).json({ message: 'Formato inválido.' });
   }
 
   if (!authInfo.token && appToken) {
-      console.log('[AUTH_FAIL] X-App-Token inválido');
-      return res.status(401).json({ message: 'Token inválido.' });
+      console.log('[AUTH_FAIL] X-App-Token não autoriza sessão de usuário');
+      return res.status(401).json({ message: 'Token de integração não autentica usuário.' });
   }
 
   if (!authInfo.token) {
@@ -830,10 +819,6 @@ const verifyToken = (req, res, next) => {
 
 // Identificar Usuário Atual (Me)
 app.get('/api/me', verifyToken, async (req, res) => {
-    if (req.userId === 'master-admin') {
-        return res.json({ id: 0, name: 'Admin Master', email: 'master@admin.com', seller_id: '' });
-    }
-
     try {
         const user = await db.get("SELECT id, name, email, seller_id FROM users WHERE id = ?", [req.userId]);
         if (user) {

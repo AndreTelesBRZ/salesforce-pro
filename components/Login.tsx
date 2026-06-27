@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/api';
+import { getBackendUrlForCurrentHost } from '../services/storeHost';
 import { Lock, User, LogIn, Settings as SettingsIcon, Loader2, Store, AlertCircle, Mail, UserPlus, ArrowLeft, Terminal, RefreshCw, Globe, Power, KeyRound, Send, Zap } from 'lucide-react';
+import { APP_VERSION_LABEL } from '../src/version';
 
 declare global {
   interface Window {
@@ -12,11 +14,12 @@ declare global {
 interface LoginProps {
   onLoginSuccess: () => void;
   onOpenSettings: () => void;
+  storeInfo?: any | null;
 }
 
 type LoginMode = 'password' | 'code_request' | 'code_verify';
 
-export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) => {
+export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, storeInfo }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [loginMode, setLoginMode] = useState<LoginMode>('password');
 
@@ -40,10 +43,11 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
   const config = apiService.getConfig();
 
   useEffect(() => {
-    // Verifica se existe um token de configuração definido
-    if (config.apiToken && config.backendUrl) {
+    if (config.connectionValidated && config.apiToken && (config.backendUrl || getBackendUrlForCurrentHost())) {
         setHasDeviceToken(true);
+        return;
     }
+    setHasDeviceToken(false);
   }, [config]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -60,20 +64,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
     } else {
       setError(result.message || 'Falha no acesso. Verifique suas credenciais.');
     }
-  };
-
-  const handleLoginWithDeviceToken = async () => {
-      setLoading(true);
-      setError('');
-      
-      const result = await apiService.loginViaSettingsToken();
-      setLoading(false);
-      
-      if (result.success) {
-          onLoginSuccess();
-      } else {
-          setError(result.message || 'Falha ao validar token. Verifique as configurações.');
-      }
   };
 
   const handleSendCode = async (e: React.FormEvent) => {
@@ -151,14 +141,14 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
   };
 
   const getHeaderColor = () => {
-      if (hasDeviceToken) return 'from-green-700 to-green-900'; // Token Verde
+      if (hasDeviceToken) return 'from-green-700 to-green-900';
       if (isRegistering) return 'from-orange-600 to-orange-800';
       if (loginMode !== 'password') return 'from-purple-700 to-purple-900';
       return 'from-blue-800 to-blue-900';
   };
 
   const getHeaderIcon = () => {
-      if (hasDeviceToken) return <Zap className="w-10 h-10 text-green-400 animate-pulse" />;
+      if (hasDeviceToken) return <Zap className="w-10 h-10 text-green-400" />;
       if (isRegistering) return <UserPlus className="w-10 h-10 text-orange-600" />;
       if (loginMode !== 'password') return <KeyRound className="w-10 h-10 text-purple-700" />;
       return <Store className="w-10 h-10 text-blue-800" />;
@@ -206,7 +196,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">SalesForce Pro</h1>
           <p className="text-white/80 mt-2 text-sm font-medium">
-              {hasDeviceToken ? 'Acesso Automático Habilitado' : 
+              {hasDeviceToken ? 'Conexão Técnica Validada' : 
                isRegistering ? 'Crie sua conta profissional' : 
                loginMode !== 'password' ? 'Acesso via Código Seguro' :
                'Sistema Integrado de Força de Vendas'}
@@ -215,22 +205,26 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
 
         {/* Formulário */}
         <div className="p-8 pt-6">
+          {storeInfo && !isRegistering && loginMode === 'password' && (
+            <div className="mb-6 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Loja configurada</p>
+              <p className="mt-2 text-sm font-semibold text-slate-800 dark:text-white">
+                {storeInfo.trade_name || storeInfo.legal_name || 'Loja vinculada'}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {storeInfo.document || 'Documento não informado'}
+              </p>
+            </div>
+          )}
 
-          {/* Atalho de Token de Dispositivo - AGORA EM DESTAQUE E PRIMEIRO */}
           {hasDeviceToken && !isRegistering && (
-             <div className="mb-6 pb-6 border-b border-slate-100 dark:border-slate-700">
-                <button
-                    type="button"
-                    onClick={handleLoginWithDeviceToken}
-                    disabled={loading}
-                    className="w-full flex justify-center items-center gap-2 py-4 px-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg shadow-green-600/20 transition-all transform active:scale-[0.98] ring-4 ring-green-100 dark:ring-green-900/30"
-                >
-                    {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Zap className="w-6 h-6" />}
-                    ENTRAR AGORA
-                </button>
-                <p className="text-center text-xs text-slate-500 mt-3 flex items-center justify-center gap-1">
-                    <SettingsIcon className="w-3 h-3" />
-                    Usando Token de Integração configurado
+             <div className="mb-6 pb-6 border-b border-slate-100 dark:border-slate-700 bg-green-50 dark:bg-green-900/20 p-4 rounded-xl border">
+                <p className="text-sm font-semibold text-green-800 dark:text-green-200 flex items-center gap-2">
+                    <Zap className="w-4 h-4" />
+                    Conexão técnica pronta
+                </p>
+                <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                    O token de integração valida apenas a comunicação com a loja. O acesso ao sistema continua exigindo usuário e senha.
                 </p>
              </div>
           )}
@@ -298,7 +292,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
                   {/* Mensagem de Login Padrão só aparece se não tiver token, ou abaixo dele */}
                   <div className="text-center mb-4">
                       <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                          {hasDeviceToken ? 'Ou acesse com usuário' : 'Credenciais de Acesso'}
+                          {hasDeviceToken ? 'Faça login com usuário' : 'Credenciais de Acesso'}
                       </span>
                   </div>
 
@@ -308,9 +302,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
                             <div className="text-xs text-slate-600 dark:text-slate-300 font-mono">
                                 <span className="font-bold">Modo Local Detectado</span>
                                 <div className="mt-1">
-                                    Usuário: <span className="bg-slate-200 dark:bg-slate-600 px-1 rounded">admin</span>
-                                    <br/>
-                                    Senha: <span className="bg-slate-200 dark:bg-slate-600 px-1 rounded">123456</span>
+                                    O acesso local exige um usuário real cadastrado no backend local.
                                 </div>
                             </div>
                         </div>
@@ -444,46 +436,32 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
             )}
           </div>
 
-          {/* BOTÃO PRINCIPAL DE AÇÃO (Escondido se tiver token, pois o botão do token já é o principal) */}
-          {!hasDeviceToken && (
-              <button
-                  onClick={
-                      isRegistering ? handleRegister : 
-                      loginMode === 'code_request' ? handleSendCode :
-                      loginMode === 'code_verify' ? handleVerifyCode :
-                      handleLogin
-                  }
-                  disabled={loading}
-                  className={`w-full flex justify-center items-center gap-2 py-4 px-4 font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed mt-4 ${
-                      isRegistering ? 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-900/30' : 
-                      loginMode !== 'password' ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-purple-600/30' :
-                      'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-600/30'
-                  }`}
-              >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 
-                   isRegistering ? <UserPlus className="w-5 h-5" /> : 
-                   loginMode === 'code_request' ? <Send className="w-5 h-5" /> :
-                   loginMode === 'code_verify' ? <LogIn className="w-5 h-5" /> :
-                   <LogIn className="w-5 h-5" />}
-                  
-                  {loading ? 'Processando...' : 
-                   isRegistering ? 'Criar Minha Conta' : 
-                   loginMode === 'code_request' ? 'Enviar Código' :
-                   loginMode === 'code_verify' ? 'Verificar e Entrar' :
-                   'Entrar no Sistema'}
-              </button>
-          )}
-
-          {/* Botão Secundário se tiver token (para logar com senha) */}
-          {hasDeviceToken && !isRegistering && loginMode === 'password' && (
-              <button
-                  onClick={handleLogin}
-                  disabled={loading}
-                  className="w-full mt-4 py-3 text-slate-500 hover:text-slate-800 dark:hover:text-white font-medium text-sm underline transition-colors"
-              >
-                  Acessar com Senha
-              </button>
-          )}
+          <button
+              onClick={
+                  isRegistering ? handleRegister : 
+                  loginMode === 'code_request' ? handleSendCode :
+                  loginMode === 'code_verify' ? handleVerifyCode :
+                  handleLogin
+              }
+              disabled={loading}
+              className={`w-full flex justify-center items-center gap-2 py-4 px-4 font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed mt-4 ${
+                  isRegistering ? 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-900/30' : 
+                  loginMode !== 'password' ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-purple-600/30' :
+                  'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-600/30'
+              }`}
+          >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 
+               isRegistering ? <UserPlus className="w-5 h-5" /> : 
+               loginMode === 'code_request' ? <Send className="w-5 h-5" /> :
+               loginMode === 'code_verify' ? <LogIn className="w-5 h-5" /> :
+               <LogIn className="w-5 h-5" />}
+              
+              {loading ? 'Processando...' : 
+               isRegistering ? 'Criar Minha Conta' : 
+               loginMode === 'code_request' ? 'Enviar Código' :
+               loginMode === 'code_verify' ? 'Verificar e Entrar' :
+               'Entrar no Sistema'}
+          </button>
             
           {/* BOTÃO DE LOGIN SECUNDÁRIO */}
           {!isRegistering && loginMode === 'password' && (
@@ -518,7 +496,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings }) 
         
         <div className="bg-slate-50 dark:bg-slate-900 p-4 text-center border-t border-slate-100 dark:border-slate-700">
           <p className="text-xs text-slate-400">
-             V1.0.4 • Dados Criptografados
+             {APP_VERSION_LABEL}
           </p>
         </div>
       </div>

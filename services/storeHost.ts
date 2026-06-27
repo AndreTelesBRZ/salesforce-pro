@@ -1,9 +1,9 @@
-const DEFAULT_STORE_CODE = '00001';
+const DEFAULT_STORE_CODE = '000001';
 const EDSON_DOMAIN = 'edsondosparafusos.app.br';
-const EDSON_STORE_CODE = '00001';
+const EDSON_STORE_CODE = '000001';
 const EDSON_BACKEND_URL = 'https://apiforce.edsondosparafusos.app.br';
 const LLFIX_DOMAIN = 'llfix.app.br';
-const LLFIX_STORE_CODE = '00003';
+const LLFIX_STORE_CODE = '000003';
 const LLFIX_BACKEND_URL = 'https://apiforce.llfix.app.br';
 const EDSON_APP_TOKEN = (() => {
   try {
@@ -122,4 +122,37 @@ export const getStoreCodeForCurrentHost = (): string => {
 
 export const getStoreCodeForApi = (): string => {
   return getStoreCodeForCurrentHost().padStart(6, '0');
+};
+
+export interface TenantConfig {
+  tenant: 'EDSON' | 'LLFIX' | null;
+  storeCode: string;
+  apiBaseUrl: string;
+  storeName: string;
+}
+
+export const resolveTenantFromHost = (hostname?: string): TenantConfig => {
+  const host = String(hostname || (typeof window !== 'undefined' ? window.location.hostname : '')).trim().toLowerCase();
+  if (host === 'llfix.app.br' || host.endsWith('.llfix.app.br')) {
+    return {
+      tenant: 'LLFIX',
+      storeCode: '000003',
+      apiBaseUrl: 'https://apiforce.llfix.app.br',
+      storeName: 'LL FIX DISTRIBUIDORA - EI'
+    };
+  }
+  if (host === 'edsondosparafusos.app.br' || host.endsWith('.edsondosparafusos.app.br')) {
+    return {
+      tenant: 'EDSON',
+      storeCode: '000001',
+      apiBaseUrl: 'https://apiforce.edsondosparafusos.app.br',
+      storeName: 'EDSON DOS PARAFUSOS'
+    };
+  }
+  return {
+    tenant: null,
+    storeCode: '000001',
+    apiBaseUrl: '',
+    storeName: ''
+  };
 };

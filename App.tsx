@@ -16,6 +16,7 @@ import { dbService } from './services/db';
 import { Product, CartItem, ThemeMode, Customer } from './types';
 import { EnumProvider } from './contexts/EnumContext';
 import { OrderDraft } from './src/types/orderDraft';
+import { APP_VERSION_INFO } from './src/version';
 import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList, BarChart3 } from 'lucide-react';
 
 type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
@@ -217,7 +218,9 @@ export default function App() {
 
   const refreshStoreInfo = async () => {
     try {
-      await apiService.refreshProtectedStoreFromERP();
+      if (isAuthenticated) {
+        await apiService.refreshProtectedStoreFromERP();
+      }
       const res = await apiService.fetchAppLocal('/api/store/public');
       if (res.ok) {
         const data = await res.json();
@@ -232,9 +235,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isConfigLoaded) return;
     refreshStoreInfo();
-  }, [isAuthenticated]);
+  }, [isConfigLoaded, isAuthenticated]);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
@@ -325,6 +328,7 @@ export default function App() {
         <Login 
             onLoginSuccess={handleLoginSuccess} 
             onOpenSettings={() => setShowSettingsFromLogin(true)} 
+            storeInfo={storeInfo}
         />
     );
   }
@@ -551,6 +555,14 @@ export default function App() {
                   </button>
                 );
               })}
+            </div>
+            <div className="mt-auto pt-6 text-left">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {APP_VERSION_INFO.name} v{APP_VERSION_INFO.version}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                Build {APP_VERSION_INFO.build}
+              </p>
             </div>
           </aside>
         </div>
