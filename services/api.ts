@@ -1365,6 +1365,7 @@ class ApiService {
       
       try {
           let response: Response;
+          let usedRemote = false;
           try {
               if (baseUrl) {
                   response = await fetch(`${baseUrl}${endpoint}`, {
@@ -1372,11 +1373,15 @@ class ApiService {
                       headers,
                       body: JSON.stringify({ email })
                   });
-                  if (!response.ok && response.status !== 404) throw new Error('Remote failed');
+                  // 404 significa que a rota não existe na API externa — usa servidor local
+                  if (response.status === 404) throw new Error('Route not found on remote');
+                  if (!response.ok) throw new Error('Remote failed');
+                  usedRemote = true;
               } else {
                   throw new Error('No remote');
               }
           } catch {
+              // Fallback: servidor local (server.js) que possui a rota e o mailer
               response = await fetch(endpoint, {
                   method: 'POST',
                   headers,
@@ -1405,11 +1410,14 @@ class ApiService {
                       headers,
                       body: JSON.stringify({ email, code })
                   });
+                  // 404 significa que a rota não existe na API externa — usa servidor local
+                  if (response.status === 404) throw new Error('Route not found on remote');
                   if (!response.ok) throw new Error('Remote failed');
               } else {
                   throw new Error('No remote');
               }
           } catch {
+              // Fallback: servidor local (server.js) com verify-code implementado
               response = await fetch(endpoint, {
                   method: 'POST',
                   headers,
@@ -2720,7 +2728,7 @@ class ApiService {
           plan.disponibil ??
           plan.isAvailable ??
           plan.disponivel_completa ??
-          false;
+          true; // Padrão: disponível quando o servidor não informa o campo
       const disponivelFlag = this.toBoolean(availabilitySource);
       const meioPagamentoValue = plan.meio_pagamento || plan.meioPagamento || plan.paymentMethod || plan.forma_pagamento || plan.meio || '';
 

@@ -641,7 +641,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         .then((response) => {
             if (!isActive) return;
             const data = response.plans;
-            const planosDisponiveis = data.filter((plan) => plan.disponivel === true);
+            const planosDisponiveis = data.filter((plan) => plan.disponivel === true || plan.disponivel === undefined || plan.disponivel === null);
             console.log('Planos recebidos:', data);
             console.log('Planos disponíveis:', planosDisponiveis);
             const shouldShowError = response.total === 0 || planosDisponiveis.length === 0;

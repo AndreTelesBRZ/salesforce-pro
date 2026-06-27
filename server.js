@@ -27,13 +27,28 @@ const APP_INTEGRATION_TOKEN_LLFIX = process.env.APP_INTEGRATION_TOKEN_LLFIX || '
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 const DB_PATH = process.env.DB_PATH || './database.sqlite';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-// E-mail/SMTP
-const SMTP_ADDRESS  = process.env.SMTP_ADDRESS || '';
+// E-mail/SMTP — configuração global (fallback)
+const SMTP_ADDRESS  = process.env.SMTP_ADDRESS || process.env.SMTP_HOST || '';
 const SMTP_PORT     = parseInt(process.env.SMTP_PORT || '587');
-const SMTP_USERNAME = process.env.SMTP_USERNAME || '';
-const SMTP_PASSWORD = process.env.SMTP_PASSWORD || '';
-const SMTP_TLS      = (process.env.SMTP_ENABLE_STARTTLS_AUTO || 'true') === 'true';
-const MAILER_FROM   = process.env.MAILER_SENDER_EMAIL || 'SalesForce <no-reply@salesforce.pro>';
+const SMTP_SECURE   = process.env.SMTP_SECURE === 'true' || parseInt(process.env.SMTP_PORT || '587') === 465;
+const SMTP_USERNAME = process.env.SMTP_USERNAME || process.env.SMTP_USER || '';
+const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '';
+const MAILER_FROM   = process.env.MAILER_SENDER_EMAIL || process.env.SMTP_FROM || 'SalesForce <no-reply@salesforce.pro>';
+
+// E-mail/SMTP — por tenant (prioridade sobre o global)
+const EDSON_SMTP_HOST   = process.env.EDSON_SMTP_HOST   || SMTP_ADDRESS;
+const EDSON_SMTP_PORT   = parseInt(process.env.EDSON_SMTP_PORT   || String(SMTP_PORT));
+const EDSON_SMTP_SECURE = process.env.EDSON_SMTP_SECURE === 'true' || EDSON_SMTP_PORT === 465;
+const EDSON_SMTP_USER   = process.env.EDSON_SMTP_USER   || SMTP_USERNAME;
+const EDSON_SMTP_PASS   = process.env.EDSON_SMTP_PASS   || SMTP_PASSWORD;
+const EDSON_SMTP_FROM   = process.env.EDSON_SMTP_FROM   || MAILER_FROM;
+
+const LLFIX_SMTP_HOST   = process.env.LLFIX_SMTP_HOST   || SMTP_ADDRESS;
+const LLFIX_SMTP_PORT   = parseInt(process.env.LLFIX_SMTP_PORT   || String(SMTP_PORT));
+const LLFIX_SMTP_SECURE = process.env.LLFIX_SMTP_SECURE === 'true' || LLFIX_SMTP_PORT === 465;
+const LLFIX_SMTP_USER   = process.env.LLFIX_SMTP_USER   || SMTP_USERNAME;
+const LLFIX_SMTP_PASS   = process.env.LLFIX_SMTP_PASS   || SMTP_PASSWORD;
+const LLFIX_SMTP_FROM   = process.env.LLFIX_SMTP_FROM   || MAILER_FROM;
 
 const DEFAULT_STORE_ID = 1;
 const EDSON_DOMAIN = 'edsondosparafusos.app.br';
@@ -101,21 +116,46 @@ if (GEMINI_API_KEY) {
   }
 }
 
-// Transport opcional do nodemailer (só se variáveis estiverem definidas)
-let mailer = null;
-try {
-  if (SMTP_ADDRESS && SMTP_USERNAME && SMTP_PASSWORD) {
-    mailer = nodemailer.createTransport({
-      host: SMTP_ADDRESS,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      auth: { user: SMTP_USERNAME, pass: SMTP_PASSWORD },
+// Cria um transporte nodemailer para um conjunto de credenciais SMTP
+const createMailer = (host, port, secure, user, pass) => {
+  if (!host || !user || !pass) return null;
+  try {
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
       tls: { rejectUnauthorized: false }
     });
+  } catch (e) {
+    console.warn('[MAILER] Falha ao criar transporte SMTP:', e.message);
+    return null;
   }
-} catch (e) {
-  console.warn('[MAILER] Falha ao inicializar transporte SMTP:', e.message);
-}
+};
+
+// Mailers por tenant
+const mailerEdson = createMailer(EDSON_SMTP_HOST, EDSON_SMTP_PORT, EDSON_SMTP_SECURE, EDSON_SMTP_USER, EDSON_SMTP_PASS);
+const mailerLlfix = createMailer(LLFIX_SMTP_HOST, LLFIX_SMTP_PORT, LLFIX_SMTP_SECURE, LLFIX_SMTP_USER, LLFIX_SMTP_PASS);
+// Mailer global (fallback)
+const mailer      = mailerEdson || mailerLlfix || createMailer(SMTP_ADDRESS, SMTP_PORT, SMTP_SECURE, SMTP_USERNAME, SMTP_PASSWORD);
+
+if (mailerEdson) console.log('[MAILER] Transporte EDSON inicializado:', EDSON_SMTP_HOST);
+if (mailerLlfix) console.log('[MAILER] Transporte LLFIX inicializado:', LLFIX_SMTP_HOST);
+if (!mailerEdson && !mailerLlfix && mailer) console.log('[MAILER] Transporte global inicializado:', SMTP_ADDRESS);
+if (!mailer) console.warn('[MAILER] Nenhum transporte SMTP configurado — modo simulado ativo.');
+
+// Retorna o mailer e o from corretos para o domínio da requisição
+const getMailerForRequest = (req) => {
+  const host = getRequestHost(req);
+  if (matchesDomain(host, EDSON_DOMAIN) && mailerEdson) {
+    return { transport: mailerEdson, from: EDSON_SMTP_FROM };
+  }
+  if (matchesDomain(host, LLFIX_DOMAIN) && mailerLlfix) {
+    return { transport: mailerLlfix, from: LLFIX_SMTP_FROM };
+  }
+  // Fallback global
+  return mailer ? { transport: mailer, from: MAILER_FROM } : null;
+};
 
 // Middleware
 app.use(cors());
@@ -604,7 +644,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Enviar código de acesso
 app.post('/api/auth/send-code', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: 'Email é obrigatório.' });
@@ -617,12 +656,14 @@ app.post('/api/auth/send-code', async (req, res) => {
 
         // Gera código de 6 dígitos
         const code = Math.floor(100000 + Math.random() * 900000).toString();
-        // Expira em 10 minutos (tempo para digitar o código)
+        // Expira em 10 minutos
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
         await db.run("UPDATE users SET auth_code = ?, auth_code_expires = ? WHERE id = ?", [code, expiresAt, user.id]);
 
-        if (mailer) {
+        const tenantMailer = getMailerForRequest(req);
+
+        if (tenantMailer) {
             const subject = 'Seu codigo de acesso - SalesForce Pro';
             const text = `Seu codigo de acesso e ${code}. Ele expira em 10 minutos.`;
             const html = `
@@ -635,8 +676,8 @@ app.post('/api/auth/send-code', async (req, res) => {
                 </div>
             `;
 
-            await mailer.sendMail({
-                from: MAILER_FROM,
+            await tenantMailer.transport.sendMail({
+                from: tenantMailer.from,
                 to: emailLower,
                 subject,
                 text,
@@ -646,17 +687,16 @@ app.post('/api/auth/send-code', async (req, res) => {
             return res.status(200).json({ success: true, message: 'Codigo enviado para o e-mail.' });
         }
 
-        console.log(`
-============================================`);
+        // Modo simulado — sem SMTP configurado
+        console.log(`\n============================================`);
         console.log(`[EMAIL SIMULADO] Para: ${emailLower}`);
         console.log(`[EMAIL SIMULADO] Seu codigo de acesso e: ${code}`);
-        console.log(`============================================
-`);
+        console.log(`============================================\n`);
 
         return res.status(200).json({ success: true, message: 'Codigo gerado. Mailer nao configurado; verifique o console do servidor.' });
     } catch (e) {
-        console.error(e);
-        return res.status(500).json({ message: 'Erro ao processar solicitação.' });
+        console.error('[MAILER] Erro ao enviar codigo:', e.message);
+        return res.status(500).json({ message: 'Erro ao enviar codigo. Tente novamente.' });
     }
 });
 
@@ -810,10 +850,20 @@ const verifyToken = (req, res, next) => {
         console.log('[AUTH_FAIL] Token JWT inválido ou expirado:', err.message);
         return res.status(401).json({ message: 'Token inválido.' });
     }
-    req.userId = decoded.id;
+    req.userId = decoded.id || decoded.sub || null;
+    req.jwtPayload = decoded;
     next();
   });
 };
+
+const buildUserProfileResponse = (user) => ({
+    user: {
+        id: user.id,
+        vendor_name: user.name,
+        username: user.email,
+        vendor_code: user.seller_id
+    }
+});
 
 // --- ROTAS DA API ---
 
@@ -822,20 +872,51 @@ app.get('/api/me', verifyToken, async (req, res) => {
     try {
         const user = await db.get("SELECT id, name, email, seller_id FROM users WHERE id = ?", [req.userId]);
         if (user) {
-            // RETORNA FORMATO COMPATÍVEL COM O APP (User Object)
-            res.json({
+            return res.json(buildUserProfileResponse(user));
+        }
+        const payload = req.jwtPayload || {};
+        const tokenSellerId = payload.vendor_code || payload.seller_id || payload.vendedor_codigo || '';
+        const tokenName = payload.vendor_name || payload.name || payload.nome || payload.username || '';
+        const tokenUsername = payload.username || payload.email || tokenName || '';
+        if (tokenName || tokenSellerId || tokenUsername) {
+            return res.json({
                 user: {
-                    id: user.id,
-                    vendor_name: user.name,
-                    username: user.email,
-                    vendor_code: user.seller_id
+                    id: req.userId,
+                    vendor_name: tokenName,
+                    username: tokenUsername,
+                    vendor_code: tokenSellerId
                 }
             });
-        } else {
-            res.status(404).json({ message: 'Usuário não encontrado.' });
         }
+        return res.status(404).json({ message: 'Usuário não encontrado.' });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/auth/me', verifyToken, async (req, res) => {
+    try {
+        const user = await db.get("SELECT id, name, email, seller_id FROM users WHERE id = ?", [req.userId]);
+        if (user) {
+            return res.json(buildUserProfileResponse(user));
+        }
+        const payload = req.jwtPayload || {};
+        const tokenSellerId = payload.vendor_code || payload.seller_id || payload.vendedor_codigo || '';
+        const tokenName = payload.vendor_name || payload.name || payload.nome || payload.username || '';
+        const tokenUsername = payload.username || payload.email || tokenName || '';
+        if (tokenName || tokenSellerId || tokenUsername) {
+            return res.json({
+                user: {
+                    id: req.userId,
+                    vendor_name: tokenName,
+                    username: tokenUsername,
+                    vendor_code: tokenSellerId
+                }
+            });
+        }
+        return res.status(404).json({ message: 'Usuário não encontrado.' });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
     }
 });
 
