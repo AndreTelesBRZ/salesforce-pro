@@ -728,11 +728,19 @@ class ApiService {
 
       try {
           const profile = await this.fetchProfile();
-          if (!profile?.name || !profile?.seller_id) {
+          let resolvedName = String(profile?.name || '').trim();
+          let resolvedSellerId = this.persistSellerId(profile?.seller_id);
+          if ((!resolvedName || !resolvedSellerId) && this.token) {
+              const decoded = this.decodeToken(this.token);
+              if (!resolvedName) resolvedName = String(decoded.name || '').trim();
+              if (!resolvedSellerId) resolvedSellerId = this.persistSellerId(decoded.sellerId);
+          }
+          if (!resolvedName || this.isPlaceholderUsername(resolvedName) || !resolvedSellerId) {
               this.clearUserSession({ preserveStoreCode: true });
               this.addLog('Sessão rejeitada: usuário autenticado sem identificação válida.', 'error');
               return false;
           }
+          localStorage.setItem('username', resolvedName);
           await this.ensureStoreFromERP();
           return true;
       } catch (error: any) {
@@ -768,6 +776,16 @@ class ApiService {
 
       const resolvedName = (profile?.name || '').trim() || await this.resolveDisplayName();
       const resolvedSellerId = this.persistSellerId(profile?.seller_id || await this.resolveSellerIdFromProfile());
+
+      if ((!resolvedName || this.isPlaceholderUsername(resolvedName) || !resolvedSellerId) && this.token) {
+          const decoded = this.decodeToken(this.token);
+          const tokenName = String(decoded.name || '').trim();
+          const tokenSellerId = this.persistSellerId(decoded.sellerId);
+          if (tokenName && !this.isPlaceholderUsername(tokenName) && tokenSellerId) {
+              localStorage.setItem('username', tokenName);
+              return { name: tokenName, seller_id: tokenSellerId };
+          }
+      }
 
       if (!resolvedName || this.isPlaceholderUsername(resolvedName) || !resolvedSellerId) {
           return null;
@@ -2185,15 +2203,28 @@ class ApiService {
             return [WALK_IN_CUSTOMER, ...demoClients];
          }
 
-         const view = await this.fetchClientSyncView('recent');
-         const list = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
-         const mapped = list
-             .filter((item: any) => item?.type !== 'TEMPORARIO')
-             .map((item: any) => this.mapCustomer(item));
-         const filtered = currentSellerId
-             ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
-             : mapped;
-         return [WALK_IN_CUSTOMER, ...filtered];
+         const modes: ClientSyncViewMode[] = ['all', 'recent'];
+         let lastError: Error | null = null;
+         for (const mode of modes) {
+             try {
+                 const view = await this.fetchClientSyncView(mode);
+                 const list = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
+                 const mapped = list
+                     .filter((item: any) => item?.type !== 'TEMPORARIO')
+                     .map((item: any) => this.mapCustomer(item));
+                 const filtered = currentSellerId
+                     ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
+                     : mapped;
+                 if (filtered.length > 0) {
+                     return [WALK_IN_CUSTOMER, ...filtered];
+                 }
+             } catch (error: any) {
+                 lastError = error instanceof Error ? error : new Error(String(error));
+             }
+         }
+         if (lastError) {
+             this.addLog(`Falha ao carregar carteira completa: ${lastError.message}`, 'warning');
+         }
       } catch (e) {}
 
       return [WALK_IN_CUSTOMER];

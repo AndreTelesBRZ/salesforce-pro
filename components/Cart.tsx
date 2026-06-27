@@ -594,9 +594,30 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     const customer = customers.find((c) => c.id === pendingCustomerId);
     if (customer) {
       setSelectedCustomer(customer);
+    } else if (draftToEdit && draftToEdit.cliente_id === pendingCustomerId) {
+      setSelectedCustomer({
+        id: draftToEdit.cliente_id,
+        name: draftToEdit.cliente_nome || draftToEdit.cliente_id,
+        fantasyName: '',
+        document: draftToEdit.cliente_documento || '',
+        type: draftToEdit.cliente_tipo || 'NORMAL',
+        address: '',
+        addressNumber: '',
+        neighborhood: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        phone: '',
+        email: '',
+        origin: 'CLONADO_NFE',
+        sellerId: apiService.getSellerId() || '',
+        sellerName: apiService.getUsername() || '',
+        lastSaleDate: '',
+        lastSaleValue: 0,
+      });
     }
     setPendingCustomerId(null);
-  }, [pendingCustomerId, customers]);
+  }, [pendingCustomerId, customers, draftToEdit]);
 
   useEffect(() => {
       if (!selectedCustomer) return;
