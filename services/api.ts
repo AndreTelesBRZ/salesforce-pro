@@ -1365,23 +1365,14 @@ class ApiService {
       
       try {
           let response: Response;
-          let usedRemote = false;
-          try {
-              if (baseUrl) {
-                  response = await fetch(`${baseUrl}${endpoint}`, {
-                      method: 'POST',
-                      headers,
-                      body: JSON.stringify({ email })
-                  });
-                  // 404 significa que a rota não existe na API externa — usa servidor local
-                  if (response.status === 404) throw new Error('Route not found on remote');
-                  if (!response.ok) throw new Error('Remote failed');
-                  usedRemote = true;
-              } else {
-                  throw new Error('No remote');
-              }
-          } catch {
-              // Fallback: servidor local (server.js) que possui a rota e o mailer
+          if (baseUrl) {
+              response = await fetch(`${baseUrl}${endpoint}`, {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify({ email })
+              });
+          } else {
+              // Sem backend remoto configurado, usa servidor local.
               response = await fetch(endpoint, {
                   method: 'POST',
                   headers,
@@ -1390,7 +1381,11 @@ class ApiService {
           }
 
           const data = await response.json();
-          return { success: response.ok, message: data.message };
+          const remoteMessage = String(data?.message || data?.detail || "").trim();
+          if (!response.ok && response.status === 404 && remoteMessage.toLowerCase() === "not found") {
+              return { success: false, message: "Este ambiente não suporta login por código de acesso." };
+          }
+          return { success: response.ok, message: remoteMessage || undefined };
       } catch (error: any) {
           return { success: false, message: this.mapNetworkError(error) };
       }
@@ -1403,21 +1398,14 @@ class ApiService {
       
       try {
           let response: Response;
-          try {
-              if (baseUrl) {
-                  response = await fetch(`${baseUrl}${endpoint}`, {
-                      method: 'POST',
-                      headers,
-                      body: JSON.stringify({ email, code })
-                  });
-                  // 404 significa que a rota não existe na API externa — usa servidor local
-                  if (response.status === 404) throw new Error('Route not found on remote');
-                  if (!response.ok) throw new Error('Remote failed');
-              } else {
-                  throw new Error('No remote');
-              }
-          } catch {
-              // Fallback: servidor local (server.js) com verify-code implementado
+          if (baseUrl) {
+              response = await fetch(`${baseUrl}${endpoint}`, {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify({ email, code })
+              });
+          } else {
+              // Sem backend remoto configurado, usa servidor local.
               response = await fetch(endpoint, {
                   method: 'POST',
                   headers,
@@ -1426,6 +1414,7 @@ class ApiService {
           }
 
           const data = await response.json();
+          const remoteMessage = String(data?.message || data?.detail || "").trim();
           
           if (response.ok) {
               // Lógica de Parsing igual ao Login normal
@@ -1466,7 +1455,10 @@ class ApiService {
               }
           }
 
-          return { success: false, message: data.message || 'Código inválido.' };
+          if (response.status === 404 && remoteMessage.toLowerCase() === "not found") {
+              return { success: false, message: "Este ambiente não suporta login por código de acesso." };
+          }
+          return { success: false, message: remoteMessage || "Código inválido." };
       } catch (error: any) {
           return { success: false, message: this.mapNetworkError(error) };
       }
@@ -1480,7 +1472,7 @@ class ApiService {
     const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
 
     try {
-        let response: Response;
+          let response: Response;
         try {
             if (baseUrl) {
                  response = await fetch(`${baseUrl}${endpoint}`, {
@@ -2211,7 +2203,9 @@ class ApiService {
             return [WALK_IN_CUSTOMER, ...demoClients];
          }
 
-         const modes: ClientSyncViewMode[] = ['all', 'recent'];
+         // A carteira do vendedor deve ser resolvida primeiro pela visao "self".
+         // As demais visoes entram apenas como fallback para backends legados.
+         const modes: ClientSyncViewMode[] = ['self', 'all', 'recent'];
          let lastError: Error | null = null;
          for (const mode of modes) {
              try {
@@ -2890,7 +2884,8 @@ class ApiService {
 
   async syncCustomers(onProgress: (c: number) => void): Promise<{ success: boolean, count: number, message?: string }> {
      try {
-        const view = await this.fetchClientSyncView('recent');
+        // Persistimos a carteira real do vendedor no cache local.
+        const view = await this.fetchClientSyncView('self');
         const rawList = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
         
         await dbService.clearCustomers();

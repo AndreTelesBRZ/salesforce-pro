@@ -6,6 +6,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
@@ -138,6 +139,29 @@ const mailerEdson = createMailer(EDSON_SMTP_HOST, EDSON_SMTP_PORT, EDSON_SMTP_SE
 const mailerLlfix = createMailer(LLFIX_SMTP_HOST, LLFIX_SMTP_PORT, LLFIX_SMTP_SECURE, LLFIX_SMTP_USER, LLFIX_SMTP_PASS);
 // Mailer global (fallback)
 const mailer      = mailerEdson || mailerLlfix || createMailer(SMTP_ADDRESS, SMTP_PORT, SMTP_SECURE, SMTP_USERNAME, SMTP_PASSWORD);
+
+const verifyDjangoPassword = (plainPassword, encodedPassword) => {
+  if (!encodedPassword || !encodedPassword.startsWith('pbkdf2_sha256$')) return false;
+  const parts = encodedPassword.split('$');
+  if (parts.length !== 4) return false;
+  const [, iterationsRaw, salt, digest] = parts;
+  const iterations = parseInt(iterationsRaw, 10);
+  if (!iterations || !salt || !digest) return false;
+  const derived = crypto.pbkdf2Sync(plainPassword, salt, iterations, 32, 'sha256').toString('base64');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(derived), Buffer.from(digest));
+  } catch (e) {
+    return false;
+  }
+};
+
+const verifyStoredPassword = (plainPassword, storedPassword) => {
+  if (!storedPassword) return false;
+  if (storedPassword.startsWith('pbkdf2_sha256$')) {
+    return verifyDjangoPassword(plainPassword, storedPassword);
+  }
+  return bcrypt.compareSync(plainPassword, storedPassword);
+};
 
 if (mailerEdson) console.log('[MAILER] Transporte EDSON inicializado:', EDSON_SMTP_HOST);
 if (mailerLlfix) console.log('[MAILER] Transporte LLFIX inicializado:', LLFIX_SMTP_HOST);
@@ -615,7 +639,7 @@ app.post('/api/login', async (req, res) => {
           return res.status(401).json({ message: 'Faça login com Google.' });
       }
 
-      const passwordIsValid = bcrypt.compareSync(password, user.password);
+      const passwordIsValid = verifyStoredPassword(password, user.password);
       if (!passwordIsValid) return res.status(401).json({ message: 'Senha inválida.' });
 
       // Token válido por 10 anos (3650 dias)
