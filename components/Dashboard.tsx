@@ -4,13 +4,14 @@ import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, Shield
 import { apiService, ClientSyncViewMode, ClientSyncViewResponse } from '../services/api';
 import { dbService } from '../services/db';
 import { getBackendUrlForCurrentHost, getStoreCodeForApi, isLlfixHostForCurrent } from '../services/storeHost';
-import { Customer, DelinquencyItem, SalesHistoryFilters, SalesHistoryItem } from '../types';
+import { Customer, DelinquencyItem, SalesHistoryFilters, SalesHistoryItem, UserPermissions } from '../types';
 import { calculateAverageTicket, AverageTicketResult, summarizeSalesHistory } from '../salesMetrics';
 import { TicketMedioCard } from '../TicketMedioCard';
 
 interface DashboardProps {
   onNavigate: (view: string) => void;
   cartCount: number;
+  permissions: UserPermissions | null;
 }
 
 const formatInputDate = (date: Date): string => {
@@ -26,7 +27,7 @@ const getForcedSalesHistoryStoreCode = (): string => {
   return /apiforce.llfix.app.br/i.test(resolvedBackend) ? '000003' : '';
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount, permissions }) => {
   const [localCount, setLocalCount] = useState<number | null>(null);
   const [localCustomerCount, setLocalCustomerCount] = useState<number | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(0);
@@ -372,16 +373,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount }) =
     neutral: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200',
   };
 
+  const perms = permissions || {
+    can_view_products: false,
+    can_view_clients: false,
+    can_view_sales: false,
+    can_create_sales: false,
+    can_edit_sales: false,
+    can_delete_sales: false,
+    can_view_purchases: false,
+    can_view_financial: false,
+    can_view_all_companies: false,
+  };
+
   const menuItems = [
-    { id: 'cart', label: 'Novo Pedido', icon: ShoppingCart, color: 'text-blue-700', badge: cartCount },
-    { id: 'customers', label: 'Clientes', icon: User, color: 'text-blue-700' },
-    { id: 'products', label: 'Produtos', icon: LayoutGrid, color: 'text-blue-700' },
-    { id: 'reports', label: 'Relatórios', icon: BarChart3, color: 'text-emerald-700' },
-    { id: 'orders', label: 'Histórico', icon: FileText, color: 'text-blue-700' }, 
-    { id: 'sync', label: 'Sincronizar', icon: Download, color: 'text-purple-600' },
-    { id: 'send', label: 'Enviar Dados', icon: UploadCloud, color: 'text-orange-600', badge: pendingCount },
+    perms.can_view_sales && perms.can_create_sales ? { id: 'cart', label: 'Novo Pedido', icon: ShoppingCart, color: 'text-blue-700', badge: cartCount } : null,
+    perms.can_view_clients ? { id: 'customers', label: 'Clientes', icon: User, color: 'text-blue-700' } : null,
+    perms.can_view_products ? { id: 'products', label: 'Produtos', icon: LayoutGrid, color: 'text-blue-700' } : null,
+    perms.can_view_sales ? { id: 'reports', label: 'Relatórios', icon: BarChart3, color: 'text-emerald-700' } : null,
+    perms.can_view_sales ? { id: 'orders', label: 'Histórico', icon: FileText, color: 'text-blue-700' } : null,
+    (perms.can_view_products || perms.can_view_clients) ? { id: 'sync', label: 'Sincronizar', icon: Download, color: 'text-purple-600' } : null,
+    perms.can_view_sales && perms.can_create_sales ? { id: 'send', label: 'Enviar Dados', icon: UploadCloud, color: 'text-orange-600', badge: pendingCount } : null,
     { id: 'settings', label: 'Configurações', icon: Settings, color: 'text-slate-600' },
-  ];
+  ].filter(Boolean) as Array<{ id: string; label: string; icon: React.ComponentType<{ className?: string }>; color: string; badge?: number }>;
 
   const sortedDelinquency = [...delinquencyItems].sort((a, b) => {
     const aDate = a.dueDate || a.dueDateReal || '';

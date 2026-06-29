@@ -1,5 +1,5 @@
 
-import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption, PaginatedResults, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportColumn, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView, SalesHistoryResponse } from '../types';
+import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption, PaginatedResults, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportColumn, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView, SalesHistoryResponse, UserPermissions, UserSessionProfile } from '../types';
 
 const PAGAMENTO_STATUS = {
   PENDENTE: 'aguardando',
@@ -54,7 +54,7 @@ const isBearerLikeToken = (value?: string | null): boolean => {
   return /^Bearer\s+/i.test(raw) || isLikelyJwt(stripBearerPrefix(raw));
 };
 import { dbService } from './db';
-import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode, resolveTenantFromHost } from './storeHost';
+import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isAllowedRemoteBackendUrl, isLlfixHostForCurrent, isLocalDevHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode, resolveTenantFromHost } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -118,6 +118,18 @@ export interface ConnectionTestResult {
     store?: Record<string, any> | null;
     status?: number;
 }
+
+const EMPTY_USER_PERMISSIONS: UserPermissions = {
+  can_view_products: false,
+  can_view_clients: false,
+  can_view_sales: false,
+  can_create_sales: false,
+  can_edit_sales: false,
+  can_delete_sales: false,
+  can_view_purchases: false,
+  can_view_financial: false,
+  can_view_all_companies: false,
+};
 
 class ApiService {
   private config: AppConfig;
@@ -202,6 +214,78 @@ class ApiService {
 
   private getDefaultUsername(): string {
       return 'Vendedor';
+  }
+
+  private normalizeUserProfile(payload: any): UserSessionProfile | null {
+      const profile = payload?.user || payload || {};
+      const name = String(
+          profile.name ||
+          profile.nome ||
+          profile.vendor_name ||
+          profile.vendedor_nome ||
+          profile.username ||
+          profile.email ||
+          ''
+      ).trim();
+      const sellerId = this.persistSellerId(
+          profile.seller_id ||
+          profile.sellerId ||
+          profile.vendor_code ||
+          profile.vendedor_codigo ||
+          profile.codigo_vendedor
+      );
+      const lojaCodigo = String(
+          profile.loja_codigo ||
+          profile.store_code ||
+          profile.lojaCodigo ||
+          profile.codigo_loja ||
+          ''
+      ).trim();
+      const permissionsSource = profile.permissions || {};
+      const permissions: UserPermissions = {
+          ...EMPTY_USER_PERMISSIONS,
+          can_view_products: Boolean(profile.can_view_products ?? permissionsSource.can_view_products),
+          can_view_clients: Boolean(profile.can_view_clients ?? permissionsSource.can_view_clients),
+          can_view_sales: Boolean(profile.can_view_sales ?? permissionsSource.can_view_sales),
+          can_create_sales: Boolean(profile.can_create_sales ?? permissionsSource.can_create_sales),
+          can_edit_sales: Boolean(profile.can_edit_sales ?? permissionsSource.can_edit_sales),
+          can_delete_sales: Boolean(profile.can_delete_sales ?? permissionsSource.can_delete_sales),
+          can_view_purchases: Boolean(profile.can_view_purchases ?? permissionsSource.can_view_purchases),
+          can_view_financial: Boolean(profile.can_view_financial ?? permissionsSource.can_view_financial),
+          can_view_all_companies: Boolean(profile.can_view_all_companies ?? permissionsSource.can_view_all_companies),
+      };
+      const allowedCompanies = Array.isArray(profile.empresas_permitidas) ? profile.empresas_permitidas : [];
+      const activeCompany = profile.empresa_ativa || profile.active_company || undefined;
+
+      if (!name || this.isPlaceholderUsername(name)) return null;
+      if (!sellerId) return null;
+      if (!lojaCodigo) return null;
+      if (profile.is_active === false) return null;
+      if (!permissions.can_view_all_companies && allowedCompanies.length === 0) return null;
+
+      return {
+          id: profile.id,
+          username: String(profile.username || profile.email || '').trim(),
+          email: String(profile.email || '').trim(),
+          name,
+          is_active: profile.is_active !== false,
+          role: profile.role || profile.papel || '',
+          roles: Array.isArray(profile.roles) ? profile.roles : [],
+          vendor_code: sellerId,
+          vendor_name: String(profile.vendor_name || profile.vendedor_nome || name).trim(),
+          seller_id: sellerId,
+          seller_name: String(profile.seller_name || profile.vendor_name || profile.vendedor_nome || name).trim(),
+          vendedor_codigo: sellerId,
+          vendedor_nome: String(profile.vendedor_nome || profile.vendor_name || name).trim(),
+          loja_codigo: lojaCodigo,
+          loja_nome: String(profile.loja_nome || '').trim(),
+          empresa_ativa: activeCompany,
+          empresas_permitidas: allowedCompanies,
+          lojas_permitidas: Array.isArray(profile.lojas_permitidas) ? profile.lojas_permitidas : [],
+          access_profile: profile.access_profile || {},
+          permissions,
+          ...permissions,
+      };
   }
 
   private isPlaceholderUsername(value?: string | null): boolean {
@@ -289,11 +373,33 @@ class ApiService {
   private clearUserSession(options?: { preserveStoreCode?: boolean }): void {
       this.token = null;
       localStorage.removeItem('authToken');
+      localStorage.removeItem('erpUserProfile');
       localStorage.removeItem('username');
       localStorage.removeItem('sellerId');
       if (!options?.preserveStoreCode) {
           localStorage.removeItem('erpStoreCode');
       }
+  }
+
+  private getStoredUserProfile(): UserSessionProfile | null {
+      try {
+          const raw = localStorage.getItem('erpUserProfile');
+          if (!raw) return null;
+          return JSON.parse(raw) as UserSessionProfile;
+      } catch {
+          return null;
+      }
+  }
+
+  private setStoredUserProfile(profile: UserSessionProfile): void {
+      localStorage.setItem('erpUserProfile', JSON.stringify(profile));
+      localStorage.setItem('username', profile.name);
+      if (profile.seller_id) {
+          this.persistSellerId(profile.seller_id);
+      } else {
+          localStorage.removeItem('sellerId');
+      }
+      this.persistStoreCode(profile.loja_codigo || '');
   }
 
   private clearConnectionValidationFlag(): void {
@@ -557,7 +663,7 @@ class ApiService {
   }
 
   // Busca dados atualizados do perfil no servidor
-  async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
+  async fetchProfile(): Promise<UserSessionProfile | null> {
       const endpoints = [
           '/api/me',
           '/api/auth/me',
@@ -565,17 +671,9 @@ class ApiService {
           '/api/usuarios/logado',
           '/me'
       ];
-      let lastError: any = null;
-      const storedSellerId = this.getStoredSellerId();
-
       for (const ep of endpoints) {
           try {
-              let targetEp = ep;
-              if (storedSellerId) {
-                  const separator = ep.includes('?') ? '&' : '?';
-                  targetEp = `${ep}${separator}vendedor_codigo=${storedSellerId}`;
-              }
-              const res = await this.fetchWithAuth(targetEp);
+              const res = await this.fetchWithAuth(ep);
               if (!res.ok) continue;
               const contentType = res.headers.get('content-type') || '';
               if (!contentType.includes('application/json')) {
@@ -583,55 +681,15 @@ class ApiService {
                   continue;
               }
               const data = await res.json();
-              const profile = data.user || data; 
-              const name =
-                profile.vendor_name ||
-                profile.name ||
-                profile.nome ||
-                profile.username ||
-                profile.user_name ||
-                profile.usuario ||
-                profile.email;
-              const sellerId =
-                profile.vendor_code ||
-                profile.cod_vendedor ||
-                profile.cod_vend ||
-                profile.seller_id ||
-                profile.sellerId ||
-                profile.codigo_vendedor ||
-                profile.vendedor_codigo ||
-                profile.vendedor_id;
-              const paddedSellerId = this.persistSellerId(sellerId);
-              this.persistStoreCode(
-                  profile.loja_codigo ||
-                  profile.store_code ||
-                  profile.lojaCodigo ||
-                  profile.codigo_loja ||
-                  ''
-              );
-
-              if (name && !this.isPlaceholderUsername(name)) {
-                  this.addLog(`Perfil identificado: ${name}`, 'success');
-                  localStorage.setItem('username', name);
-                  return { name, seller_id: paddedSellerId ?? undefined };
+              const normalized = this.normalizeUserProfile(data);
+              if (normalized) {
+                  this.addLog(`Perfil identificado: ${normalized.name}`, 'success');
+                  this.setStoredUserProfile(normalized);
+                  return normalized;
               }
           } catch (e: any) {
-              lastError = e;
+              this.addLog(`Erro ao buscar perfil: ${e?.message || 'falha desconhecida'}`, 'warning');
           }
-      }
-
-      const tokenToDecode = this.token;
-      if (tokenToDecode) {
-          const decoded = this.decodeToken(tokenToDecode);
-              if (decoded.name) {
-                  localStorage.setItem('username', decoded.name);
-                  const paddedSellerId = this.persistSellerId(decoded.sellerId);
-                  return { name: decoded.name, seller_id: paddedSellerId ?? undefined };
-              }
-      }
-
-      if (lastError?.message) {
-          this.addLog(`Erro ao buscar perfil: ${lastError.message}`, 'warning');
       }
       return null;
   }
@@ -674,7 +732,7 @@ class ApiService {
   private async ensureStoreFromERP(): Promise<void> {
       if (this.config.useMockData) return;
       try {
-          const r = await this.fetchWithAuth('/api/lojas');
+          const r = await this.fetchStoreSupportEndpoint('/api/lojas');
           if (!r.ok) return;
           const ct = r.headers.get('content-type') || '';
           if (!ct.includes('application/json')) {
@@ -728,26 +786,14 @@ class ApiService {
 
       try {
           const profile = await this.fetchProfile();
-          let resolvedName = String(profile?.name || '').trim();
-          let resolvedSellerId = this.persistSellerId(profile?.seller_id);
-          if ((!resolvedName || !resolvedSellerId) && this.token) {
-              const decoded = this.decodeToken(this.token);
-              if (!resolvedName) resolvedName = String(decoded.name || '').trim();
-              if (!resolvedSellerId) resolvedSellerId = this.persistSellerId(decoded.sellerId);
-          }
-          if (!resolvedName || this.isPlaceholderUsername(resolvedName) || !resolvedSellerId) {
+          if (!profile) {
               this.clearUserSession({ preserveStoreCode: true });
-              this.addLog('Sessão rejeitada: usuário autenticado sem identificação válida.', 'error');
+              this.addLog('Sessão rejeitada: perfil oficial não retornado pelo ERP.', 'error');
               return false;
           }
-          localStorage.setItem('username', resolvedName);
           await this.ensureStoreFromERP();
           return true;
       } catch (error: any) {
-          if (this.hasLocallyValidUserJwt()) {
-              this.addLog('Servidor indisponível; mantendo sessão local já autenticada.', 'warning');
-              return true;
-          }
           this.clearUserSession({ preserveStoreCode: true });
           this.addLog(error?.message || 'Falha ao validar sessão.', 'error');
           return false;
@@ -755,12 +801,26 @@ class ApiService {
   }
 
   getUsername(): string {
+    const profile = this.getStoredUserProfile();
+    if (profile?.name) return profile.name;
     const raw = this.getStoredUsername().trim();
     if (!raw || this.isPlaceholderUsername(raw)) return this.getDefaultUsername();
     return raw;
   }
 
+  getCurrentUserProfile(): UserSessionProfile | null {
+      return this.getStoredUserProfile();
+  }
+
+  hasPermission(permissionKey: keyof UserPermissions): boolean {
+      const profile = this.getStoredUserProfile();
+      if (!profile) return false;
+      return Boolean(profile.permissions?.[permissionKey]);
+  }
+
   async resolveDisplayName(): Promise<string> {
+      const profile = this.getStoredUserProfile();
+      if (profile?.name) return profile.name;
       const raw = this.getStoredUsername().trim();
       if (raw && !this.isPlaceholderUsername(raw)) return raw;
       const resolved = await this.resolveUsernameFromCustomers();
@@ -769,30 +829,11 @@ class ApiService {
   }
 
   private async requireResolvedUserIdentity(): Promise<{ name: string; seller_id: string } | null> {
-      let profile: { name: string; seller_id?: string } | null = null;
-      try {
-          profile = await this.fetchProfile();
-      } catch {}
-
-      const resolvedName = (profile?.name || '').trim() || await this.resolveDisplayName();
-      const resolvedSellerId = this.persistSellerId(profile?.seller_id || await this.resolveSellerIdFromProfile());
-
-      if ((!resolvedName || this.isPlaceholderUsername(resolvedName) || !resolvedSellerId) && this.token) {
-          const decoded = this.decodeToken(this.token);
-          const tokenName = String(decoded.name || '').trim();
-          const tokenSellerId = this.persistSellerId(decoded.sellerId);
-          if (tokenName && !this.isPlaceholderUsername(tokenName) && tokenSellerId) {
-              localStorage.setItem('username', tokenName);
-              return { name: tokenName, seller_id: tokenSellerId };
-          }
-      }
-
-      if (!resolvedName || this.isPlaceholderUsername(resolvedName) || !resolvedSellerId) {
+      const profile = await this.fetchProfile();
+      if (!profile?.name || !profile?.seller_id) {
           return null;
       }
-
-      localStorage.setItem('username', resolvedName);
-      return { name: resolvedName, seller_id: resolvedSellerId };
+      return { name: profile.name, seller_id: profile.seller_id };
   }
   
   private padSellerDigits(value?: string | number | null): string {
@@ -844,6 +885,8 @@ class ApiService {
 
   // Recupera o ID do vendedor salvo no login
   getSellerId(): string | null {
+      const profileSeller = this.persistSellerId(this.getStoredUserProfile()?.seller_id);
+      if (profileSeller) return profileSeller;
       const stored = this.getStoredSellerId();
       if (stored) return stored;
       const tokenToDecode = this.token;
@@ -886,6 +929,23 @@ class ApiService {
           return configUrl;
       }
       return this.normalizeBackendUrl(FALLBACK_BACKEND_URL);
+  }
+
+  private isLocalDevOrigin(): boolean {
+      return isLocalDevHostForCurrent();
+  }
+
+  private resolveConfiguredRemoteBackend(url: string = ''): string {
+      const hostBackend = getBackendUrlForCurrentHost();
+      if (hostBackend) return this.normalizeBackendUrl(hostBackend);
+      const candidate = url.trim()
+        ? this.normalizeBackendUrl(url)
+        : this.getBaseUrl();
+      return candidate;
+  }
+
+  private isRemoteBackendAllowed(url: string): boolean {
+      return isAllowedRemoteBackendUrl(url);
   }
 
   private getLocalAppBaseUrl(): string {
@@ -1106,6 +1166,9 @@ class ApiService {
 
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      if (this.isLocalDevOrigin()) {
+          return this.fetchAppLocal(cleanEndpoint, options);
+      }
       const baseUrl = this.getBaseUrl();
       if (!baseUrl) {
           throw new Error('Backend não configurado. Defina VITE_BACKEND_URL.');
@@ -1172,6 +1235,10 @@ class ApiService {
           ...this.getAuthHeaders(),
           ...(options.headers || {})
       } as Record<string, string>;
+      const remoteBackendUrl = this.getBaseUrl();
+      if (remoteBackendUrl) {
+          resolvedHeaders['X-Backend-Url'] = remoteBackendUrl;
+      }
 
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 10000);
@@ -1195,6 +1262,27 @@ class ApiService {
           this.addLog(`Erro fatal na requisição local: ${msg}`, "error");
           throw error;
       }
+  }
+
+  private async postAuthEndpoint(endpoint: string, payload: Record<string, any>): Promise<Response> {
+      const body = JSON.stringify(payload);
+      const headers = { 'Content-Type': 'application/json' };
+      return this.fetchAppLocal(endpoint, {
+          method: 'POST',
+          headers,
+          body
+      });
+  }
+
+  private async fetchStoreSupportEndpoint(endpoint: '/api/lojas' | '/api/meta/enums'): Promise<Response> {
+      try {
+          const response = await this.fetchAppLocal(endpoint, { method: 'GET' });
+          const contentType = response.headers.get('content-type') || '';
+          if (response.status !== 404 && contentType.includes('application/json')) {
+              return response;
+          }
+      } catch {}
+      return this.fetchWithAuth(endpoint);
   }
 
   async downloadProductCatalogPdf(searchTerm: string = '', category: string = 'Todas'): Promise<Blob> {
@@ -1244,7 +1332,7 @@ class ApiService {
       if (!isStoreSelectionLockedForCurrent()) return { success: true };
       const targetStoreCode = normalizeStoreCode(getStoreCodeForCurrentHost());
       try {
-          const res = await this.fetchWithAuth('/api/lojas');
+          const res = await this.fetchStoreSupportEndpoint('/api/lojas');
           if (!res.ok) {
               return { success: false, message: `Falha ao validar loja (HTTP ${res.status}).` };
           }
@@ -1282,24 +1370,9 @@ class ApiService {
   async login(username: string, password: string): Promise<{ success: boolean; message?: string }> {
     const payload = { username, password };
     const endpoint = '/api/login';
-    const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
 
     try {
-      const baseUrl = this.getBaseUrl();
-      const targetUrl = `${baseUrl}${endpoint}`;
-      const body = JSON.stringify(payload);
-      const requestOptions: RequestInit = {
-        method: 'POST',
-        headers,
-        body,
-      };
-      let response: Response;
-
-      try {
-        response = await fetch(targetUrl, requestOptions);
-      } catch {
-        response = await fetch(endpoint, requestOptions);
-      }
+      const response = await this.postAuthEndpoint(endpoint, payload);
 
       const data = await response.json();
 
@@ -1334,20 +1407,11 @@ class ApiService {
               this.addLog(`Login Sucesso: ${displayName} [${sellerId}]`, 'success');
               
               localStorage.setItem('authToken', this.token);
-              localStorage.setItem('username', displayName);
-              
-              if (sellerId) {
-                  this.persistSellerId(sellerId);
-              } else {
-                  localStorage.removeItem('sellerId');
-              }
-              this.applyIdentityFromToken(this.token);
-              const identity = await this.requireResolvedUserIdentity();
-              if (!identity) {
+              const profile = await this.fetchProfile();
+              if (!profile) {
                   this.logout();
-                  return { success: false, message: 'Não foi possível identificar nome e código do vendedor vinculado.' };
+                  return { success: false, message: 'O ERP não retornou um perfil válido para este usuário.' };
               }
-              
               return { success: true };
           }
       }
@@ -1359,27 +1423,10 @@ class ApiService {
   }
 
   async sendAccessCode(email: string): Promise<{ success: boolean; message?: string }> {
-      const baseUrl = this.getBaseUrl();
       const endpoint = '/api/auth/send-code';
-      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
       
       try {
-          let response: Response;
-          if (baseUrl) {
-              response = await fetch(`${baseUrl}${endpoint}`, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({ email })
-              });
-          } else {
-              // Sem backend remoto configurado, usa servidor local.
-              response = await fetch(endpoint, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({ email })
-              });
-          }
-
+          const response = await this.postAuthEndpoint(endpoint, { email });
           const data = await response.json();
           const remoteMessage = String(data?.message || data?.detail || "").trim();
           if (!response.ok && response.status === 404 && remoteMessage.toLowerCase() === "not found") {
@@ -1392,27 +1439,10 @@ class ApiService {
   }
 
   async loginWithAccessCode(email: string, code: string): Promise<{ success: boolean; message?: string }> {
-      const baseUrl = this.getBaseUrl();
       const endpoint = '/api/auth/verify-code';
-      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
       
       try {
-          let response: Response;
-          if (baseUrl) {
-              response = await fetch(`${baseUrl}${endpoint}`, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({ email, code })
-              });
-          } else {
-              // Sem backend remoto configurado, usa servidor local.
-              response = await fetch(endpoint, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({ email, code })
-              });
-          }
-
+          const response = await this.postAuthEndpoint(endpoint, { email, code });
           const data = await response.json();
           const remoteMessage = String(data?.message || data?.detail || "").trim();
           
@@ -1437,20 +1467,12 @@ class ApiService {
               if (accessToken) {
                   this.token = accessToken;
                   localStorage.setItem('authToken', this.token || '');
-                  localStorage.setItem('username', displayName);
-                  if (sellerId) {
-                      this.persistSellerId(sellerId);
-                  } else {
-                      localStorage.removeItem('sellerId');
-                  }
-                  this.applyIdentityFromToken(this.token);
-                  const identity = await this.requireResolvedUserIdentity();
-                  if (!identity) {
+                  const profile = await this.fetchProfile();
+                  if (!profile) {
                       this.logout();
-                      return { success: false, message: 'Não foi possível identificar nome e código do vendedor vinculado.' };
+                      return { success: false, message: 'O ERP não retornou um perfil válido para este usuário.' };
                   }
-                  
-                  this.addLog(`Login com código: ${identity.name} [${identity.seller_id}]`, 'success');
+                  this.addLog(`Login com código: ${profile.name} [${profile.seller_id}]`, 'success');
                   return { success: true };
               }
           }
@@ -1467,31 +1489,14 @@ class ApiService {
   async loginWithGoogle(credential: string): Promise<{ success: boolean; message?: string }> {
     // Enviamos o payload padrão, sem clientId customizado
     const payload = { credential };
-    const baseUrl = this.getBaseUrl();
     const endpoint = '/api/auth/google';
-    const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
 
     try {
-          let response: Response;
-        try {
-            if (baseUrl) {
-                 response = await fetch(`${baseUrl}${endpoint}`, {
-                     method: 'POST',
-                     headers,
-                     body: JSON.stringify(payload)
-                 });
-                 if (!response.ok) throw new Error('Remote failed');
-            } else {
-                 throw new Error('No remote');
-            }
-        } catch (e) {
-            // Fallback para local
-            response = await fetch(endpoint, {
-                 method: 'POST',
-                 headers,
-                 body: JSON.stringify(payload)
-            });
-        }
+          const response = await this.fetchAppLocal(endpoint, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify(payload)
+          });
 
         const data = await response.json();
 
@@ -1524,30 +1529,13 @@ class ApiService {
   async register(name: string, email: string, password: string): Promise<{ success: boolean; message?: string }> {
       const payload = { name, email, password };
       const endpoint = '/api/register';
-      const baseUrl = this.getBaseUrl();
-      const headers = { 'Content-Type': 'application/json', ...this.getTenantHeaders() };
 
       try {
-          let response: Response;
-          try {
-              if (baseUrl) {
-                  response = await fetch(`${baseUrl}${endpoint}`, {
-                      method: 'POST',
-                      headers,
-                      body: JSON.stringify(payload)
-                  });
-                  if (!response.ok) throw new Error('Remote failed');
-              } else {
-                  throw new Error('No remote');
-              }
-          } catch {
-              response = await fetch(endpoint, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify(payload)
-              });
-          }
-
+          const response = await this.fetchAppLocal(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
           const data = await response.json();
           
           if (response.ok) {
@@ -1572,37 +1560,27 @@ class ApiService {
   }
 
   async testConnection(url: string = ''): Promise<ConnectionTestResult> {
-      const hostBackend = getBackendUrlForCurrentHost();
-      const targetUrl = hostBackend
-        ? this.normalizeBackendUrl(hostBackend)
-        : (url.trim() ? this.normalizeBackendUrl(url) : this.getBaseUrl());
       const endpoint = '/api/integration/validate';
-      const headers = { ...this.getTechnicalAuthHeaders() };
+      const targetUrl = this.resolveConfiguredRemoteBackend(url);
 
-      const doFetch = async (target: string): Promise<Response> => {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 10000);
-          try {
-              const response = await fetch(target, {
-                  method: 'GET',
-                  headers,
-                  signal: controller.signal
-              });
-              clearTimeout(timer);
-              return response;
-          } catch (error) {
-              clearTimeout(timer);
-              throw error;
-          }
-      };
+      if (!targetUrl) {
+          return { success: false, valid: false, message: 'Configuração de loja inválida.' };
+      }
+      if (!this.isRemoteBackendAllowed(targetUrl)) {
+          return { success: false, valid: false, message: 'Configuração de loja inválida.' };
+      }
 
       try {
-          if (!targetUrl) {
-              throw new Error('Backend não configurado.');
-          }
-          const connectionUrl = `${targetUrl}${endpoint}`;
+          const connectionUrl = this.isLocalDevOrigin()
+            ? `${this.getLocalAppBaseUrl()}${endpoint}`
+            : `${targetUrl}${endpoint}`;
           this.addLog(`Validando conexão técnica: ${connectionUrl}`, 'info');
-          const remoteResponse = await doFetch(connectionUrl);
+          const remoteResponse = this.isLocalDevOrigin()
+            ? await this.fetchAppLocal(endpoint, { method: 'GET', headers: { ...this.getTechnicalAuthHeaders() } })
+            : await fetch(connectionUrl, {
+                method: 'GET',
+                headers: { ...this.getTechnicalAuthHeaders() }
+              });
 
           if (remoteResponse.ok) {
               const jsonCheck = await this.ensureJsonResponse(remoteResponse, 'Validação de conexão');
@@ -1639,7 +1617,7 @@ class ApiService {
               return {
                   success: true,
                   valid: true,
-                  message: 'Conexão validada com sucesso.',
+                  message: this.isLocalDevOrigin() ? 'Validação feita via servidor local.' : 'Conexão validada com sucesso.',
                   endpointUsed: endpoint,
                   profile,
                   store,
@@ -1652,6 +1630,9 @@ class ApiService {
               const payload = await remoteResponse.clone().json();
               detail = payload?.message || payload?.detail?.message || payload?.detail || detail;
           } catch {}
+          if (remoteResponse.status === 403 && /token/i.test(detail)) {
+              detail = 'Token de integração inválido';
+          }
           return {
               success: false,
               valid: false,
@@ -1661,14 +1642,17 @@ class ApiService {
               status: remoteResponse.status,
           };
       } catch (error: any) {
+          const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : 'Erro desconhecido';
           const friendly = error?.name === 'AbortError'
             ? 'Timeout: O servidor demorou muito para responder.'
-            : error?.message || 'Erro desconhecido.';
-          this.addLog(`Teste remoto falhou: ${friendly}`, 'warning');
-          const rawMessage = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : 'Erro desconhecido';
-          const friendlyDetail = rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')
-            ? 'Erro de CORS, HTTPS ou servidor inacessível'
             : rawMessage;
+          this.addLog(`Teste remoto falhou: ${friendly}`, 'warning');
+          let friendlyDetail = rawMessage;
+          if (this.isLocalDevOrigin() && (rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError'))) {
+              friendlyDetail = 'Backend local indisponível';
+          } else if (rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError')) {
+              friendlyDetail = 'API do ERP indisponível';
+          }
           this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
           return { success: false, valid: false, message: `Sem conexão. ${friendlyDetail}` };
       }
@@ -2650,7 +2634,7 @@ class ApiService {
       if (this.enumCache) return this.enumCache;
       this.enumCache = {};
       try {
-          const response = await this.fetchWithAuth('/api/meta/enums');
+          const response = await this.fetchStoreSupportEndpoint('/api/meta/enums');
           if (!response.ok) {
               this.addLog(`Falha ao baixar enums: ${response.status}`, 'error');
               return this.enumCache;

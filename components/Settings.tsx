@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiService, ConnectionProfileSummary, LogEntry } from '../services/api';
-import { getBackendUrlForCurrentHost, isBackendUrlLockedForCurrent, isEdsonHostForCurrent, isLlfixHostForCurrent } from '../services/storeHost';
+import { getBackendUrlForCurrentHost, isBackendUrlLockedForCurrent, isEdsonHostForCurrent, isLlfixHostForCurrent, isLocalDevHostForCurrent } from '../services/storeHost';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 import { APP_VERSION_INFO } from '../src/version';
@@ -31,6 +31,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const resolvedBackendUrl = backendUrlLocked ? lockedBackendUrl : config.backendUrl;
   const isLlfixHost = isLlfixHostForCurrent();
   const isEdsonHost = isEdsonHostForCurrent();
+  const isLocalDev = isLocalDevHostForCurrent();
   const showForceLLFix = isLlfixHost && !isEdsonHost;
   const [storeInfo, setStoreInfo] = useState<any | null>(null);
   const detectedStoreLabel = connectionProfile?.lojaCodigo || storeInfo?.store_code || storeInfo?.codigo || '';
@@ -108,7 +109,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     await apiService.saveConfig(validatedConfig);
     if (onThemeChange) onThemeChange(validatedConfig.theme);
     setTestStatus('success');
-    setMessage('Conexão validada e configuração técnica salva.');
+    setMessage(result.message || (isLocalDev ? 'Validação feita via servidor local.' : 'Conexão validada e configuração técnica salva.'));
     refreshLogs();
     setTimeout(() => {
         setMessage('');
@@ -206,6 +207,11 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
           {showForceLLFix && (
             <p className="text-[10px] text-slate-500 mt-2">
               Força comunicação direta com o ERP LLFIX mesmo fora do domínio oficial.
+            </p>
+          )}
+          {isLocalDev && (
+            <p className="text-[10px] text-slate-500 mt-2">
+              Em modo local/dev, esta URL é usada apenas para selecionar o tenant. A validação é feita via servidor local.
             </p>
           )}
         </div>

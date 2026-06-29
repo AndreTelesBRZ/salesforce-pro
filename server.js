@@ -4,9 +4,6 @@ import sqlite3 from 'sqlite3';
 import pg from 'pg';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
@@ -58,12 +55,21 @@ const STORE_DOMAIN_MAP = {
   [EDSON_DOMAIN]: 1,
   [LLFIX_DOMAIN]: 3
 };
+const EDSON_BACKEND_URL = 'https://apiforce.edsondosparafusos.app.br';
+const LLFIX_BACKEND_URL = 'https://apiforce.llfix.app.br';
+const SUPPORTED_REMOTE_BACKENDS = [EDSON_BACKEND_URL, LLFIX_BACKEND_URL];
 
 const normalizeHost = (value) => {
   const raw = String(value || '').split(',')[0].trim().toLowerCase();
   if (!raw) return '';
   const noProto = raw.replace(/^https?:\/\//, '');
   return noProto.replace(/:\d+$/, '');
+};
+
+const normalizeBackendUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.replace(/\/+$/, '').replace(/\/api\/?$/i, '');
 };
 
 const matchesDomain = (host, domain) => {
@@ -77,11 +83,23 @@ const getRequestHost = (req) => {
   return normalizeHost(rawHost);
 };
 
+const getRequestedBackendUrl = (req) => {
+  const hinted = normalizeBackendUrl(req.headers['x-backend-url']);
+  if (hinted && SUPPORTED_REMOTE_BACKENDS.includes(hinted)) {
+    return hinted;
+  }
+  const host = getRequestHost(req);
+  if (matchesDomain(host, LLFIX_DOMAIN)) return LLFIX_BACKEND_URL;
+  if (matchesDomain(host, EDSON_DOMAIN)) return EDSON_BACKEND_URL;
+  return '';
+};
+
 const resolveStoreIdFromHost = (host) => {
   if (matchesDomain(host, LLFIX_DOMAIN)) return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
   if (matchesDomain(host, EDSON_DOMAIN)) return STORE_DOMAIN_MAP[EDSON_DOMAIN];
   return DEFAULT_STORE_ID;
 };
+const formatStoreCode = (value) => String(value || DEFAULT_STORE_ID).trim().padStart(6, '0');
 const resolveIntegrationTokensForHost = (host) => {
   const normalized = normalizeHost(host);
   const tokens = [];
@@ -93,6 +111,24 @@ const resolveIntegrationTokensForHost = (host) => {
     tokens.push(APP_INTEGRATION_TOKEN_EDSON);
   }
   return tokens;
+};
+
+const resolveIntegrationTokenForBackend = (backendUrl) => {
+  const host = normalizeHost(backendUrl);
+  if (matchesDomain(host, LLFIX_DOMAIN)) {
+    return APP_INTEGRATION_TOKEN_LLFIX || APP_INTEGRATION_TOKEN || '';
+  }
+  if (matchesDomain(host, EDSON_DOMAIN)) {
+    return APP_INTEGRATION_TOKEN_EDSON || APP_INTEGRATION_TOKEN || '';
+  }
+  return APP_INTEGRATION_TOKEN || '';
+};
+
+const resolveExpectedStoreCodeForBackend = (backendUrl) => {
+  const host = normalizeHost(backendUrl);
+  if (matchesDomain(host, LLFIX_DOMAIN)) return '000003';
+  if (matchesDomain(host, EDSON_DOMAIN)) return '000001';
+  return '';
 };
 const isStoreHostLocked = (host) => matchesDomain(host, EDSON_DOMAIN) || matchesDomain(host, LLFIX_DOMAIN);
 const getStoreIdFromRequest = (req) => resolveStoreIdFromHost(getRequestHost(req));
@@ -140,27 +176,24 @@ const mailerLlfix = createMailer(LLFIX_SMTP_HOST, LLFIX_SMTP_PORT, LLFIX_SMTP_SE
 // Mailer global (fallback)
 const mailer      = mailerEdson || mailerLlfix || createMailer(SMTP_ADDRESS, SMTP_PORT, SMTP_SECURE, SMTP_USERNAME, SMTP_PASSWORD);
 
-const verifyDjangoPassword = (plainPassword, encodedPassword) => {
-  if (!encodedPassword || !encodedPassword.startsWith('pbkdf2_sha256$')) return false;
-  const parts = encodedPassword.split('$');
-  if (parts.length !== 4) return false;
-  const [, iterationsRaw, salt, digest] = parts;
-  const iterations = parseInt(iterationsRaw, 10);
-  if (!iterations || !salt || !digest) return false;
-  const derived = crypto.pbkdf2Sync(plainPassword, salt, iterations, 32, 'sha256').toString('base64');
-  try {
-    return crypto.timingSafeEqual(Buffer.from(derived), Buffer.from(digest));
-  } catch (e) {
-    return false;
-  }
+const getRemoteUserFromRequest = (req) => req.remoteUser || null;
+
+const getRemotePermissions = (req) => {
+  const user = getRemoteUserFromRequest(req);
+  return user?.permissions || {};
 };
 
-const verifyStoredPassword = (plainPassword, storedPassword) => {
-  if (!storedPassword) return false;
-  if (storedPassword.startsWith('pbkdf2_sha256$')) {
-    return verifyDjangoPassword(plainPassword, storedPassword);
-  }
-  return bcrypt.compareSync(plainPassword, storedPassword);
+const hasRemotePermission = (req, permissionKey) => {
+  const user = getRemoteUserFromRequest(req);
+  if (!user || !permissionKey) return false;
+  if (user[permissionKey] === true) return true;
+  return getRemotePermissions(req)[permissionKey] === true;
+};
+
+const ensureRemotePermission = (req, res, permissionKey, message) => {
+  if (hasRemotePermission(req, permissionKey)) return true;
+  res.status(403).json({ message: message || 'Usuário sem permissão para esta ação.' });
+  return false;
 };
 
 if (mailerEdson) console.log('[MAILER] Transporte EDSON inicializado:', EDSON_SMTP_HOST);
@@ -179,6 +212,141 @@ const getMailerForRequest = (req) => {
   }
   // Fallback global
   return mailer ? { transport: mailer, from: MAILER_FROM } : null;
+};
+
+const parseRemoteJson = async (response) => {
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  return { text, data };
+};
+
+const extractRemoteMessage = (payload, fallbackText, status) => {
+  const candidate =
+    payload?.message ||
+    payload?.detail ||
+    payload?.error ||
+    payload?.errors?.[0]?.message ||
+    payload?.non_field_errors?.[0];
+  const message = String(candidate || fallbackText || '').trim();
+  if (message) return message;
+  if (status === 401) return 'Credenciais inválidas.';
+  if (status === 403) return 'Token de integração inválido.';
+  if (status === 404) return 'Endpoint de autenticação não encontrado.';
+  return 'Falha ao autenticar no ERP.';
+};
+
+const buildRemoteAuthHeaders = (backendUrl, extraHeaders = {}) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    ...extraHeaders
+  };
+  const integrationToken = resolveIntegrationTokenForBackend(backendUrl);
+  if (integrationToken) {
+    headers['X-App-Token'] = integrationToken;
+  }
+  return headers;
+};
+
+const requireRemoteBackendContext = (req, res) => {
+  const backendUrl = getRequestedBackendUrl(req);
+  if (!backendUrl) {
+    res.status(400).json({ message: 'Configuração de loja inválida. Backend do ERP não identificado.' });
+    return null;
+  }
+  const integrationToken = resolveIntegrationTokenForBackend(backendUrl);
+  if (!integrationToken) {
+    res.status(400).json({ message: 'Token de integração inválido ou não configurado para esta loja.' });
+    return null;
+  }
+  return { backendUrl, integrationToken };
+};
+
+const callRemoteJson = async ({ backendUrl, paths, method = 'GET', body = null, headers = {} }) => {
+  if (typeof fetch !== 'function') {
+    throw new Error('Fetch indisponível no backend local.');
+  }
+
+  let lastResult = null;
+  let lastError = null;
+
+  for (const path of paths) {
+    const url = `${backendUrl}${path}`;
+    try {
+      console.log(`[ERP_PROXY] ${method} ${url}`);
+      const response = await fetch(url, {
+        method,
+        headers: buildRemoteAuthHeaders(backendUrl, headers),
+        body: body === null ? undefined : JSON.stringify(body)
+      });
+      const parsed = await parseRemoteJson(response);
+      lastResult = { url, response, ...parsed };
+      if (response.status !== 404) {
+        return lastResult;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastResult) return lastResult;
+  throw lastError || new Error('API do ERP indisponível.');
+};
+
+const fetchRemoteProfile = async (backendUrl, bearerToken) => {
+  const endpoints = ['/api/me', '/api/auth/me'];
+  for (const path of endpoints) {
+    const url = `${backendUrl}${path}`;
+    console.log(`[ERP_PROXY] GET ${url}`);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildRemoteAuthHeaders(backendUrl, {
+        Authorization: `Bearer ${bearerToken}`
+      })
+    });
+    const parsed = await parseRemoteJson(response);
+    if (response.ok) {
+      return { url, response, ...parsed };
+    }
+    if (response.status !== 404) {
+      return { url, response, ...parsed };
+    }
+  }
+  return null;
+};
+
+const extractProfileUser = (payload) => payload?.user || payload || {};
+
+const extractProfileStoreCode = (payload) => {
+  const profile = extractProfileUser(payload);
+  return String(
+    profile.loja_codigo ||
+    profile.store_code ||
+    profile.lojaCodigo ||
+    profile.codigo_loja ||
+    profile.loja ||
+    ''
+  ).trim();
+};
+
+const validateProfileAgainstBackend = (backendUrl, payload) => {
+  const expectedStoreCode = resolveExpectedStoreCodeForBackend(backendUrl);
+  if (!expectedStoreCode) {
+    return { valid: true };
+  }
+  const returnedStoreCode = extractProfileStoreCode(payload);
+  if (!returnedStoreCode) {
+    return { valid: false, message: 'Usuário autenticado sem loja vinculada retornada pelo ERP.' };
+  }
+  if (formatStoreCode(returnedStoreCode) !== expectedStoreCode) {
+    return { valid: false, message: 'Usuário sem acesso à loja selecionada.' };
+  }
+  return { valid: true };
 };
 
 // Middleware
@@ -271,19 +439,19 @@ const isPrivilegedUser = (userId) => userId === 'master-admin' || userId === 'in
 
 const resolveSellerIdForRequest = async (req) => {
     if (req.sellerId !== undefined) return req.sellerId;
-    if (!req.userId || isPrivilegedUser(req.userId)) {
-        req.sellerId = null;
-        return null;
+    if (req.remoteUser) {
+        const remoteSellerId = String(
+            req.remoteUser.vendor_code ||
+            req.remoteUser.seller_id ||
+            req.remoteUser.vendedor_codigo ||
+            req.remoteUser.codigo_vendedor ||
+            ''
+        ).trim();
+        req.sellerId = remoteSellerId || null;
+        return req.sellerId;
     }
-    try {
-        const user = await db.get("SELECT seller_id FROM users WHERE id = ?", [req.userId]);
-        const sellerId = user && user.seller_id ? String(user.seller_id) : null;
-        req.sellerId = sellerId;
-        return sellerId;
-    } catch (e) {
-        req.sellerId = null;
-        return null;
-    }
+    req.sellerId = null;
+    return null;
 };
 
 const ensureStoreInfoRow = async (storeId) => {
@@ -313,13 +481,7 @@ async function initDb() {
             seller_id TEXT 
         )`);
 
-        // Migração para adicionar colunas de código de acesso se não existirem
-        try {
-            await db.run("ALTER TABLE users ADD COLUMN auth_code TEXT");
-            await db.run("ALTER TABLE users ADD COLUMN auth_code_expires TEXT");
-        } catch (e) {}
-
-        // Migração para adicionar seller_id
+        // Compatibilidade legada: manter seller_id sem usar a tabela para autenticação.
         try {
             await db.run("ALTER TABLE users ADD COLUMN seller_id TEXT");
             console.log("Coluna seller_id adicionada em users.");
@@ -438,17 +600,6 @@ async function initDb() {
             await db.run(insertProd, ["0000002", "Chave Philips", "Chave Philips 3/16 x 4", 12.90, 50, "Ferramentas", "UN", DEFAULT_STORE_ID]);
         }
 
-        const allowDefaultAdmin = process.env.ALLOW_LOCAL_DEFAULT_ADMIN === '1' || process.env.NODE_ENV !== 'production';
-        if (allowDefaultAdmin) {
-            const userCount = await db.get("SELECT count(*) as count FROM users WHERE lower(email) = ?", ['admin']);
-            if (!userCount || parseInt(userCount.count) === 0) {
-                const hash = bcrypt.hashSync("123456", 8);
-                const now = new Date().toISOString();
-                await db.run("INSERT INTO users (name, email, password, created_at, seller_id) VALUES (?, ?, ?, ?, ?)", ["Administrador", "admin", hash, now, "000002"]);
-                console.log("Usuário 'admin' criado para ambiente local controlado.");
-            }
-        }
-        
         // Garante existência do Cliente Balcão (ID 0)
         const custCount = await db.get("SELECT count(*) as count FROM customers");
         if (custCount && parseInt(custCount.count) === 0) {
@@ -599,128 +750,130 @@ app.get('/health', async (req, res) => {
     }
 });
 
-app.post('/api/register', async (req, res) => {
-  const { name, email, password, seller_id } = req.body;
-  if (!email || !password) return res.status(400).json({ message: 'Email e senha são obrigatórios.' });
-  
-  const emailLower = email.toLowerCase();
-
+app.get('/api/integration/validate', async (req, res) => {
   try {
-      const hashedPassword = bcrypt.hashSync(password, 8);
-      const createdAt = new Date().toISOString();
-      // Permite definir seller_id no registro ou deixa null
-      const result = await db.run(
-          "INSERT INTO users (name, email, password, created_at, seller_id) VALUES (?, ?, ?, ?, ?)", 
-          [name, emailLower, hashedPassword, createdAt, seller_id || null]
-      );
-      
-      const userId = isPostgres ? result.lastID : result.lastID; // Adapter handles normalization if needed
-      // Token válido por 10 anos (3650 dias)
-      const token = jwt.sign({ id: userId }, SECRET_KEY, { expiresIn: '3650d' });
-      res.status(201).json({ success: true, token, id: userId, sellerId: seller_id || null });
-  } catch (err) {
-      if (err.message && err.message.includes('UNIQUE')) {
-         return res.status(400).json({ message: 'Email já cadastrado.' });
+      const context = requireRemoteBackendContext(req, res);
+      if (!context) return;
+
+      const remoteValidation = await callRemoteJson({
+          backendUrl: context.backendUrl,
+          paths: ['/api/integration/validate'],
+          method: 'GET'
+      });
+
+      if (!remoteValidation.response.ok) {
+          const message = extractRemoteMessage(remoteValidation.data, remoteValidation.text, remoteValidation.response.status);
+          return res.status(remoteValidation.response.status).json({ message });
       }
-      res.status(500).json({ message: 'Erro ao criar usuário.' });
+
+      return res.status(200).json({
+          ...(remoteValidation.data || {}),
+          validated_via: 'local-server',
+          backend_url: context.backendUrl
+      });
+  } catch (e) {
+      console.error('[AUTH_PROXY] Falha ao validar integração remota:', e.message);
+      return res.status(503).json({ message: 'API do ERP indisponível' });
   }
+});
+
+app.post('/api/register', async (req, res) => {
+  return res.status(403).json({ message: 'Cadastro local desabilitado. Use o ERP oficial.' });
 });
 
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-  const usernameLower = username.toLowerCase();
   
   try {
-      const user = await db.get("SELECT * FROM users WHERE lower(email) = ?", [usernameLower]);
-      if (!user) return res.status(404).json({ message: 'Usuário não encontrado.' });
+      const context = requireRemoteBackendContext(req, res);
+      if (!context) return;
 
-      // Se o usuário foi criado via Google, ele pode não ter senha
-      if (!user.password && password) {
-          return res.status(401).json({ message: 'Faça login com Google.' });
+      const remoteLogin = await callRemoteJson({
+          backendUrl: context.backendUrl,
+          paths: ['/auth/login', '/api/login'],
+          method: 'POST',
+          body: { username, password }
+      });
+
+      if (!remoteLogin.response.ok) {
+          const message = extractRemoteMessage(remoteLogin.data, remoteLogin.text, remoteLogin.response.status);
+          return res.status(remoteLogin.response.status).json({ message });
       }
 
-      const passwordIsValid = verifyStoredPassword(password, user.password);
-      if (!passwordIsValid) return res.status(401).json({ message: 'Senha inválida.' });
+      const accessToken =
+          remoteLogin.data?.token?.access_token ||
+          remoteLogin.data?.access_token ||
+          remoteLogin.data?.token;
 
-      // Token válido por 10 anos (3650 dias)
-      const token = jwt.sign({ id: user.id }, SECRET_KEY, { expiresIn: '3650d' });
-      
-      // NOVA ESTRUTURA PARA PARIDADE COM API DE PRODUÇÃO
-      res.status(200).json({
+      if (!accessToken) {
+          return res.status(502).json({ message: 'ERP respondeu sem token de autenticação.' });
+      }
+
+      const profileResponse = await fetchRemoteProfile(context.backendUrl, accessToken);
+      if (!profileResponse || !profileResponse.response.ok) {
+          const message = profileResponse
+            ? extractRemoteMessage(profileResponse.data, profileResponse.text, profileResponse.response.status)
+            : 'Não foi possível confirmar o usuário autenticado no ERP.';
+          return res.status(502).json({ message });
+      }
+
+      const storeValidation = validateProfileAgainstBackend(context.backendUrl, profileResponse.data);
+      if (!storeValidation.valid) {
+          return res.status(403).json({ message: storeValidation.message });
+      }
+
+      const remoteUser = extractProfileUser(profileResponse.data);
+      return res.status(200).json({
           token: {
-              access_token: token,
-              token_type: "bearer",
-              expires_in: 3600
+              access_token: accessToken,
+              token_type: remoteLogin.data?.token?.token_type || remoteLogin.data?.token_type || 'bearer',
+              expires_in: remoteLogin.data?.token?.expires_in || remoteLogin.data?.expires_in || 3600
           },
           user: {
-              id: user.id,
-              username: user.email,
-              is_active: true,
-              created_at: user.created_at,
-              updated_at: user.created_at,
-              vendor_code: user.seller_id || "000000",
-              vendor_name: user.name
+              ...remoteUser,
+              vendor_name: remoteUser.vendor_name || remoteUser.name || remoteUser.nome || remoteUser.username || String(username || '').trim(),
+              vendor_code: remoteUser.vendor_code || remoteUser.seller_id || remoteUser.vendedor_codigo || '',
+              loja_codigo: remoteUser.loja_codigo || remoteUser.store_code || remoteUser.lojaCodigo || remoteUser.codigo_loja || ''
           }
       });
   } catch (e) {
-      console.log(e);
-      res.status(500).json({ message: 'Erro interno.' });
+      console.error('[AUTH_PROXY] Falha no login remoto:', e.message);
+      res.status(503).json({ message: 'API do ERP indisponível.' });
   }
 });
 
 app.post('/api/auth/send-code', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: 'Email é obrigatório.' });
-    
-    const emailLower = email.toLowerCase();
 
     try {
-        const user = await db.get("SELECT * FROM users WHERE lower(email) = ?", [emailLower]);
-        if (!user) return res.status(404).json({ message: 'E-mail não cadastrado.' });
+        const context = requireRemoteBackendContext(req, res);
+        if (!context) return;
 
-        // Gera código de 6 dígitos
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        // Expira em 10 minutos
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        const remoteCodeRequest = await callRemoteJson({
+            backendUrl: context.backendUrl,
+            paths: ['/auth/send-code', '/api/auth/send-code'],
+            method: 'POST',
+            body: { email }
+        });
 
-        await db.run("UPDATE users SET auth_code = ?, auth_code_expires = ? WHERE id = ?", [code, expiresAt, user.id]);
-
-        const tenantMailer = getMailerForRequest(req);
-
-        if (tenantMailer) {
-            const subject = 'Seu codigo de acesso - SalesForce Pro';
-            const text = `Seu codigo de acesso e ${code}. Ele expira em 10 minutos.`;
-            const html = `
-                <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1f2937;">
-                    <h2 style="margin-bottom: 8px;">SalesForce Pro</h2>
-                    <p>Seu codigo de acesso e:</p>
-                    <p style="font-size: 28px; font-weight: 700; letter-spacing: 4px; margin: 16px 0;">${code}</p>
-                    <p>Esse codigo expira em 10 minutos.</p>
-                    <p>Se voce nao solicitou esse acesso, ignore este e-mail.</p>
-                </div>
-            `;
-
-            await tenantMailer.transport.sendMail({
-                from: tenantMailer.from,
-                to: emailLower,
-                subject,
-                text,
-                html
-            });
-
-            return res.status(200).json({ success: true, message: 'Codigo enviado para o e-mail.' });
+        if (remoteCodeRequest.response.status === 404) {
+            return res.status(404).json({ message: 'Este ambiente não suporta login por código de acesso.' });
         }
 
-        // Modo simulado — sem SMTP configurado
-        console.log(`\n============================================`);
-        console.log(`[EMAIL SIMULADO] Para: ${emailLower}`);
-        console.log(`[EMAIL SIMULADO] Seu codigo de acesso e: ${code}`);
-        console.log(`============================================\n`);
+        const message = extractRemoteMessage(
+            remoteCodeRequest.data,
+            remoteCodeRequest.text,
+            remoteCodeRequest.response.status
+        );
 
-        return res.status(200).json({ success: true, message: 'Codigo gerado. Mailer nao configurado; verifique o console do servidor.' });
+        return res.status(remoteCodeRequest.response.status).json({
+            success: remoteCodeRequest.response.ok,
+            message
+        });
     } catch (e) {
-        console.error('[MAILER] Erro ao enviar codigo:', e.message);
-        return res.status(500).json({ message: 'Erro ao enviar codigo. Tente novamente.' });
+        console.error('[AUTH_PROXY] Falha ao solicitar código remoto:', e.message);
+        return res.status(503).json({ message: 'API do ERP indisponível.' });
     }
 });
 
@@ -729,97 +882,72 @@ app.post('/api/auth/verify-code', async (req, res) => {
     const { email, code } = req.body;
     if (!email || !code) return res.status(400).json({ message: 'Dados incompletos.' });
 
-    const emailLower = email.toLowerCase();
-
     try {
-        const user = await db.get("SELECT * FROM users WHERE lower(email) = ?", [emailLower]);
-        if (!user) return res.status(404).json({ message: 'Usuário não encontrado.' });
+        const context = requireRemoteBackendContext(req, res);
+        if (!context) return;
 
-        if (!user.auth_code || user.auth_code !== code) {
-            return res.status(401).json({ message: 'Código inválido.' });
+        const remoteVerify = await callRemoteJson({
+            backendUrl: context.backendUrl,
+            paths: ['/auth/verify-code', '/api/auth/verify-code'],
+            method: 'POST',
+            body: { email, code }
+        });
+
+        if (remoteVerify.response.status === 404) {
+            return res.status(404).json({ message: 'Este ambiente não suporta login por código de acesso.' });
         }
 
-        const now = new Date();
-        const expires = new Date(user.auth_code_expires);
-
-        if (now > expires) {
-            return res.status(401).json({ message: 'Código expirado. Solicite um novo.' });
+        if (!remoteVerify.response.ok) {
+            const message = extractRemoteMessage(remoteVerify.data, remoteVerify.text, remoteVerify.response.status);
+            return res.status(remoteVerify.response.status).json({ message });
         }
 
-        // Limpa o código após uso
-        await db.run("UPDATE users SET auth_code = NULL, auth_code_expires = NULL WHERE id = ?", [user.id]);
+        const accessToken =
+            remoteVerify.data?.token?.access_token ||
+            remoteVerify.data?.access_token ||
+            remoteVerify.data?.token;
 
-        // Token válido por 10 anos (3650 dias)
-        const token = jwt.sign({ id: user.id }, SECRET_KEY, { expiresIn: '3650d' });
-        
-        // NOVA ESTRUTURA PARA PARIDADE
-        res.status(200).json({
+        if (!accessToken) {
+            return res.status(502).json({ message: 'ERP respondeu sem token de autenticação.' });
+        }
+
+        const profileResponse = await fetchRemoteProfile(context.backendUrl, accessToken);
+        if (!profileResponse || !profileResponse.response.ok) {
+            const message = profileResponse
+              ? extractRemoteMessage(profileResponse.data, profileResponse.text, profileResponse.response.status)
+              : 'Não foi possível confirmar o usuário autenticado no ERP.';
+            return res.status(502).json({ message });
+        }
+
+        const storeValidation = validateProfileAgainstBackend(context.backendUrl, profileResponse.data);
+        if (!storeValidation.valid) {
+            return res.status(403).json({ message: storeValidation.message });
+        }
+
+        const remoteUser = extractProfileUser(profileResponse.data);
+        return res.status(200).json({
             token: {
-                access_token: token,
-                token_type: "bearer",
-                expires_in: 3600
+                access_token: accessToken,
+                token_type: remoteVerify.data?.token?.token_type || remoteVerify.data?.token_type || 'bearer',
+                expires_in: remoteVerify.data?.token?.expires_in || remoteVerify.data?.expires_in || 3600
             },
             user: {
-                id: user.id,
-                username: user.email,
-                is_active: true,
-                created_at: user.created_at,
-                updated_at: user.created_at,
-                vendor_code: user.seller_id || "000000",
-                vendor_name: user.name
+                ...remoteUser,
+                vendor_name: remoteUser.vendor_name || remoteUser.name || remoteUser.nome || remoteUser.username || String(email || '').trim(),
+                vendor_code: remoteUser.vendor_code || remoteUser.seller_id || remoteUser.vendedor_codigo || '',
+                loja_codigo: remoteUser.loja_codigo || remoteUser.store_code || remoteUser.lojaCodigo || remoteUser.codigo_loja || ''
             }
         });
 
     } catch (e) {
-        console.error(e);
-        res.status(500).json({ message: 'Erro interno.' });
+        console.error('[AUTH_PROXY] Falha ao validar código remoto:', e.message);
+        res.status(503).json({ message: 'API do ERP indisponível.' });
     }
 });
 
 // Autenticação com Google
 app.post('/api/auth/google', async (req, res) => {
-    const { credential, clientId } = req.body;
-    
-    try {
-        // Se o cliente enviar o clientId, usamos para validar o audience.
-        // Isso permite que o app tenha o ID configurável.
-        const audience = clientId || GOOGLE_CLIENT_ID;
-
-        const ticket = await googleClient.verifyIdToken({
-            idToken: credential,
-            audience: audience,
-        });
-        const payload = ticket.getPayload();
-        const { email, name, sub } = payload; // sub é o google id
-        const emailLower = email.toLowerCase();
-
-        let user = await db.get("SELECT * FROM users WHERE lower(email) = ?", [emailLower]);
-
-        let userId;
-        let sellerId = null;
-
-        if (!user) {
-            // Cria usuário se não existir
-            const createdAt = new Date().toISOString();
-            // Senha vazia ou string especial para indicar Google Auth
-            const result = await db.run(
-                "INSERT INTO users (name, email, password, created_at, seller_id) VALUES (?, ?, ?, ?, ?)", 
-                [name, emailLower, `GOOGLE_AUTH_${sub}`, createdAt, null]
-            );
-            userId = isPostgres ? result.lastID : result.lastID;
-        } else {
-            userId = user.id;
-            sellerId = user.seller_id;
-        }
-
-        // Token válido por 10 anos (3650 dias)
-        const token = jwt.sign({ id: userId }, SECRET_KEY, { expiresIn: '3650d' });
-        res.status(200).json({ success: true, token, name: name, sellerId });
-
-    } catch (e) {
-        console.error(e);
-        res.status(400).json({ message: 'Falha na autenticação Google.' });
-    }
+    return res.status(501).json({ message: 'Login Google não disponível neste ambiente.' });
 });
 
 const getHeaderValue = (value) => {
@@ -845,7 +973,7 @@ const isIntegrationTokenForRequest = (req, token) => {
 };
 
 // Middleware de Verificação de Token
-const verifyToken = (req, res, next) => {
+const verifyToken = async (req, res, next) => {
   const authInfo = parseAuthHeader(req.headers['authorization']);
   const appToken = getHeaderValue(req.headers['x-app-token']);
 
@@ -869,50 +997,74 @@ const verifyToken = (req, res, next) => {
       return res.status(403).json({ message: 'Token não fornecido.' });
   }
 
-  jwt.verify(authInfo.token, SECRET_KEY, (err, decoded) => {
-    if (err) {
-        console.log('[AUTH_FAIL] Token JWT inválido ou expirado:', err.message);
-        return res.status(401).json({ message: 'Token inválido.' });
-    }
-    req.userId = decoded.id || decoded.sub || null;
-    req.jwtPayload = decoded;
-    next();
-  });
+  try {
+      const context = requireRemoteBackendContext(req, res);
+      if (!context) return;
+      const profileResponse = await fetchRemoteProfile(context.backendUrl, authInfo.token);
+      if (!profileResponse || !profileResponse.response.ok) {
+          const message = profileResponse
+            ? extractRemoteMessage(profileResponse.data, profileResponse.text, profileResponse.response.status)
+            : 'Token inválido.';
+          console.log('[AUTH_FAIL] Token remoto rejeitado:', message);
+          return res.status(401).json({ message: 'Token inválido.' });
+      }
+      const storeValidation = validateProfileAgainstBackend(context.backendUrl, profileResponse.data);
+      if (!storeValidation.valid) {
+          return res.status(403).json({ message: storeValidation.message });
+      }
+      const remoteUser = extractProfileUser(profileResponse.data);
+      req.remoteUser = remoteUser;
+      req.userId = remoteUser.id || remoteUser.vendor_code || remoteUser.username || null;
+      req.jwtPayload = remoteUser;
+      return next();
+  } catch (remoteError) {
+      console.log('[AUTH_FAIL] Token remoto inválido ou ERP indisponível:', remoteError.message);
+      return res.status(401).json({ message: 'Token inválido.' });
+  }
 };
 
-const buildUserProfileResponse = (user) => ({
-    user: {
-        id: user.id,
-        vendor_name: user.name,
-        username: user.email,
-        vendor_code: user.seller_id
-    }
-});
+const buildStoreCatalogEntry = (storeId, row = {}) => {
+    const code = formatStoreCode(storeId);
+    return {
+        id: storeId,
+        codigo: code,
+        lojcod: code,
+        LOJCOD: code,
+        nome: row.trade_name || row.legal_name || '',
+        nome_fantasia: row.trade_name || '',
+        razao_social: row.legal_name || '',
+        cnpj_cpf: row.document || '',
+        email: row.email || '',
+        telefone: row.phone || '',
+        logradouro: row.street || '',
+        numero: row.number || '',
+        bairro: row.neighborhood || '',
+        cidade: row.city || '',
+        estado: row.state || '',
+        cep: row.zip || '',
+        complemento: row.complement || '',
+        trade_name: row.trade_name || '',
+        legal_name: row.legal_name || '',
+        document: row.document || '',
+        phone: row.phone || '',
+        street: row.street || '',
+        neighborhood: row.neighborhood || '',
+        city: row.city || '',
+        state: row.state || '',
+        zip: row.zip || '',
+        updated_at: row.updated_at || null
+    };
+};
 
 // --- ROTAS DA API ---
 
 // Identificar Usuário Atual (Me)
 app.get('/api/me', verifyToken, async (req, res) => {
     try {
-        const user = await db.get("SELECT id, name, email, seller_id FROM users WHERE id = ?", [req.userId]);
-        if (user) {
-            return res.json(buildUserProfileResponse(user));
+        if (!req.remoteUser) {
+            return res.status(401).json({ message: 'Perfil remoto não carregado.' });
         }
-        const payload = req.jwtPayload || {};
-        const tokenSellerId = payload.vendor_code || payload.seller_id || payload.vendedor_codigo || '';
-        const tokenName = payload.vendor_name || payload.name || payload.nome || payload.username || '';
-        const tokenUsername = payload.username || payload.email || tokenName || '';
-        if (tokenName || tokenSellerId || tokenUsername) {
-            return res.json({
-                user: {
-                    id: req.userId,
-                    vendor_name: tokenName,
-                    username: tokenUsername,
-                    vendor_code: tokenSellerId
-                }
-            });
-        }
-        return res.status(404).json({ message: 'Usuário não encontrado.' });
+        return res.json({ user: req.remoteUser });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -920,25 +1072,10 @@ app.get('/api/me', verifyToken, async (req, res) => {
 
 app.get('/api/auth/me', verifyToken, async (req, res) => {
     try {
-        const user = await db.get("SELECT id, name, email, seller_id FROM users WHERE id = ?", [req.userId]);
-        if (user) {
-            return res.json(buildUserProfileResponse(user));
+        if (!req.remoteUser) {
+            return res.status(401).json({ message: 'Perfil remoto não carregado.' });
         }
-        const payload = req.jwtPayload || {};
-        const tokenSellerId = payload.vendor_code || payload.seller_id || payload.vendedor_codigo || '';
-        const tokenName = payload.vendor_name || payload.name || payload.nome || payload.username || '';
-        const tokenUsername = payload.username || payload.email || tokenName || '';
-        if (tokenName || tokenSellerId || tokenUsername) {
-            return res.json({
-                user: {
-                    id: req.userId,
-                    vendor_name: tokenName,
-                    username: tokenUsername,
-                    vendor_code: tokenSellerId
-                }
-            });
-        }
-        return res.status(404).json({ message: 'Usuário não encontrado.' });
+        return res.json({ user: req.remoteUser });
     } catch (e) {
         return res.status(500).json({ error: e.message });
     }
@@ -946,6 +1083,7 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
 
 // Listar Produtos
 app.get('/api/products', verifyToken, async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_view_products', 'Usuário sem permissão para visualizar produtos.')) return;
   // LÓGICA DE LIMITE ROBUSTA (atualizada):
   // Se limit não for enviado, NÃO aplicamos paginação (retorna tudo — útil para sync).
   // Se limit for enviado e > 0, aplicamos paginação normal.
@@ -993,6 +1131,7 @@ app.get('/api/products', verifyToken, async (req, res) => {
 
 // Listar Produtos (compatibilidade LLFIX /api/produtos-sync)
 app.get('/api/produtos-sync', verifyToken, async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_view_products', 'Usuário sem permissão para visualizar produtos.')) return;
   // Reaproveita a mesma logica de /api/products (ignora loja)
   let limit = -1;
   if (req.query.limit !== undefined) {
@@ -1036,6 +1175,7 @@ app.get('/api/produtos-sync', verifyToken, async (req, res) => {
 
 // Adicionar Produto (Novo)
 app.post('/api/products', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_products', 'Usuário sem permissão para gerenciar produtos.')) return;
     const { codigo, nome, descricao_completa, preco, estoque, categoria, unidade, imagem_url } = req.body;
     
     if (!codigo || !nome || !preco) {
@@ -1060,6 +1200,7 @@ app.post('/api/products', verifyToken, async (req, res) => {
 
 // Listar Clientes
 app.get('/api/clientes', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para visualizar clientes.')) return;
     // LÓGICA DE LIMITE ROBUSTA (atualizada): sem parâmetro -> sem limite (sync completo).
     // Se limit > 0, aplica paginação.
     let limit = -1; 
@@ -1109,6 +1250,7 @@ app.get('/api/clientes', verifyToken, async (req, res) => {
 
 // Buscar Cliente por CNPJ
 app.get('/api/clientes/cnpj/:cnpj', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para visualizar clientes.')) return;
     const raw = req.params.cnpj || '';
     if (!isValidCnpj(raw)) {
         return res.status(400).json({ message: 'CNPJ inválido.' });
@@ -1141,6 +1283,7 @@ app.get('/api/clientes/cnpj/:cnpj', verifyToken, async (req, res) => {
 
 // Consulta SEFAZ (proxy interno)
 app.get('/api/externo/sefaz/cnpj/:cnpj', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para consultar clientes.')) return;
     const raw = req.params.cnpj || '';
     if (!isValidCnpj(raw)) {
         return res.status(400).json({ message: 'CNPJ inválido.' });
@@ -1154,6 +1297,7 @@ app.get('/api/externo/sefaz/cnpj/:cnpj', verifyToken, async (req, res) => {
 
 // Criar Cliente Temporário
 app.post('/api/clientes/temp', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para cadastrar clientes.')) return;
     const {
         cnpj,
         razao_social,
@@ -1235,6 +1379,7 @@ app.post('/api/clientes/temp', verifyToken, async (req, res) => {
 
 // Planos de Pagamento por Cliente
 app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_sales', 'Usuário sem permissão para consultar condições de venda.')) return;
     const { cliente_codigo } = req.params;
     if (!cliente_codigo) return res.status(400).json({ message: 'Cliente obrigatório.' });
 
@@ -1279,6 +1424,7 @@ app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req
 });
 
 const handleSaveOrder = async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_create_sales', 'Usuário sem permissão para criar pedidos.')) return;
   const {
       cliente_id,
       total,
@@ -1356,6 +1502,7 @@ app.post('/api/pedidos-venda', verifyToken, handleSaveOrder);
 // Atualizar status de negócio do pedido no servidor (mock / exemplo)
 // PUT /api/pedidos/:id/status  body: { status: 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado' }
 app.put('/api/pedidos/:id/status', verifyToken, async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_edit_sales', 'Usuário sem permissão para editar pedidos.')) return;
   const { id } = req.params;
   const { status } = req.body || {};
   if (!status) return res.status(400).json({ message: 'status é obrigatório.' });
@@ -1411,6 +1558,22 @@ app.get('/api/store/public', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get('/api/lojas', async (req, res) => {
+  try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+    res.json([buildStoreCatalogEntry(storeId, row || {})]);
+  } catch (e) {
+    console.error('[STORE] Falha ao montar /api/lojas local:', e.message);
+    res.status(500).json({ message: 'Erro ao carregar lojas.' });
+  }
+});
+
+app.get('/api/meta/enums', async (_req, res) => {
+  res.json({ data: [] });
 });
 
 app.put('/api/store/public', async (req, res) => {
@@ -2049,6 +2212,41 @@ app.post('/api/ai/image', verifyToken, async (req, res) => {
   } catch (e) {
     console.error('[AI] Erro image:', e);
     return res.status(500).json({ message: 'Erro ao gerar imagem.' });
+  }
+});
+
+app.use('/api', async (req, res, next) => {
+  try {
+    const context = requireRemoteBackendContext(req, res);
+    if (!context) return;
+
+    const targetUrl = `${context.backendUrl}${req.originalUrl}`;
+    const forwardedHeaders = buildRemoteAuthHeaders(context.backendUrl, {});
+    const authHeader = getHeaderValue(req.headers['authorization']);
+    if (authHeader) {
+      forwardedHeaders.Authorization = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+    }
+    const acceptHeader = getHeaderValue(req.headers['accept']);
+    if (acceptHeader) {
+      forwardedHeaders.Accept = acceptHeader;
+    }
+
+    console.log(`[ERP_PROXY] ${req.method} ${targetUrl}`);
+    const response = await fetch(targetUrl, {
+      method: req.method,
+      headers: forwardedHeaders,
+      body: ['GET', 'HEAD'].includes(req.method.toUpperCase()) ? undefined : JSON.stringify(req.body || {})
+    });
+
+    const text = await response.text();
+    const contentType = response.headers.get('content-type');
+    if (contentType) {
+      res.setHeader('Content-Type', contentType);
+    }
+    return res.status(response.status).send(text);
+  } catch (error) {
+    console.error('[ERP_PROXY] Falha no proxy genérico:', error.message);
+    return res.status(503).json({ message: 'API do ERP indisponível' });
   }
 });
 

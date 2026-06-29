@@ -5,6 +5,7 @@ const EDSON_BACKEND_URL = 'https://apiforce.edsondosparafusos.app.br';
 const LLFIX_DOMAIN = 'llfix.app.br';
 const LLFIX_STORE_CODE = '000003';
 const LLFIX_BACKEND_URL = 'https://apiforce.llfix.app.br';
+export const ALLOWED_REMOTE_BACKEND_URLS = [EDSON_BACKEND_URL, LLFIX_BACKEND_URL] as const;
 const EDSON_APP_TOKEN = (() => {
   try {
     const value = (import.meta as any)?.env?.VITE_APP_INTEGRATION_TOKEN_EDSON;
@@ -37,6 +38,10 @@ const normalizeHost = (value?: string): string => {
   return noProto.replace(/:\d+$/, '');
 };
 
+const isPrivateIpv4Host = (host: string): boolean => {
+  return /^(10\.\d+\.\d+\.\d+|127\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(host);
+};
+
 const matchesDomain = (host: string, domain: string): boolean => {
   if (!host) return false;
   return host === domain || host.endsWith(`.${domain}`);
@@ -64,6 +69,11 @@ export const resolveBackendUrlFromHost = (hostname?: string): string => {
   if (matchesDomain(host, LLFIX_DOMAIN)) return LLFIX_BACKEND_URL;
   if (matchesDomain(host, EDSON_DOMAIN)) return EDSON_BACKEND_URL;
   return '';
+};
+
+export const isAllowedRemoteBackendUrl = (value?: string): boolean => {
+  const normalized = String(value || '').trim().replace(/\/+$/, '').replace(/\/api\/?$/i, '');
+  return ALLOWED_REMOTE_BACKEND_URLS.includes(normalized as typeof ALLOWED_REMOTE_BACKEND_URLS[number]);
 };
 
 export const resolveIntegrationTokenFromHost = (hostname?: string): string => {
@@ -107,6 +117,17 @@ export const getIntegrationTokenForCurrentHost = (): string => {
 
 export const isBackendUrlLockedForCurrent = (): boolean => {
   return getBackendUrlForCurrentHost() !== '';
+};
+
+export const isLocalDevHost = (hostname?: string): boolean => {
+  const host = normalizeHost(hostname);
+  if (!host) return false;
+  return host === 'localhost' || host === '0.0.0.0' || host.endsWith('.local') || isPrivateIpv4Host(host);
+};
+
+export const isLocalDevHostForCurrent = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return isLocalDevHost(window.location.hostname);
 };
 
 export const normalizeStoreCode = (value?: string | number | null): string => {

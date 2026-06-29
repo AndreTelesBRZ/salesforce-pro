@@ -100,6 +100,81 @@ export interface AppConfig {
   alwaysFetchCustomers?: boolean;
 }
 
+export interface UserPermissions {
+  can_view_products: boolean;
+  can_view_clients: boolean;
+  can_view_sales: boolean;
+  can_create_sales: boolean;
+  can_edit_sales: boolean;
+  can_delete_sales: boolean;
+  can_view_purchases: boolean;
+  can_view_financial: boolean;
+  can_view_all_companies: boolean;
+}
+
+export interface UserCompanySummary {
+  id: number;
+  code: string;
+  name: string;
+  trade_name?: string;
+  tax_id?: string;
+}
+
+export interface UserStoreSummary {
+  id: number;
+  codigo: string;
+  nome: string;
+  nome_fantasia?: string;
+  razao_social?: string;
+  company_id?: number | null;
+}
+
+export interface UserAccessProfileSummary {
+  can_view_all_companies?: boolean;
+  can_manage_products?: boolean;
+  can_manage_clients?: boolean;
+  can_manage_sales?: boolean;
+  can_manage_purchases?: boolean;
+  can_manage_finance?: boolean;
+  can_create_sales_records?: boolean;
+  can_edit_sales_records?: boolean;
+  can_delete_sales_records?: boolean;
+  roles?: string[];
+  role_codes?: string[];
+}
+
+export interface UserSessionProfile {
+  id: number | string;
+  username: string;
+  email?: string;
+  name: string;
+  is_active: boolean;
+  role?: string;
+  roles?: string[];
+  vendor_code?: string;
+  vendor_name?: string;
+  seller_id?: string;
+  seller_name?: string;
+  vendedor_codigo?: string;
+  vendedor_nome?: string;
+  loja_codigo: string;
+  loja_nome?: string;
+  empresa_ativa?: UserCompanySummary;
+  empresas_permitidas?: UserCompanySummary[];
+  lojas_permitidas?: UserStoreSummary[];
+  access_profile?: UserAccessProfileSummary;
+  permissions: UserPermissions;
+  can_view_products?: boolean;
+  can_view_clients?: boolean;
+  can_view_sales?: boolean;
+  can_create_sales?: boolean;
+  can_edit_sales?: boolean;
+  can_delete_sales?: boolean;
+  can_view_purchases?: boolean;
+  can_view_financial?: boolean;
+  can_view_all_companies?: boolean;
+}
+
 export interface PaymentPlan {
   code: string;
   description: string;

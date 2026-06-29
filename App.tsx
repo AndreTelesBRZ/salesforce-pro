@@ -13,7 +13,7 @@ import { ReportsPage } from './components/ReportsPage';
 import { DraftsPage } from './src/pages/DraftsPage';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
-import { Product, CartItem, ThemeMode, Customer } from './types';
+import { Product, CartItem, ThemeMode, Customer, UserSessionProfile } from './types';
 import { EnumProvider } from './contexts/EnumContext';
 import { OrderDraft } from './src/types/orderDraft';
 import { APP_VERSION_INFO } from './src/version';
@@ -54,8 +54,35 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [currentUser, setCurrentUser] = useState('');
   const [sellerCode, setSellerCode] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<UserSessionProfile | null>(null);
   const [storeInfo, setStoreInfo] = useState<any | undefined>(undefined);
   const [salesHistoryCustomer, setSalesHistoryCustomer] = useState<Customer | null>(null);
+
+  const canAccessView = (view: View, profile: UserSessionProfile | null): boolean => {
+    if (!profile) return view === 'dashboard' || view === 'settings';
+    const perms = profile.permissions;
+    switch (view) {
+      case 'dashboard':
+      case 'settings':
+        return true;
+      case 'products':
+        return perms.can_view_products;
+      case 'customers':
+        return perms.can_view_clients;
+      case 'cart':
+        return perms.can_view_sales && perms.can_create_sales;
+      case 'sales-history':
+      case 'orders':
+      case 'send':
+      case 'drafts':
+      case 'reports':
+        return perms.can_view_sales;
+      case 'sync':
+        return perms.can_view_products || perms.can_view_clients;
+      default:
+        return false;
+    }
+  };
 
   // Inicialização do App
   useEffect(() => {
@@ -68,6 +95,8 @@ export default function App() {
       
       setIsAuthenticated(validSession);
       if (validSession) {
+          const profile = apiService.getCurrentUserProfile();
+          setUserProfile(profile);
           // Garante que a UI receba o nome atualizado, mesmo se vier do cache local inicial
           const resolvedName = await apiService.resolveDisplayName();
           setCurrentUser(resolvedName);
@@ -77,6 +106,7 @@ export default function App() {
           // se a conexão estiver disponível
           apiService.fetchProfile().then(profile => {
               if (profile) {
+                setUserProfile(profile);
                 setCurrentUser(profile.name);
                 if (profile.seller_id) setSellerCode(profile.seller_id);
               }
@@ -192,13 +222,21 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = apiService.onSessionExpired(() => {
       setIsAuthenticated(false);
+      setUserProfile(null);
       setCurrentView('dashboard');
     });
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (!canAccessView(currentView, userProfile)) {
+      setCurrentView('dashboard');
+    }
+  }, [currentView, userProfile]);
+
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
+    setUserProfile(apiService.getCurrentUserProfile());
     setCurrentUser(apiService.getUsername());
     apiService.resolveDisplayName().then((name) => {
       setCurrentUser(name);
@@ -212,9 +250,12 @@ export default function App() {
   const handleLogout = () => {
     apiService.logout();
     setIsAuthenticated(false);
+    setUserProfile(null);
     setCurrentView('dashboard');
     setStoreInfo(undefined);
   };
+
+  const visibleNavMenuItems = navMenuItems.filter((item) => canAccessView(item.view, userProfile));
 
   const refreshStoreInfo = async () => {
     try {
@@ -435,18 +476,22 @@ export default function App() {
       <main className="flex-1 overflow-y-auto w-full">
         <div className="max-w-6xl mx-auto w-full min-h-full">
           {currentView === 'dashboard' && (
-            <Dashboard onNavigate={(v) => setCurrentView(v as View)} cartCount={cart.reduce((a, b) => a + b.quantity, 0)} />
+            <Dashboard
+              onNavigate={(v) => setCurrentView(v as View)}
+              cartCount={cart.reduce((a, b) => a + b.quantity, 0)}
+              permissions={userProfile?.permissions || null}
+            />
           )}
-          {currentView === 'products' && (
+          {currentView === 'products' && canAccessView('products', userProfile) && (
             <ProductList onAddToCart={addToCart} onRemoveFromCart={removeFromCart} onToggleCart={toggleCartProduct} cart={cart} />
           )}
-          {currentView === 'reports' && (
+          {currentView === 'reports' && canAccessView('reports', userProfile) && (
             <ReportsPage storeInfo={storeInfo} />
           )}
-          {currentView === 'sales-history' && (
+          {currentView === 'sales-history' && canAccessView('sales-history', userProfile) && (
             <SalesHistoryPage initialCustomer={salesHistoryCustomer} onNavigate={() => setCurrentView('cart')} />
           )}
-          {currentView === 'cart' && (
+          {currentView === 'cart' && canAccessView('cart', userProfile) && (
             <Cart 
               cart={cart} 
               onUpdateQuantity={updateQuantity} 
@@ -468,14 +513,14 @@ export default function App() {
             />
           )}
           {/* Unificando a visão de Pedidos e Envio Pendente no Histórico */}
-          {(currentView === 'orders' || currentView === 'send') && (
+          {(currentView === 'orders' || currentView === 'send') && canAccessView(currentView, userProfile) && (
             <OrderHistory 
                 onNavigate={(v) => setCurrentView(v as View)} 
                 initialTab={currentView === 'send' ? 'pending' : 'all'}
                 storeInfo={storeInfo}
             />
           )}
-          {currentView === 'drafts' && (
+          {currentView === 'drafts' && canAccessView('drafts', userProfile) && (
             <DraftsPage
               onNavigate={(v) => setCurrentView(v as View)}
               onEditDraft={(draft) => {
@@ -486,7 +531,7 @@ export default function App() {
               }}
             />
           )}
-          {currentView === 'customers' && (
+          {currentView === 'customers' && canAccessView('customers', userProfile) && (
             <CustomerList
               onOpenSalesHistory={(customer) => {
                 setSalesHistoryCustomer(customer);
@@ -501,7 +546,7 @@ export default function App() {
                 onThemeChange={setTheme} 
             />
           )}
-          {currentView === 'sync' && (
+          {currentView === 'sync' && canAccessView('sync', userProfile) && (
              <SyncData onBack={() => setCurrentView('dashboard')} />
           )}
         </div>
@@ -535,7 +580,7 @@ export default function App() {
               </button>
             </div>
             <div className="mt-6 space-y-2">
-              {navMenuItems.map((item) => {
+              {visibleNavMenuItems.map((item) => {
                 const active = item.view === currentView;
                 return (
                   <button

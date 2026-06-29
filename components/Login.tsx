@@ -177,7 +177,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
               </button>
           </div>
 
-          {(isRegistering || loginMode !== 'password') && (
+          {isRegistering && (
              <button 
                onClick={() => {
                    setIsRegistering(false);
@@ -198,7 +198,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
           <p className="text-white/80 mt-2 text-sm font-medium">
               {hasDeviceToken ? 'Conexão Técnica Validada' : 
                isRegistering ? 'Crie sua conta profissional' : 
-               loginMode !== 'password' ? 'Acesso via Código Seguro' :
                'Sistema Integrado de Força de Vendas'}
           </p>
         </div>
@@ -330,7 +329,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Senha</label>
                          <button 
                             type="button" 
-                            onClick={() => setLoginMode('code_request')}
+                            onClick={() => setError('Login por código não está disponível neste ambiente. Use o ERP oficial para recuperar a senha.')}
                             className="text-xs text-purple-600 hover:text-purple-800 font-semibold"
                          >
                             Esqueci a senha
@@ -347,59 +346,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                             onChange={(e) => setPassword(e.target.value)}
                             className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white"
                             placeholder="********"
-                        />
-                    </div>
-                  </div>
-              </form>
-          )}
-
-          {/* MODO LOGIN CÓDIGO (SOLICITAR) */}
-          {!isRegistering && loginMode === 'code_request' && (
-              <form onSubmit={handleSendCode} className="space-y-5 animate-in fade-in slide-in-from-right-4">
-                  <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg border border-purple-100 dark:border-purple-800 text-sm text-purple-800 dark:text-purple-200 mb-4">
-                      Digite seu e-mail abaixo. Enviaremos um código de acesso de 6 dígitos para você entrar sem senha.
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 ml-1">Seu E-mail Cadastrado</label>
-                    <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <Mail className="h-5 w-5 text-slate-400 group-focus-within:text-purple-600 transition-colors" />
-                        </div>
-                        <input
-                            type="email"
-                            required
-                            value={codeEmail}
-                            onChange={(e) => setCodeEmail(e.target.value)}
-                            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-600 focus:border-purple-600 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white"
-                            placeholder="exemplo@empresa.com"
-                        />
-                    </div>
-                  </div>
-              </form>
-          )}
-
-          {/* MODO LOGIN CÓDIGO (VERIFICAR) */}
-          {!isRegistering && loginMode === 'code_verify' && (
-              <form onSubmit={handleVerifyCode} className="space-y-5 animate-in fade-in slide-in-from-right-4">
-                  <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-100 dark:border-green-800 text-sm text-green-800 dark:text-green-200 mb-4">
-                      <p className="font-bold">E-mail enviado!</p>
-                      Verifique o código enviado para <u>{codeEmail}</u>.
-                      <br/><span className="text-xs opacity-75">(Em ambiente de teste, verifique o console do servidor)</span>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 ml-1">Código de 6 Dígitos</label>
-                    <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <KeyRound className="h-5 w-5 text-slate-400 group-focus-within:text-purple-600 transition-colors" />
-                        </div>
-                        <input
-                            type="text"
-                            required
-                            maxLength={6}
-                            value={accessCode}
-                            onChange={(e) => setAccessCode(e.target.value)}
-                            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-600 focus:border-purple-600 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white tracking-widest text-lg font-mono"
-                            placeholder="123456"
                         />
                     </div>
                   </div>
@@ -439,27 +385,20 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
           <button
               onClick={
                   isRegistering ? handleRegister : 
-                  loginMode === 'code_request' ? handleSendCode :
-                  loginMode === 'code_verify' ? handleVerifyCode :
                   handleLogin
               }
               disabled={loading}
               className={`w-full flex justify-center items-center gap-2 py-4 px-4 font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed mt-4 ${
                   isRegistering ? 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-900/30' : 
-                  loginMode !== 'password' ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-purple-600/30' :
                   'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-600/30'
               }`}
           >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 
                isRegistering ? <UserPlus className="w-5 h-5" /> : 
-               loginMode === 'code_request' ? <Send className="w-5 h-5" /> :
-               loginMode === 'code_verify' ? <LogIn className="w-5 h-5" /> :
                <LogIn className="w-5 h-5" />}
               
               {loading ? 'Processando...' : 
                isRegistering ? 'Criar Minha Conta' : 
-               loginMode === 'code_request' ? 'Enviar Código' :
-               loginMode === 'code_verify' ? 'Verificar e Entrar' :
                'Entrar no Sistema'}
           </button>
             
@@ -473,14 +412,10 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                         <div className="flex-grow border-t border-slate-200 dark:border-slate-600"></div>
                     </div>
 
-                    <button 
-                        type="button"
-                        onClick={() => setLoginMode('code_request')}
-                        className="w-full py-2 bg-slate-100 dark:bg-slate-700 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors mb-2"
-                    >
+                    <div className="w-full py-2 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 rounded-lg text-xs font-bold flex items-center justify-center gap-2 mb-2">
                         <KeyRound className="w-4 h-4" />
-                        Entrar com Código de Acesso
-                    </button>
+                        Login por código indisponível neste ambiente
+                    </div>
                 </div>
            )}
 
