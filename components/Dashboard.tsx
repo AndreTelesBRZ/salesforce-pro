@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, ShoppingCart, LayoutGrid, Download, UploadCloud, Settings, ShieldCheck, Zap, FileText, Database, Award, DollarSign, AlertTriangle, ChevronRight, X, BarChart3 } from 'lucide-react';
 import { apiService, ClientSyncViewMode, ClientSyncViewResponse } from '../services/api';
 import { dbService } from '../services/db';
-import { getBackendUrlForCurrentHost, getStoreCodeForApi, isLlfixHostForCurrent } from '../services/storeHost';
+import { getStoreCodeForApi } from '../services/storeHost';
 import { Customer, DelinquencyItem, SalesHistoryFilters, SalesHistoryItem, UserPermissions } from '../types';
 import { calculateAverageTicket, AverageTicketResult, summarizeSalesHistory } from '../salesMetrics';
 import { TicketMedioCard } from '../TicketMedioCard';
@@ -22,9 +22,7 @@ const formatInputDate = (date: Date): string => {
 };
 
 const getForcedSalesHistoryStoreCode = (): string => {
-  if (isLlfixHostForCurrent()) return getStoreCodeForApi();
-  const resolvedBackend = getBackendUrlForCurrentHost() || apiService.getConfig().backendUrl || '';
-  return /apiforce.llfix.app.br/i.test(resolvedBackend) ? '000003' : '';
+  return getStoreCodeForApi();
 };
 
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount, permissions }) => {
@@ -266,7 +264,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount, per
 
   const checkDeviceLink = () => {
       const config = apiService.getConfig();
-      if (config.apiToken && config.backendUrl) {
+      if (config.apiToken && (config.backendUrl || getStoreCodeForApi())) {
           setIsLinkedDevice(true);
       }
   };

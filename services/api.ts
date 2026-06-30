@@ -13,8 +13,6 @@ const FRETE_MODALIDADE = {
   SEM_FRETE: 'sem_frete'
 } as const;
 
-const FALLBACK_BACKEND_URL = 'https://apiforce.llfix.app.br';
-
 const normalizeString = (value?: string): string => {
   return (value || '').toString().trim().toLowerCase();
 };
@@ -54,7 +52,8 @@ const isBearerLikeToken = (value?: string | null): boolean => {
   return /^Bearer\s+/i.test(raw) || isLikelyJwt(stripBearerPrefix(raw));
 };
 import { dbService } from './db';
-import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isAllowedRemoteBackendUrl, isLlfixHostForCurrent, isLocalDevHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode, resolveTenantFromHost } from './storeHost';
+import { getTenantConfig, getTenantDiagnostics } from '../src/config/tenantConfig';
+import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isAllowedRemoteBackendUrl, isLlfixHostForCurrent, isLocalDevHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -79,6 +78,8 @@ const WALK_IN_CUSTOMER: Customer = {
 };
 
 export const API_ONLY_NOTICE = 'Pedidos agora devem ser enviados via API. Abra o app/vendedor externo ou use o endpoint /api/pedidos.';
+const PUBLIC_STORE_CACHE_KEY = 'erpPublicStoreInfo';
+const TENANT_CACHE_KEY = 'erpTenantKey';
 
 export type ClientSyncViewMode = 'self' | 'all' | 'recent';
 
@@ -113,6 +114,7 @@ export interface ConnectionTestResult {
     valid?: boolean;
     message: string;
     authRejected?: boolean;
+    reason?: 'domain_unmapped' | 'token_missing' | 'backend_missing' | 'token_rejected' | 'other';
     endpointUsed?: string;
     profile?: ConnectionProfileSummary;
     store?: Record<string, any> | null;
@@ -330,9 +332,22 @@ class ApiService {
       return token && token.trim() ? token.trim() : null;
   }
 
+  private getTenantDiagnostics() {
+      return getTenantDiagnostics(typeof window !== 'undefined' ? window.location.hostname : '');
+  }
+
+  private getTenantConfigurationError(): string | null {
+      const diagnostics = this.getTenantDiagnostics();
+      return diagnostics.error || null;
+  }
+
   private resolveAppToken(): string | null {
       const envToken = this.getIntegrationTokenFromEnv();
       if (envToken) return envToken;
+      const tenant = getTenantConfig(typeof window !== 'undefined' ? window.location.hostname : '');
+      if (tenant.mapped) {
+          return null;
+      }
       const configToken = typeof this.config.apiToken === 'string' ? this.config.apiToken.trim() : '';
       return configToken || null;
   }
@@ -362,8 +377,13 @@ class ApiService {
 
   private applyIntegrationTokenFromEnv(): void {
       const envToken = this.getIntegrationTokenFromEnv();
-      if (!envToken) return;
-      this.config.apiToken = envToken;
+      const backendUrl = getBackendUrlForCurrentHost();
+      if (envToken) {
+          this.config.apiToken = envToken;
+      }
+      if (backendUrl) {
+          this.config.backendUrl = backendUrl;
+      }
   }
 
   private hasJwtToken(): boolean {
@@ -423,7 +443,6 @@ class ApiService {
   }
 
   constructor() {
-    // Configuração padrão: URL vazia significa "Usar o mesmo endereço do site" (Relativo)
     this.config = {
         backendUrl: '', 
         apiToken: '',
@@ -499,22 +518,26 @@ class ApiService {
 
   private checkTenantMismatch(): boolean {
       if (typeof window === 'undefined') return false;
-      const hostname = window.location.hostname;
-      const tenantConfig = resolveTenantFromHost(hostname);
+      const tenantDiagnostics = this.getTenantDiagnostics();
+      const tenantConfig = tenantDiagnostics.tenant;
+      const storedTenant = this.getStoredTenantCacheValue();
+      const currentTenant = this.getCurrentTenantCacheValue();
+
+      if (storedTenant && currentTenant && storedTenant !== currentTenant) {
+          return true;
+      }
       
-      if (tenantConfig.tenant) {
-          // 1. Validar loja
+      if (tenantConfig.mapped) {
           const cachedStore = localStorage.getItem('erpStoreCode');
           if (cachedStore && normalizeStoreCode(cachedStore) !== normalizeStoreCode(tenantConfig.storeCode)) {
               return true;
           }
           
-          // 2. Validar backend URL no appConfig
           const savedConfigStr = localStorage.getItem('appConfig');
           if (savedConfigStr) {
               try {
                   const parsed = JSON.parse(savedConfigStr);
-                  if (parsed.backendUrl && this.normalizeBackendUrl(parsed.backendUrl) !== this.normalizeBackendUrl(tenantConfig.apiBaseUrl)) {
+                  if (parsed.backendUrl && this.normalizeBackendUrl(parsed.backendUrl) !== this.normalizeBackendUrl(tenantConfig.backendUrl)) {
                       return true;
                   }
               } catch {
@@ -549,6 +572,7 @@ class ApiService {
 
   public async clearInvalidSessionArtifacts(options?: { preserveStoreCode?: boolean }): Promise<void> {
       this.clearUserSession({ preserveStoreCode: options?.preserveStoreCode });
+      localStorage.removeItem(PUBLIC_STORE_CACHE_KEY);
       localStorage.removeItem('user');
       localStorage.removeItem('currentUser');
       localStorage.removeItem('salesforce_user');
@@ -563,6 +587,9 @@ class ApiService {
       if (!options?.preserveStoreCode && typeof indexedDB !== 'undefined') {
           indexedDB.deleteDatabase('SalesForceDB');
       }
+      if (!options?.preserveStoreCode) {
+          localStorage.removeItem(TENANT_CACHE_KEY);
+      }
       try {
           await this.clearAllTenantIndexedDBCaches();
       } catch {}
@@ -571,6 +598,10 @@ class ApiService {
   // Inicialização
   async initializeConfig(): Promise<void> {
       try {
+          const tenantDiagnostics = this.getTenantDiagnostics();
+          if (tenantDiagnostics.error) {
+              this.addLog(tenantDiagnostics.error, 'warning');
+          }
           if (this.checkTenantMismatch()) {
               this.addLog('Incompatibilidade de tenant detectada no carregamento inicial. Limpando caches...', 'warning');
               if (typeof indexedDB !== 'undefined') {
@@ -580,21 +611,23 @@ class ApiService {
               localStorage.removeItem('username');
               localStorage.removeItem('sellerId');
               localStorage.removeItem('erpStoreCode');
+              localStorage.removeItem(PUBLIC_STORE_CACHE_KEY);
               localStorage.removeItem('appConfig');
+              localStorage.removeItem(TENANT_CACHE_KEY);
               this.token = null;
               
-              const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-              const tenantConfig = resolveTenantFromHost(hostname);
-              if (tenantConfig.tenant) {
+              const tenantConfig = tenantDiagnostics.tenant;
+              if (tenantConfig.mapped) {
                   this.config = {
-                      backendUrl: tenantConfig.apiBaseUrl,
-                      apiToken: getIntegrationTokenForCurrentHost() || '',
+                      backendUrl: tenantConfig.backendUrl,
+                      apiToken: tenantConfig.token || '',
                       useMockData: false,
                       theme: 'system'
                   };
                   localStorage.setItem('appConfig', JSON.stringify(this.config));
               }
           }
+          this.persistTenantCacheValue();
 
           await dbService.init();
           const dbConfig = await dbService.getSettings();
@@ -618,10 +651,13 @@ class ApiService {
   }
 
   async saveConfig(newConfig: AppConfig) {
+    const tenantDiagnostics = this.getTenantDiagnostics();
+    const lockedBackendUrl = tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.backendUrl : '';
+    const lockedToken = tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : '';
     const previousToken = typeof this.config.apiToken === 'string' ? this.config.apiToken.trim() : '';
-    const nextToken = typeof newConfig.apiToken === 'string' ? newConfig.apiToken.trim() : '';
+    const nextToken = lockedToken || (typeof newConfig.apiToken === 'string' ? newConfig.apiToken.trim() : '');
     const previousUrl = this.config.backendUrl || '';
-    const nextUrl = newConfig.backendUrl || '';
+    const nextUrl = lockedBackendUrl || newConfig.backendUrl || '';
     const connectionChanged =
         previousToken !== nextToken ||
         this.normalizeBackendUrl(previousUrl) !== this.normalizeBackendUrl(nextUrl);
@@ -629,6 +665,7 @@ class ApiService {
 
     this.config = {
         ...newConfig,
+        backendUrl: nextUrl,
         apiToken: nextToken,
         connectionValidated,
         validatedAt: connectionValidated ? newConfig.validatedAt : undefined,
@@ -697,30 +734,15 @@ class ApiService {
   private resolveProtectedStoreCode(): string {
       const storedCode = this.getStoredStoreCode();
       if (storedCode) return storedCode;
-      const backend = (getBackendUrlForCurrentHost() || this.config.backendUrl || '').trim();
-      if (/apiforce\.llfix\.app\.br/i.test(backend)) return '00003';
-      if (/apiforce\.edsondosparafusos\.app\.br/i.test(backend)) return '00001';
       return getStoreCodeForApi();
   }
 
   private async cachePublicStoreData(store: Record<string, any> | null | undefined): Promise<void> {
-      if (!store) return;
-      const mapped = {
-          legal_name: store.legal_name || store.razao_social || '',
-          trade_name: store.trade_name || store.nome_fantasia || store.nome || '',
-          document: store.document || store.cnpj_cpf || '',
-          state_registration: store.state_registration || store.ie_rg || '',
-          municipal_registration: store.municipal_registration || '',
-          email: store.email || '',
-          phone: store.phone || store.telefone || store.telefone1 || '',
-          street: store.street || store.logradouro || '',
-          number: store.number || store.numero || '',
-          neighborhood: store.neighborhood || store.bairro || '',
-          city: store.city || store.cidade || '',
-          state: store.state || store.estado || '',
-          zip: store.zip || store.cep || '',
-          complement: store.complement || store.complemento || '',
-      };
+      const mapped = this.persistPublicStoreData(store);
+      if (!mapped) return;
+      if (this.getTenantDiagnostics().domainMapped) {
+          return;
+      }
       await this.fetchAppLocal('/api/store/public', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -770,6 +792,50 @@ class ApiService {
 
   async refreshProtectedStoreFromERP(): Promise<void> {
       await this.ensureStoreFromERP();
+  }
+
+  async loadTenantStoreInfo(forceRefresh: boolean = false): Promise<Record<string, any> | null> {
+      const diagnostics = this.getTenantDiagnostics();
+      if (!diagnostics.domainMapped || !diagnostics.backendConfigured || !diagnostics.tokenConfigured) {
+          return null;
+      }
+
+      if (!forceRefresh) {
+          const cached = this.getCachedPublicStoreDataInternal();
+          if (cached) return cached;
+      }
+
+      const endpoint = '/api/integration/validate';
+      const targetUrl = `${diagnostics.tenant.backendUrl}${endpoint}`;
+      const response = await fetch(targetUrl, {
+          method: 'GET',
+          headers: this.getTechnicalAuthHeaders(),
+      });
+
+      if (!response.ok) {
+          let detail = `HTTP ${response.status}`;
+          try {
+              const payload = await response.clone().json();
+              detail = payload?.message || payload?.detail || detail;
+          } catch {}
+          throw new Error(detail);
+      }
+
+      const jsonCheck = await this.ensureJsonResponse(response, endpoint);
+      if (!jsonCheck.ok) {
+          throw new Error(jsonCheck.message || 'Resposta inválida da API.');
+      }
+
+      const payload = await response.json();
+      const normalized = this.persistPublicStoreData(payload);
+      if (!normalized) {
+          throw new Error('A validação técnica não retornou dados válidos da loja.');
+      }
+      const storeCheck = this.validateStoreCodeForCurrentHost(normalized.store_code || normalized.codigo || null);
+      if (!storeCheck.success) {
+          throw new Error(storeCheck.message || 'Loja inválida para o domínio atual.');
+      }
+      return normalized;
   }
 
   async validateSession(): Promise<boolean> {
@@ -908,27 +974,15 @@ class ApiService {
   }
 
   private getBaseUrl(): string {
-      const hostBackend = getBackendUrlForCurrentHost();
-      if (hostBackend) return this.normalizeBackendUrl(hostBackend);
-      
-      let configUrl = this.config.backendUrl && this.config.backendUrl.trim() !== '' 
-          ? this.normalizeBackendUrl(this.config.backendUrl) 
+      const tenantDiagnostics = this.getTenantDiagnostics();
+      if (tenantDiagnostics.tenant.mapped && tenantDiagnostics.tenant.backendUrl) {
+          return this.normalizeBackendUrl(tenantDiagnostics.tenant.backendUrl);
+      }
+
+      const configUrl = this.config.backendUrl && this.config.backendUrl.trim() !== ''
+          ? this.normalizeBackendUrl(this.config.backendUrl)
           : '';
-          
-      if (typeof window !== 'undefined') {
-          const host = window.location.hostname;
-          if (host.includes('edsondosparafusos.app.br') || host.includes('edson')) {
-              return 'https://apiforce.edsondosparafusos.app.br';
-          }
-          if (host.includes('llfix.app.br') || host.includes('llfix')) {
-              return 'https://apiforce.llfix.app.br';
-          }
-      }
-      
-      if (configUrl) {
-          return configUrl;
-      }
-      return this.normalizeBackendUrl(FALLBACK_BACKEND_URL);
+      return configUrl;
   }
 
   private isLocalDevOrigin(): boolean {
@@ -942,6 +996,27 @@ class ApiService {
         ? this.normalizeBackendUrl(url)
         : this.getBaseUrl();
       return candidate;
+  }
+
+  private getCurrentTenantCacheValue(): string {
+      const tenant = getTenantConfig(typeof window !== 'undefined' ? window.location.hostname : '');
+      if (!tenant.mapped) return '';
+      return `${tenant.tenant}:${tenant.hostname}:${tenant.storeCode}:${tenant.backendUrl}`;
+  }
+
+  private getStoredTenantCacheValue(): string {
+      if (typeof localStorage === 'undefined') return '';
+      return localStorage.getItem(TENANT_CACHE_KEY) || '';
+  }
+
+  private persistTenantCacheValue(): void {
+      if (typeof localStorage === 'undefined') return;
+      const value = this.getCurrentTenantCacheValue();
+      if (value) {
+          localStorage.setItem(TENANT_CACHE_KEY, value);
+          return;
+      }
+      localStorage.removeItem(TENANT_CACHE_KEY);
   }
 
   private isRemoteBackendAllowed(url: string): boolean {
@@ -978,9 +1053,7 @@ class ApiService {
   }
 
   private shouldUseLlfixCustomerSyncEndpoint(): boolean {
-      if (isLlfixHostForCurrent()) return true;
-      const backend = (getBackendUrlForCurrentHost() || this.config.backendUrl || '').trim();
-      return /apiforce\.llfix\.app\.br/i.test(backend);
+      return isLlfixHostForCurrent();
   }
 
   private buildClientSyncEndpoint(mode: ClientSyncViewMode): string {
@@ -1091,6 +1164,88 @@ class ApiService {
       return headers;
   }
 
+  private normalizeStoreInfo(payload: any): Record<string, any> | null {
+      const source = payload?.store || payload?.loja || payload || {};
+      if (!source || typeof source !== 'object') return null;
+
+      const normalized = {
+          codigo: String(
+              source.codigo ||
+              source.store_code ||
+              source.loja_codigo ||
+              payload?.store_code ||
+              payload?.loja_codigo ||
+              ''
+          ).trim(),
+          store_code: String(
+              source.store_code ||
+              source.codigo ||
+              source.loja_codigo ||
+              payload?.store_code ||
+              payload?.loja_codigo ||
+              ''
+          ).trim(),
+          legal_name: String(source.legal_name || payload?.legal_name || source.razao_social || '').trim(),
+          trade_name: String(source.trade_name || payload?.trade_name || source.nome_fantasia || source.nome || '').trim(),
+          document: String(source.document || payload?.document || source.cnpj_cpf || source.cnpj || '').trim(),
+          email: String(source.email || payload?.email || '').trim(),
+          phone: String(source.phone || payload?.phone || source.telefone || source.telefone1 || '').trim(),
+          street: String(source.street || source.logradouro || '').trim(),
+          number: String(source.number || source.numero || '').trim(),
+          neighborhood: String(source.neighborhood || source.bairro || '').trim(),
+          city: String(source.city || source.cidade || '').trim(),
+          state: String(source.state || source.estado || '').trim(),
+          zip: String(source.zip || source.cep || '').trim(),
+          complement: String(source.complement || source.complemento || '').trim(),
+          address: String(source.address || payload?.address || '').trim(),
+          logo_url: String(source.logo_url || source.logo || '').trim(),
+      };
+
+      if (!normalized.address) {
+          normalized.address = [
+              normalized.street,
+              normalized.number,
+              normalized.neighborhood,
+              normalized.city,
+              normalized.state,
+              normalized.zip,
+          ].filter(Boolean).join(', ');
+      }
+
+      if (!normalized.codigo && !normalized.store_code && !normalized.trade_name && !normalized.legal_name) {
+          return null;
+      }
+
+      return normalized;
+  }
+
+  private getCachedPublicStoreDataInternal(): Record<string, any> | null {
+      if (typeof localStorage === 'undefined') return null;
+      try {
+          const raw = localStorage.getItem(PUBLIC_STORE_CACHE_KEY);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch {
+          return null;
+      }
+  }
+
+  public getCachedPublicStoreData(): Record<string, any> | null {
+      return this.getCachedPublicStoreDataInternal();
+  }
+
+  private persistPublicStoreData(store: Record<string, any> | null | undefined): Record<string, any> | null {
+      const normalized = this.normalizeStoreInfo(store);
+      if (!normalized) return null;
+      if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(PUBLIC_STORE_CACHE_KEY, JSON.stringify(normalized));
+      }
+      this.persistStoreCode(normalized.store_code || normalized.codigo || '');
+      this.persistTenantCacheValue();
+      return normalized;
+  }
+
   private extractConnectionProfile(data: any): ConnectionProfileSummary {
       const profile = data?.user || data || {};
       const username = String(
@@ -1171,7 +1326,7 @@ class ApiService {
       }
       const baseUrl = this.getBaseUrl();
       if (!baseUrl) {
-          throw new Error('Backend não configurado. Defina VITE_BACKEND_URL.');
+          throw new Error(this.getTenantConfigurationError() || 'Backend não configurado para o tenant atual.');
       }
       const targetUrl = `${baseUrl}${cleanEndpoint}`;
       const resolvedHeaders = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
@@ -1274,7 +1429,26 @@ class ApiService {
       });
   }
 
+  private async postTechnicalAuthEndpoint(endpoint: string, payload: Record<string, any>): Promise<Response> {
+      const diagnostics = this.getTenantDiagnostics();
+      if (!diagnostics.domainMapped || !diagnostics.backendConfigured) {
+          throw new Error(diagnostics.error || 'Domínio do tenant não configurado.');
+      }
+      const baseUrl = this.resolveConfiguredRemoteBackend(diagnostics.tenant.backendUrl);
+      if (!baseUrl) {
+          throw new Error('Backend do tenant não configurado.');
+      }
+      return fetch(`${baseUrl}${endpoint}`, {
+          method: 'POST',
+          headers: this.getTechnicalAuthHeaders(),
+          body: JSON.stringify(payload)
+      });
+  }
+
   private async fetchStoreSupportEndpoint(endpoint: '/api/lojas' | '/api/meta/enums'): Promise<Response> {
+      if (this.getTenantDiagnostics().domainMapped) {
+          return this.fetchWithAuth(endpoint);
+      }
       try {
           const response = await this.fetchAppLocal(endpoint, { method: 'GET' });
           const contentType = response.headers.get('content-type') || '';
@@ -1309,7 +1483,7 @@ class ApiService {
   private mapNetworkError(error: any): string {
       const msg = error.message || '';
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-          return 'Falha na conexão. Verifique se o servidor (server.js) está rodando.';
+          return 'Falha na conexão com o backend do ERP.';
       }
       if (msg.includes('Timeout')) {
           return 'Tempo esgotado. O servidor demorou para responder.';
@@ -1369,10 +1543,10 @@ class ApiService {
 
   async login(username: string, password: string): Promise<{ success: boolean; message?: string }> {
     const payload = { username, password };
-    const endpoint = '/api/login';
+    const endpoint = '/auth/login';
 
     try {
-      const response = await this.postAuthEndpoint(endpoint, payload);
+      const response = await this.postTechnicalAuthEndpoint(endpoint, payload);
 
       const data = await response.json();
 
@@ -1403,11 +1577,23 @@ class ApiService {
           }
 
           if (accessToken) {
+              await this.clearInvalidSessionArtifacts({ preserveStoreCode: true });
               this.token = accessToken;
-              this.addLog(`Login Sucesso: ${displayName} [${sellerId}]`, 'success');
-              
               localStorage.setItem('authToken', this.token);
-              const profile = await this.fetchProfile();
+              this.applyIdentityFromToken(this.token);
+              if (displayName) {
+                  localStorage.setItem('username', displayName);
+              }
+              if (sellerId) {
+                  this.persistSellerId(sellerId);
+              }
+              const loginProfile = this.normalizeUserProfile(data.user || null);
+              if (loginProfile) {
+                  this.setStoredUserProfile(loginProfile);
+              }
+              this.persistTenantCacheValue();
+              this.addLog(`Login Sucesso: ${displayName || username} [${sellerId || 'sem vendedor'}]`, 'success');
+              const profile = loginProfile || await this.fetchProfile();
               if (!profile) {
                   this.logout();
                   return { success: false, message: 'O ERP não retornou um perfil válido para este usuário.' };
@@ -1561,26 +1747,43 @@ class ApiService {
 
   async testConnection(url: string = ''): Promise<ConnectionTestResult> {
       const endpoint = '/api/integration/validate';
+      const diagnostics = this.getTenantDiagnostics();
+      if (!diagnostics.domainMapped) {
+          const message = diagnostics.error || 'Domínio não configurado.';
+          this.addLog(message, 'error');
+          return { success: false, valid: false, message, reason: 'domain_unmapped' };
+      }
+      if (!diagnostics.tokenConfigured) {
+          const message = diagnostics.error || 'Token de integração não configurado.';
+          this.addLog(message, 'error');
+          return { success: false, valid: false, message, reason: 'token_missing' };
+      }
+      if (!diagnostics.backendConfigured) {
+          const message = diagnostics.error || 'Backend multi-tenant não configurado.';
+          this.addLog(message, 'error');
+          return { success: false, valid: false, message, reason: 'backend_missing' };
+      }
       const targetUrl = this.resolveConfiguredRemoteBackend(url);
 
       if (!targetUrl) {
-          return { success: false, valid: false, message: 'Configuração de loja inválida.' };
+          return { success: false, valid: false, message: diagnostics.error || 'Configuração de loja inválida.', reason: 'other' };
       }
       if (!this.isRemoteBackendAllowed(targetUrl)) {
-          return { success: false, valid: false, message: 'Configuração de loja inválida.' };
+          return { success: false, valid: false, message: 'Backend configurado fora da lista permitida para o tenant atual.', reason: 'other' };
       }
 
       try {
-          const connectionUrl = this.isLocalDevOrigin()
-            ? `${this.getLocalAppBaseUrl()}${endpoint}`
-            : `${targetUrl}${endpoint}`;
+          const connectionUrl = `${targetUrl}${endpoint}`;
+          const technicalHeaders = { ...this.getTechnicalAuthHeaders() };
+          this.addLog(
+              `Tenant resolvido: ${diagnostics.tenant.label} (${diagnostics.tenant.storeCode}) host=${diagnostics.tenant.hostname} token=${this.maskToken(diagnostics.tenant.token)}`,
+              'info'
+          );
           this.addLog(`Validando conexão técnica: ${connectionUrl}`, 'info');
-          const remoteResponse = this.isLocalDevOrigin()
-            ? await this.fetchAppLocal(endpoint, { method: 'GET', headers: { ...this.getTechnicalAuthHeaders() } })
-            : await fetch(connectionUrl, {
-                method: 'GET',
-                headers: { ...this.getTechnicalAuthHeaders() }
-              });
+          const remoteResponse = await fetch(connectionUrl, {
+              method: 'GET',
+              headers: technicalHeaders
+          });
 
           if (remoteResponse.ok) {
               const jsonCheck = await this.ensureJsonResponse(remoteResponse, 'Validação de conexão');
@@ -1617,7 +1820,7 @@ class ApiService {
               return {
                   success: true,
                   valid: true,
-                  message: this.isLocalDevOrigin() ? 'Validação feita via servidor local.' : 'Conexão validada com sucesso.',
+                  message: 'Conexão validada com sucesso.',
                   endpointUsed: endpoint,
                   profile,
                   store,
@@ -1631,13 +1834,14 @@ class ApiService {
               detail = payload?.message || payload?.detail?.message || payload?.detail || detail;
           } catch {}
           if (remoteResponse.status === 403 && /token/i.test(detail)) {
-              detail = 'Token de integração inválido';
+              detail = `Token de integração mapeado para ${diagnostics.tenant.label} rejeitado pelo backend.`;
           }
           return {
               success: false,
               valid: false,
               message: detail,
               authRejected: remoteResponse.status === 401 || remoteResponse.status === 403,
+              reason: remoteResponse.status === 401 || remoteResponse.status === 403 ? 'token_rejected' : 'other',
               endpointUsed: endpoint,
               status: remoteResponse.status,
           };
@@ -1654,7 +1858,7 @@ class ApiService {
               friendlyDetail = 'API do ERP indisponível';
           }
           this.addLog(`Teste de conexão falhou: ${friendlyDetail}`, 'error');
-          return { success: false, valid: false, message: `Sem conexão. ${friendlyDetail}` };
+          return { success: false, valid: false, message: `Sem conexão. ${friendlyDetail}`, reason: 'other' };
       }
   }
 

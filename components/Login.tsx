@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/api';
 import { getBackendUrlForCurrentHost } from '../services/storeHost';
+import { getTenantDiagnostics } from '../src/config/tenantConfig';
 import { Lock, User, LogIn, Settings as SettingsIcon, Loader2, Store, AlertCircle, Mail, UserPlus, ArrowLeft, Terminal, RefreshCw, Globe, Power, KeyRound, Send, Zap } from 'lucide-react';
 import { APP_VERSION_LABEL } from '../src/version';
 
@@ -41,6 +42,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
   
   // Lê ID da configuração
   const config = apiService.getConfig();
+  const tenantDiagnostics = getTenantDiagnostics(typeof window !== 'undefined' ? window.location.hostname : '');
 
   useEffect(() => {
     if (config.connectionValidated && config.apiToken && (config.backendUrl || getBackendUrlForCurrentHost())) {
@@ -210,9 +212,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
               <p className="mt-2 text-sm font-semibold text-slate-800 dark:text-white">
                 {storeInfo.trade_name || storeInfo.legal_name || 'Loja vinculada'}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {storeInfo.document || 'Documento não informado'}
-              </p>
+              <p className="mt-1 text-xs text-slate-500">{storeInfo.legal_name || 'Razão social não informada'}</p>
+              {storeInfo.document ? <p className="mt-1 text-xs text-slate-500">CNPJ: {storeInfo.document}</p> : null}
+              {storeInfo.address ? <p className="mt-1 text-xs text-slate-500">{storeInfo.address}</p> : null}
+              {(storeInfo.store_code || storeInfo.codigo) ? (
+                <p className="mt-1 text-xs text-slate-500">Loja: {storeInfo.store_code || storeInfo.codigo}</p>
+              ) : null}
             </div>
           )}
 
@@ -295,7 +300,16 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                       </span>
                   </div>
 
-                  {!apiService.getConfig().backendUrl && (
+                  {!tenantDiagnostics.domainMapped && (
+                        <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-800 mb-2 flex gap-3 items-center">
+                            <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                            <div className="text-xs text-red-700 dark:text-red-200">
+                                {tenantDiagnostics.error}
+                            </div>
+                        </div>
+                  )}
+
+                  {tenantDiagnostics.domainMapped && !apiService.getConfig().backendUrl && (
                         <div className="bg-slate-100 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-600 mb-2 flex gap-3 items-center">
                             <Terminal className="w-5 h-5 text-slate-500 shrink-0" />
                             <div className="text-xs text-slate-600 dark:text-slate-300 font-mono">

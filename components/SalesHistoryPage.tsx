@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiService } from '../services/api';
-import { getBackendUrlForCurrentHost, getStoreCodeForApi, isLlfixHostForCurrent } from '../services/storeHost';
+import { getStoreCodeForApi } from '../services/storeHost';
 import { Customer, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportRow, SalesHistoryResponse } from '../types';
 import { OrderDraft } from '../src/types/orderDraft';
 import { AlertCircle, BarChart3, Briefcase, Calendar, ChevronDown, ChevronUp, ClipboardList, Copy, FileText, Filter, Loader2, RefreshCcw, Search, Store, Users } from 'lucide-react';
@@ -33,9 +33,7 @@ const formatInputDate = (date: Date): string => {
 };
 
 const getForcedSalesHistoryStoreCode = (): string => {
-  if (isLlfixHostForCurrent()) return getStoreCodeForApi();
-  const resolvedBackend = getBackendUrlForCurrentHost() || apiService.getConfig().backendUrl || '';
-  return /apiforce.llfix.app.br/i.test(resolvedBackend) ? '000003' : '';
+  return getStoreCodeForApi();
 };
 
 const getDefaultFilters = (): SalesHistoryFilters => {

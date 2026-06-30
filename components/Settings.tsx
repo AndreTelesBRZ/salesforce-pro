@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiService, ConnectionProfileSummary, LogEntry } from '../services/api';
-import { getBackendUrlForCurrentHost, isBackendUrlLockedForCurrent, isEdsonHostForCurrent, isLlfixHostForCurrent, isLocalDevHostForCurrent } from '../services/storeHost';
+import { getBackendUrlForCurrentHost, isBackendUrlLockedForCurrent, isLocalDevHostForCurrent } from '../services/storeHost';
+import { getTenantDiagnostics } from '../src/config/tenantConfig';
 import { AppConfig, ThemeMode } from '../types';
 import { Save, Server, Wifi, CheckCircle2, XCircle, Loader2, LogOut, Sun, Moon, Monitor, Key, Database, Code, Info, Lock, Terminal, Trash2, RefreshCcw, Power, Globe, User, Briefcase, Building } from 'lucide-react';
 import { APP_VERSION_INFO } from '../src/version';
@@ -14,8 +15,6 @@ interface SettingsProps {
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
 
-const LLFIX_FORCED_BACKEND_URL = 'https://apiforce.llfix.app.br';
-
 export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeChange }) => {
   const [config, setConfig] = useState<AppConfig>(apiService.getConfig());
   const [message, setMessage] = useState('');
@@ -26,45 +25,47 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const [showLogs, setShowLogs] = useState(false);
   const [connectionProfile, setConnectionProfile] = useState<ConnectionProfileSummary | null>(null);
   const [validationEndpoint, setValidationEndpoint] = useState('');
+  const tenantDiagnostics = getTenantDiagnostics(typeof window !== 'undefined' ? window.location.hostname : '');
   const backendUrlLocked = isBackendUrlLockedForCurrent();
   const lockedBackendUrl = getBackendUrlForCurrentHost();
   const resolvedBackendUrl = backendUrlLocked ? lockedBackendUrl : config.backendUrl;
-  const isLlfixHost = isLlfixHostForCurrent();
-  const isEdsonHost = isEdsonHostForCurrent();
   const isLocalDev = isLocalDevHostForCurrent();
-  const showForceLLFix = isLlfixHost && !isEdsonHost;
   const [storeInfo, setStoreInfo] = useState<any | null>(null);
   const detectedStoreLabel = connectionProfile?.lojaCodigo || storeInfo?.store_code || storeInfo?.codigo || '';
+  const domainMapped = tenantDiagnostics.domainMapped;
+  const tenantLabel = tenantDiagnostics.tenant.mapped ? `${tenantDiagnostics.tenant.label} (${tenantDiagnostics.tenant.storeCode})` : 'Não configurado';
 
   // Auto-teste
   useEffect(() => {
     refreshLogs();
     const delay = setTimeout(() => {
-        if (config.apiToken && resolvedBackendUrl && !config.useMockData) {
+        if (domainMapped && config.apiToken && resolvedBackendUrl && !config.useMockData) {
            handleTestConnection();
         }
     }, 1500);
     return () => clearTimeout(delay);
-  }, [config.apiToken, config.useMockData, resolvedBackendUrl]);
+  }, [config.apiToken, config.useMockData, resolvedBackendUrl, domainMapped]);
 
   useEffect(() => {
     let active = true;
     (async () => {
+      if (!domainMapped) {
+        setStoreInfo(null);
+        return;
+      }
       try {
         await apiService.refreshProtectedStoreFromERP();
-        const res = await apiService.fetchAppLocal('/api/store/public');
+        const data = await apiService.loadTenantStoreInfo(true);
         if (!active) return;
-        if (res.ok) {
-          setStoreInfo(await res.json());
-          return;
-        }
+        setStoreInfo(data);
+        return;
       } catch {
         // noop
       }
       setStoreInfo(null);
     })();
     return () => { active = false; };
-  }, [resolvedBackendUrl]);
+  }, [resolvedBackendUrl, domainMapped]);
 
   // Carrega dados da loja ao abrir
   const refreshLogs = () => {
@@ -77,8 +78,13 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   };
 
   const handleSave = async () => {
+    if (!domainMapped) {
+      setTestStatus('error');
+      setTestErrorMsg(tenantDiagnostics.error || 'Domínio não configurado.');
+      return;
+    }
     const configToSave = backendUrlLocked
-      ? { ...config, backendUrl: lockedBackendUrl }
+      ? { ...config, backendUrl: lockedBackendUrl, apiToken: tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken }
       : config;
 
     setTestStatus('testing');
@@ -124,6 +130,12 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   };
 
   const handleTestConnection = async () => {
+    if (!domainMapped) {
+        setTestStatus('error');
+        setTestErrorMsg(tenantDiagnostics.error || 'Domínio não configurado.');
+        refreshLogs();
+        return;
+    }
     if (config.useMockData) {
         setTestStatus('success');
         return;
@@ -133,7 +145,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     setConnectionProfile(null);
     
     const configToTest = backendUrlLocked
-      ? { ...config, backendUrl: lockedBackendUrl }
+      ? { ...config, backendUrl: lockedBackendUrl, apiToken: tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken }
       : config;
     
     const result = await apiService.testConnection(configToTest.backendUrl);
@@ -177,7 +189,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
               type="text"
               value={resolvedBackendUrl}
               onChange={(e) => setConfig({ ...config, backendUrl: e.target.value })}
-              disabled={config.useMockData || backendUrlLocked}
+              disabled={true}
               placeholder={backendUrlLocked ? lockedBackendUrl : "https://apiforce.edsondosparafusos.app.br"}
               className="flex-1 p-3 border rounded-md dark:bg-slate-900 dark:text-white dark:border-slate-700"
             />
@@ -191,27 +203,13 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                  testStatus === 'error' ? <XCircle className="w-5 h-5 text-red-500" /> :
                  <Wifi className="w-5 h-5" />}
             </button>
-            {showForceLLFix && (
-              <button
-                type="button"
-                disabled={config.useMockData || backendUrlLocked || resolvedBackendUrl === LLFIX_FORCED_BACKEND_URL}
-                onClick={() => {
-                  setConfig(prev => ({ ...prev, backendUrl: LLFIX_FORCED_BACKEND_URL }));
-                }}
-                className="px-3 border rounded-md text-sm font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-600 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50"
-              >
-                Usar apiforce.llfix.app.br
-              </button>
-            )}
           </div>
-          {showForceLLFix && (
-            <p className="text-[10px] text-slate-500 mt-2">
-              Força comunicação direta com o ERP LLFIX mesmo fora do domínio oficial.
-            </p>
-          )}
+          <p className="text-[10px] text-slate-500 mt-2">
+            O backend, a loja e o token técnico são resolvidos automaticamente pelo domínio ativo.
+          </p>
           {isLocalDev && (
             <p className="text-[10px] text-slate-500 mt-2">
-              Em modo local/dev, esta URL é usada apenas para selecionar o tenant. A validação é feita via servidor local.
+              Em modo local/dev o domínio continua precisando estar mapeado para uma loja válida.
             </p>
           )}
         </div>
@@ -224,9 +222,9 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
              <div className="relative">
                  <input
                    type={showToken ? "text" : "password"}
-                   value={config.apiToken}
-                   onChange={(e) => setConfig({ ...config, apiToken: e.target.value })}
-                   disabled={config.useMockData}
+                   value={tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken}
+                   readOnly
+                   disabled
                    className="w-full p-3 pr-10 border rounded-md dark:bg-slate-900 dark:text-white dark:border-slate-700"
                  />
                  <button 
@@ -238,11 +236,31 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                  </button>
              </div>
              <p className="text-[10px] text-slate-500 mt-2">
-                O token de integração é usado apenas para validar a conexão técnica com a loja. Ele não cria sessão de usuário.
+                O token é resolvido automaticamente pelo domínio. Não há edição manual quando a loja é definida pelo hostname.
              </p>
         </div>
 
+        <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-md border dark:border-slate-700">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+            <Globe className="w-4 h-4 text-blue-600" />
+            Tenant por domínio
+          </div>
+          <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
+            <p>Host atual: <span className="font-medium">{typeof window !== 'undefined' ? window.location.hostname : 'N/A'}</span></p>
+            <p>Loja resolvida: <span className="font-medium">{tenantLabel}</span></p>
+            {tenantDiagnostics.tenant.mapped && (
+              <p>Variável usada: <span className="font-medium">{tenantDiagnostics.tenant.tokenEnvVar}</span></p>
+            )}
+          </div>
+        </div>
+
         {/* Status */}
+        {!domainMapped && (
+            <div className="text-xs bg-amber-50 text-amber-700 p-3 rounded border border-amber-100 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200">
+                <strong>Domínio não configurado:</strong> {tenantDiagnostics.error}
+            </div>
+        )}
+
         {testStatus === 'error' && (
             <div className="text-xs bg-red-50 text-red-600 p-3 rounded border border-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
                 <strong>Erro:</strong> {testErrorMsg}
@@ -316,7 +334,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             </div>
           ) : (
             <p className="text-xs text-slate-500">
-              Os dados da loja são carregados automaticamente da API do ERP e podem ser conferidos em /api/store/public.
+              Os dados da loja são carregados automaticamente pela validação técnica em `/api/integration/validate`.
             </p>
           )}
         </div>
@@ -325,7 +343,8 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
 
         <button
           onClick={handleSave}
-          className="w-full flex justify-center items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 rounded-md shadow-lg"
+          disabled={!domainMapped}
+          className="w-full flex justify-center items-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold py-3 rounded-md shadow-lg"
         >
           <Save className="w-5 h-5" /> Salvar Conexão
         </button>

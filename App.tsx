@@ -17,6 +17,7 @@ import { Product, CartItem, ThemeMode, Customer, UserSessionProfile } from './ty
 import { EnumProvider } from './contexts/EnumContext';
 import { OrderDraft } from './src/types/orderDraft';
 import { APP_VERSION_INFO } from './src/version';
+import { getTenantConfig } from './src/config/tenantConfig';
 import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList, BarChart3 } from 'lucide-react';
 
 type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
@@ -36,10 +37,8 @@ const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ cla
 ];
 
 const resolveProtectedStoreLabel = (): string => {
-  const backend = (apiService.getConfig().backendUrl || '').trim();
-  if (/apiforce\.llfix\.app\.br/i.test(backend)) return '00003';
-  if (/apiforce\.edsondosparafusos\.app\.br/i.test(backend)) return '00001';
-  return '';
+  const tenant = getTenantConfig(typeof window !== 'undefined' ? window.location.hostname : '');
+  return tenant.mapped ? tenant.storeCode.replace(/^0+/, '') : '';
 };
 
 export default function App() {
@@ -262,13 +261,8 @@ export default function App() {
       if (isAuthenticated) {
         await apiService.refreshProtectedStoreFromERP();
       }
-      const res = await apiService.fetchAppLocal('/api/store/public');
-      if (res.ok) {
-        const data = await res.json();
-        setStoreInfo(data);
-        return;
-      }
-      setStoreInfo(null);
+      const data = await apiService.loadTenantStoreInfo(true);
+      setStoreInfo(data);
     } catch (error) {
       console.warn('Falha ao carregar dados da loja', error);
       setStoreInfo(null);

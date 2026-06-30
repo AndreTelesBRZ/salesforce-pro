@@ -74,11 +74,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
     if (fallbackStoreLoaded) return;
     const loadHeaderStore = async () => {
       try {
-        const res = await apiService.fetchAppLocal('/api/store/public');
-        if (res.ok) {
-          const data = await res.json();
-          setHeaderStore(data);
-        }
+        const data = await apiService.loadTenantStoreInfo(false);
+        setHeaderStore(data);
       } catch (error) {
         console.warn('Falha ao carregar dados da loja', error);
       } finally {
