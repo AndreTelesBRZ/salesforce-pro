@@ -1,6 +1,6 @@
 import React from 'react';
 import { AverageTicketResult, DEFAULT_AVERAGE_TICKET_DAYS } from './salesMetrics';
-import { TrendingUp, ShoppingBag, CalendarDays, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -25,57 +25,41 @@ export const TicketMedioCard: React.FC<TicketMedioCardProps> = ({ data, loading 
   const showPlaceholder = loading || data === null;
 
   return (
-    <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 flex items-center justify-center">
-            <TrendingUp className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Ticket médio
-            </p>
-            <div className="flex items-center gap-2">
-              <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-                {showPlaceholder ? (
-                  <span className="flex items-center gap-2 text-sm font-semibold">
-                    <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                    Carregando...
-                  </span>
-                ) : (
-                  currencyFormatter.format(average)
-                )}
-              </h3>
-            </div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-none">
-              Últimos {periodDays} dia{periodDays !== 1 ? 's' : ''}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1 text-xs text-slate-500 dark:text-slate-400">
-          <span className="flex items-center gap-1">
-            <CalendarDays className="w-3 h-3" />
-            {periodDays}d
-          </span>
-          <span className="flex items-center gap-1">
-            <ShoppingBag className="w-3 h-3" />
-            {showPlaceholder ? '---' : formatCount(orderCount)}
-          </span>
-        </div>
+    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="flex items-center gap-3 text-slate-400 dark:text-slate-500">
+        <div className="h-6 w-6 rounded-md border border-current" />
+        <p className="text-lg font-medium leading-none">
+          Ticket médio ({periodDays}d)
+        </p>
       </div>
 
-      <div className="mt-4 border-t border-slate-100 dark:border-slate-700 pt-3 grid grid-cols-2 gap-3 text-xs text-slate-500 dark:text-slate-400">
-        <div>
-          <p className="text-[10px] uppercase tracking-wide">Total no período</p>
-          <p className="text-base font-semibold text-slate-900 dark:text-white">
-            {showPlaceholder ? '---' : currencyFormatter.format(total)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wide">Pedidos faturados</p>
-          <p className="text-base font-semibold text-slate-900 dark:text-white">
-            {showPlaceholder ? '---' : formatCount(orderCount)}
-          </p>
+      <div className="mt-5">
+        <p className="text-[2.25rem] font-semibold leading-none tracking-tight text-slate-900 dark:text-white">
+          {showPlaceholder ? (
+            <span className="flex items-center gap-2 text-lg font-medium text-slate-500 dark:text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              Carregando...
+            </span>
+          ) : (
+            currencyFormatter.format(average)
+          )}
+        </p>
+      </div>
+
+      <div className="mt-6 border-t border-slate-200 pt-5 dark:border-slate-700">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm text-slate-400 dark:text-slate-500">Total no período</p>
+            <p className="mt-1 text-2xl font-medium text-slate-900 dark:text-white">
+              {showPlaceholder ? '---' : currencyFormatter.format(total)}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-400 dark:text-slate-500">Pedidos faturados</p>
+            <p className="mt-1 text-2xl font-medium text-slate-900 dark:text-white">
+              {showPlaceholder ? '---' : formatCount(orderCount)}
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { ProductList } from './components/ProductList';
 import { Cart } from './components/Cart';
@@ -26,13 +25,12 @@ const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ cla
   { view: 'dashboard', label: 'Início', icon: Store },
   { view: 'products', label: 'Catálogo', icon: LayoutGrid },
   { view: 'reports', label: 'Relatórios', icon: BarChart3 },
-  { view: 'sales-history', label: 'Consulta de Vendas', icon: FileText },
-  { view: 'cart', label: 'Carrinho', icon: ShoppingCart },
+  { view: 'sales-history', label: 'Consulta de vendas', icon: FileText },
+  { view: 'cart', label: 'Carrinho / Rascunhos', icon: ShoppingCart },
   { view: 'orders', label: 'Histórico', icon: FileText },
-  { view: 'drafts', label: 'Rascunhos', icon: ClipboardList },
   { view: 'customers', label: 'Carteira', icon: User },
   { view: 'sync', label: 'Sincronizar', icon: Download },
-  { view: 'send', label: 'Envio Pendente', icon: UploadCloud },
+  { view: 'send', label: 'Envio pendente', icon: UploadCloud },
   { view: 'settings', label: 'Ajustes', icon: SettingsIcon },
 ];
 
@@ -56,6 +54,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserSessionProfile | null>(null);
   const [storeInfo, setStoreInfo] = useState<any | undefined>(undefined);
   const [salesHistoryCustomer, setSalesHistoryCustomer] = useState<Customer | null>(null);
+  const [pendingOrderCount, setPendingOrderCount] = useState(0);
 
   const canAccessView = (view: View, profile: UserSessionProfile | null): boolean => {
     if (!profile) return view === 'dashboard' || view === 'settings';
@@ -83,48 +82,38 @@ export default function App() {
     }
   };
 
-  // Inicialização do App
   useEffect(() => {
     const initApp = async () => {
-      // 1. Carrega configurações do Banco de Dados
       await apiService.initializeConfig();
-      
-      // 2. Valida a sessão ativamente (verifica se token é válido no servidor)
       const validSession = await apiService.validateSession();
-      
+
       setIsAuthenticated(validSession);
       if (validSession) {
-          const profile = apiService.getCurrentUserProfile();
-          setUserProfile(profile);
-          // Garante que a UI receba o nome atualizado, mesmo se vier do cache local inicial
-          const resolvedName = await apiService.resolveDisplayName();
-          setCurrentUser(resolvedName);
-          setSellerCode(apiService.getSellerId());
-          
-          // Tenta buscar o perfil mais atual em background para corrigir "Terminal Vinculado"
-          // se a conexão estiver disponível
-          apiService.fetchProfile().then(profile => {
-              if (profile) {
-                setUserProfile(profile);
-                setCurrentUser(profile.name);
-                if (profile.seller_id) setSellerCode(profile.seller_id);
-              }
-              apiService.resolveDisplayName().then((name) => {
-                setCurrentUser(name);
-              });
+        const profile = apiService.getCurrentUserProfile();
+        setUserProfile(profile);
+        const resolvedName = await apiService.resolveDisplayName();
+        setCurrentUser(resolvedName);
+        setSellerCode(apiService.getSellerId());
+
+        apiService.fetchProfile().then(profile => {
+          if (profile) {
+            setUserProfile(profile);
+            setCurrentUser(profile.name);
+            if (profile.seller_id) setSellerCode(profile.seller_id);
+          }
+          apiService.resolveDisplayName().then((name) => {
+            setCurrentUser(name);
           });
+        });
       }
-      
+
       setTheme(apiService.getConfig().theme);
-      
-      // 3. Libera a UI
       setIsConfigLoaded(true);
     };
 
     initApp();
   }, []);
 
-  // Carrega rascunho de carrinho ao navegar para Cart (duplicar pedido)
   const hydrateCartFromDraft = async (draft: OrderDraft): Promise<CartItem[]> => {
     return Promise.all(draft.itens.map(async (item) => {
       let basePrice = Number(item.base_price ?? item.valor_unitario ?? 0);
@@ -163,52 +152,51 @@ export default function App() {
 
   useEffect(() => {
     if (currentView === 'cart') {
-       const loadDraft = async () => {
-          try {
-            if (cart.length > 0) return;
-            setDraftToEdit(null);
-            const draftRaw = localStorage.getItem('orderDraftEdit');
-            if (draftRaw) {
-              const draft: OrderDraft = JSON.parse(draftRaw);
-              setDraftToEdit(draft);
-              const hydrated = await hydrateCartFromDraft(draft);
-              if (hydrated.length > 0) {
-                setCart(hydrated);
-              }
-              return;
+      const loadDraft = async () => {
+        try {
+          if (cart.length > 0) return;
+          setDraftToEdit(null);
+          const draftRaw = localStorage.getItem('orderDraftEdit');
+          if (draftRaw) {
+            const draft: OrderDraft = JSON.parse(draftRaw);
+            setDraftToEdit(draft);
+            const hydrated = await hydrateCartFromDraft(draft);
+            if (hydrated.length > 0) {
+              setCart(hydrated);
             }
-
-            const raw = localStorage.getItem('cartDraft');
-            if (!raw) return;
-            const items: CartItem[] = JSON.parse(raw);
-            if (Array.isArray(items) && items.length > 0) {
-               const hydrated = await Promise.all(items.map(async (item) => {
-                  let basePrice = item.basePrice ?? (Number(item.price) || 0);
-                  try {
-                    const product = await dbService.getProductById(item.id);
-                    if (product?.price) basePrice = product.price;
-                  } catch {}
-                  return { ...item, quantity: Number(item.quantity) || 1, price: Number(item.price) || 0, basePrice };
-               }));
-               setCart(hydrated);
-            }
-          } catch {}
-          finally {
-            localStorage.removeItem('cartDraft');
-            localStorage.removeItem('orderDraftEdit');
+            return;
           }
-       };
-       loadDraft();
+
+          const raw = localStorage.getItem('cartDraft');
+          if (!raw) return;
+          const items: CartItem[] = JSON.parse(raw);
+          if (Array.isArray(items) && items.length > 0) {
+            const hydrated = await Promise.all(items.map(async (item) => {
+              let basePrice = item.basePrice ?? (Number(item.price) || 0);
+              try {
+                const product = await dbService.getProductById(item.id);
+                if (product?.price) basePrice = product.price;
+              } catch {}
+              return { ...item, quantity: Number(item.quantity) || 1, price: Number(item.price) || 0, basePrice };
+            }));
+            setCart(hydrated);
+          }
+        } catch {}
+        finally {
+          localStorage.removeItem('cartDraft');
+          localStorage.removeItem('orderDraftEdit');
+        }
+      };
+      loadDraft();
     }
   }, [currentView, cart.length]);
 
-  // Efeito apenas para tema visual
   useEffect(() => {
     const applyTheme = () => {
-      const isDark = 
-        theme === 'dark' || 
+      const isDark =
+        theme === 'dark' ||
         (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      
+
       if (isDark) {
         document.documentElement.classList.add('dark');
       } else {
@@ -233,6 +221,17 @@ export default function App() {
     }
   }, [currentView, userProfile]);
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setPendingOrderCount(0);
+      return;
+    }
+
+    dbService.getPendingOrders()
+      .then((orders) => setPendingOrderCount(orders.length))
+      .catch(() => setPendingOrderCount(0));
+  }, [isAuthenticated, currentView, cart.length]);
+
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
     setUserProfile(apiService.getCurrentUserProfile());
@@ -255,6 +254,21 @@ export default function App() {
   };
 
   const visibleNavMenuItems = navMenuItems.filter((item) => canAccessView(item.view, userProfile));
+  const menuSections: { title?: string; items: typeof visibleNavMenuItems }[] = [
+    { items: visibleNavMenuItems.filter((item) => item.view === 'dashboard') },
+    {
+      title: 'Vendas',
+      items: visibleNavMenuItems.filter((item) => ['products', 'drafts', 'sales-history'].includes(item.view)),
+    },
+    {
+      title: 'Acompanhamento',
+      items: visibleNavMenuItems.filter((item) => ['orders', 'reports', 'send'].includes(item.view)),
+    },
+    {
+      title: 'Conta',
+      items: visibleNavMenuItems.filter((item) => ['customers', 'sync', 'settings'].includes(item.view)),
+    },
+  ].filter((section) => section.items.length > 0);
 
   const refreshStoreInfo = async () => {
     try {
@@ -305,10 +319,9 @@ export default function App() {
   };
 
   const updateQuantity = (id: string, newQuantity: number) => {
-    // Se o usuário definir 0 ou menos, removemos o item
     if (newQuantity <= 0) {
-        removeFromCart(id);
-        return;
+      removeFromCart(id);
+      return;
     }
 
     setCart((prev) =>
@@ -318,12 +331,11 @@ export default function App() {
           let qty = newQuantity;
 
           if (isFractional) {
-             qty = Math.round(qty * 100) / 100;
-             // Permite editar livremente, mas mantemos consistência de decimais
+            qty = Math.round(qty * 100) / 100;
           } else {
-             qty = Math.floor(qty);
+            qty = Math.floor(qty);
           }
-          
+
           return { ...item, quantity: qty };
         }
         return item;
@@ -336,35 +348,33 @@ export default function App() {
     setCurrentView('dashboard');
   };
 
-  // --- TELA DE CARREGAMENTO (SPLASH) ---
   if (!isConfigLoaded) {
-      return (
-          <div className="flex flex-col items-center justify-center h-screen bg-blue-900 text-white gap-4">
-              <Store className="w-12 h-12 mb-2" />
-              <div className="flex items-center gap-2">
-                  <Loader2 className="w-5 h-5 animate-spin text-orange-400" />
-                  <span className="font-semibold text-sm">Validando acesso seguro...</span>
-              </div>
-          </div>
-      );
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-blue-900 text-white gap-4">
+        <Store className="w-12 h-12 mb-2" />
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-5 h-5 animate-spin text-orange-400" />
+          <span className="font-semibold text-sm">Validando acesso seguro...</span>
+        </div>
+      </div>
+    );
   }
 
-  // Renderização Condicional Limpa
   if (!isAuthenticated) {
     if (showSettingsFromLogin) {
       return (
-        <Settings 
-            onClose={() => setShowSettingsFromLogin(false)} 
-            onThemeChange={setTheme} 
+        <Settings
+          onClose={() => setShowSettingsFromLogin(false)}
+          onThemeChange={setTheme}
         />
       );
     }
     return (
-        <Login 
-            onLoginSuccess={handleLoginSuccess} 
-            onOpenSettings={() => setShowSettingsFromLogin(true)} 
-            storeInfo={storeInfo}
-        />
+      <Login
+        onLoginSuccess={handleLoginSuccess}
+        onOpenSettings={() => setShowSettingsFromLogin(true)}
+        storeInfo={storeInfo}
+      />
     );
   }
 
@@ -388,34 +398,33 @@ export default function App() {
   return (
     <EnumProvider>
       <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-      {/* Cabeçalho Azul Profundo (Navy) */}
-          <header className="bg-blue-900 text-white shadow-lg sticky top-0 z-30 border-b border-blue-800">
-            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-            {currentView !== 'dashboard' ? (
-              <button 
-                onClick={() => setCurrentView('dashboard')} 
-                className="p-2 hover:bg-blue-800 rounded-full transition-colors text-white"
-              >
-                <ArrowLeft className="w-6 h-6" />
-              </button>
-            ) : (
-               <button
-                 onClick={() => setIsMainMenuOpen(true)}
-                 className="p-2 bg-blue-800 rounded-lg shadow-inner text-orange-400"
-                 aria-label="Abrir menu principal"
-               >
+        <header className="bg-blue-900 text-white shadow-lg sticky top-0 z-30 border-b border-blue-800">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {currentView !== 'dashboard' ? (
+                <button
+                  onClick={() => setCurrentView('dashboard')}
+                  className="p-2 hover:bg-blue-800 rounded-full transition-colors text-white"
+                >
+                  <ArrowLeft className="w-6 h-6" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsMainMenuOpen(true)}
+                  className="p-2 bg-blue-800 rounded-lg shadow-inner text-orange-400"
+                  aria-label="Abrir menu principal"
+                >
                   <Menu className="w-6 h-6" />
-               </button>
-            )}
-            <div>
-              <h1 className="text-lg font-bold leading-tight text-white">
-                {getHeaderTitle()}
-              </h1>
-              {currentView === 'dashboard' && (
-                 <p className="text-xs text-orange-300 font-medium">SalesForce Pro</p>
+                </button>
               )}
-            </div>
+              <div>
+                <h1 className="text-lg font-bold leading-tight text-white">
+                  {getHeaderTitle()}
+                </h1>
+                {currentView === 'dashboard' && (
+                  <p className="text-xs text-orange-300 font-medium">SalesForce Pro</p>
+                )}
+              </div>
             </div>
             {storeInfo && (
               <div className="hidden md:flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full border border-white/25">
@@ -432,15 +441,15 @@ export default function App() {
                 </div>
               </div>
             )}
-  
-          <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-2">
               {currentUser && (
-                  <div className="flex flex-col items-end mr-1">
-                      <span className="text-[10px] text-blue-300 uppercase font-bold tracking-wider">Vendedor</span>
-                      <span className="text-sm font-bold text-white leading-none">
-                        {currentUser}{sellerCode ? ` (${sellerCode})` : ''}
-                      </span>
-                  </div>
+                <div className="hidden sm:flex flex-col items-end mr-1">
+                  <span className="text-[10px] text-blue-300 uppercase font-bold tracking-wider">Vendedor</span>
+                  <span className="text-sm font-bold text-white leading-none">
+                    {currentUser}{sellerCode ? ` (${sellerCode})` : ''}
+                  </span>
+                </div>
               )}
 
               <button
@@ -456,156 +465,178 @@ export default function App() {
                 )}
               </button>
 
-              <button 
-                onClick={handleLogout} 
-                className="p-2 hover:bg-blue-800 rounded-full text-blue-200 hover:text-white transition-colors" 
+              <button
+                onClick={handleLogout}
+                className="p-2 hover:bg-blue-800 rounded-full text-blue-200 hover:text-white transition-colors"
                 title="Sair"
               >
                 <LogOut className="w-5 h-5" />
               </button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="flex-1 overflow-y-auto w-full">
-        <div className="max-w-6xl mx-auto w-full min-h-full">
-          {currentView === 'dashboard' && (
-            <Dashboard
-              onNavigate={(v) => setCurrentView(v as View)}
-              cartCount={cart.reduce((a, b) => a + b.quantity, 0)}
-              permissions={userProfile?.permissions || null}
-            />
-          )}
-          {currentView === 'products' && canAccessView('products', userProfile) && (
-            <ProductList onAddToCart={addToCart} onRemoveFromCart={removeFromCart} onToggleCart={toggleCartProduct} cart={cart} />
-          )}
-          {currentView === 'reports' && canAccessView('reports', userProfile) && (
-            <ReportsPage storeInfo={storeInfo} />
-          )}
-          {currentView === 'sales-history' && canAccessView('sales-history', userProfile) && (
-            <SalesHistoryPage initialCustomer={salesHistoryCustomer} onNavigate={() => setCurrentView('cart')} />
-          )}
-          {currentView === 'cart' && canAccessView('cart', userProfile) && (
-            <Cart 
-              cart={cart} 
-              onUpdateQuantity={updateQuantity} 
-              onUpdatePrice={(id, newPrice) => {
-                 if (isNaN(newPrice) || newPrice < 0) return;
-                 if (newPrice === 0) {
-                   removeFromCart(id);
-                   return;
-                 }
-                 setCart(prev => prev.map(i => {
-                   if (i.id !== id) return i;
-                   return { ...i, price: newPrice };
-                 }));
-              }}
-              onRemove={removeFromCart} 
-              onClear={clearCart} 
-              draftToEdit={draftToEdit}
-              onClearDraft={clearDraftEditing}
-            />
-          )}
-          {/* Unificando a visão de Pedidos e Envio Pendente no Histórico */}
-          {(currentView === 'orders' || currentView === 'send') && canAccessView(currentView, userProfile) && (
-            <OrderHistory 
-                onNavigate={(v) => setCurrentView(v as View)} 
+        <main className="flex-1 overflow-y-auto w-full">
+          <div className="max-w-6xl mx-auto w-full min-h-full">
+            {currentView === 'dashboard' && (
+              <Dashboard
+                onNavigate={(v) => setCurrentView(v as View)}
+                cartCount={cart.reduce((a, b) => a + b.quantity, 0)}
+                permissions={userProfile?.permissions || null}
+              />
+            )}
+            {currentView === 'products' && canAccessView('products', userProfile) && (
+              <ProductList onAddToCart={addToCart} onRemoveFromCart={removeFromCart} onToggleCart={toggleCartProduct} cart={cart} />
+            )}
+            {currentView === 'reports' && canAccessView('reports', userProfile) && (
+              <ReportsPage storeInfo={storeInfo} />
+            )}
+            {currentView === 'sales-history' && canAccessView('sales-history', userProfile) && (
+              <SalesHistoryPage initialCustomer={salesHistoryCustomer} onNavigate={() => setCurrentView('cart')} />
+            )}
+            {currentView === 'cart' && canAccessView('cart', userProfile) && (
+              <Cart
+                cart={cart}
+                onUpdateQuantity={updateQuantity}
+                onUpdatePrice={(id, newPrice) => {
+                  if (isNaN(newPrice) || newPrice < 0) return;
+                  if (newPrice === 0) {
+                    removeFromCart(id);
+                    return;
+                  }
+                  setCart(prev => prev.map(i => {
+                    if (i.id !== id) return i;
+                    return { ...i, price: newPrice };
+                  }));
+                }}
+                onRemove={removeFromCart}
+                onClear={clearCart}
+                draftToEdit={draftToEdit}
+                onClearDraft={clearDraftEditing}
+              />
+            )}
+            {(currentView === 'orders' || currentView === 'send') && canAccessView(currentView, userProfile) && (
+              <OrderHistory
+                onNavigate={(v) => setCurrentView(v as View)}
                 initialTab={currentView === 'send' ? 'pending' : 'all'}
                 storeInfo={storeInfo}
-            />
-          )}
-          {currentView === 'drafts' && canAccessView('drafts', userProfile) && (
-            <DraftsPage
-              onNavigate={(v) => setCurrentView(v as View)}
-              onEditDraft={(draft) => {
-                try {
-                  localStorage.setItem('orderDraftEdit', JSON.stringify(draft));
-                } catch {}
-                setCurrentView('cart');
-              }}
-            />
-          )}
-          {currentView === 'customers' && canAccessView('customers', userProfile) && (
-            <CustomerList
-              onOpenSalesHistory={(customer) => {
-                setSalesHistoryCustomer(customer);
-                setCurrentView('sales-history');
-              }}
-            />
-          )}
-          {currentView === 'settings' && (
-            <Settings 
-                onClose={() => setCurrentView('dashboard')} 
+              />
+            )}
+            {currentView === 'drafts' && canAccessView('drafts', userProfile) && (
+              <DraftsPage
+                onNavigate={(v) => setCurrentView(v as View)}
+                onEditDraft={(draft) => {
+                  try {
+                    localStorage.setItem('orderDraftEdit', JSON.stringify(draft));
+                  } catch {}
+                  setCurrentView('cart');
+                }}
+              />
+            )}
+            {currentView === 'customers' && canAccessView('customers', userProfile) && (
+              <CustomerList
+                onOpenSalesHistory={(customer) => {
+                  setSalesHistoryCustomer(customer);
+                  setCurrentView('sales-history');
+                }}
+              />
+            )}
+            {currentView === 'settings' && (
+              <Settings
+                onClose={() => setCurrentView('dashboard')}
                 onLogout={handleLogout}
-                onThemeChange={setTheme} 
-            />
-          )}
-          {currentView === 'sync' && canAccessView('sync', userProfile) && (
-             <SyncData onBack={() => setCurrentView('dashboard')} />
-          )}
-        </div>
-      </main>
+                onThemeChange={setTheme}
+              />
+            )}
+            {currentView === 'sync' && canAccessView('sync', userProfile) && (
+              <SyncData onBack={() => setCurrentView('dashboard')} />
+            )}
+          </div>
+        </main>
 
-      {isMainMenuOpen && (
-        <div className="fixed inset-0 z-40">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsMainMenuOpen(false)}
-            aria-hidden="true"
-          />
-          <aside
-            role="dialog"
-            aria-modal="true"
-            aria-label="Menu principal"
-            className="relative z-10 h-full max-w-xs w-full bg-white dark:bg-slate-900 shadow-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col p-4"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Menu</p>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">SalesForce Pro</h2>
+        {isMainMenuOpen && (
+          <div className="fixed inset-0 z-40">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+              onClick={() => setIsMainMenuOpen(false)}
+              aria-hidden="true"
+            />
+            <aside
+              role="dialog"
+              aria-modal="true"
+              aria-label="Menu principal"
+              className="relative z-10 h-full max-w-sm w-full bg-white dark:bg-slate-900 shadow-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-7 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <p className="text-[15px] font-medium text-slate-400 dark:text-slate-500">Menu</p>
+                  <h2 className="text-[2rem] leading-none font-semibold tracking-tight text-slate-900 dark:text-white">SalesForce Pro</h2>
+                </div>
+                <button
+                  onClick={() => setIsMainMenuOpen(false)}
+                  className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-full transition-colors"
+                  aria-label="Fechar menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button
-                onClick={() => setIsMainMenuOpen(false)}
-                className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-full transition-colors"
-                aria-label="Fechar menu"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="mt-6 space-y-2">
-              {visibleNavMenuItems.map((item) => {
-                const active = item.view === currentView;
-                return (
-                  <button
-                    key={item.view}
-                    onClick={() => {
-                      setCurrentView(item.view);
-                      setIsMainMenuOpen(false);
-                    }}
-                    className={`w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
-                      active
-                        ? 'bg-blue-900 text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
-                    }`}
-                  >
-                    <item.icon className="w-5 h-5" />
-                    <span className="font-semibold text-sm">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-auto pt-6 text-left">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {APP_VERSION_INFO.name} v{APP_VERSION_INFO.version}
-              </p>
-              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                Build {APP_VERSION_INFO.build}
-              </p>
-            </div>
-          </aside>
-        </div>
-      )}
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <div className="space-y-6">
+                  {menuSections.map((section) => (
+                    <div key={section.title || 'principal'} className="space-y-2">
+                      {section.title && (
+                        <p className="px-3 text-xs font-medium uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
+                          {section.title}
+                        </p>
+                      )}
+                      {section.items.map((item) => {
+                        const active = item.view === currentView;
+                        const badge = item.view === 'send' ? pendingOrderCount : undefined;
+                        return (
+                          <button
+                            key={item.view}
+                            onClick={() => {
+                              setCurrentView(item.view);
+                              setIsMainMenuOpen(false);
+                            }}
+                            className={`w-full text-left flex items-center justify-between gap-3 rounded-2xl px-5 py-4 transition-colors ${
+                              active
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-4 min-w-0">
+                              <item.icon className={`w-5 h-5 ${active ? 'text-white' : 'text-slate-700 dark:text-slate-200'}`} />
+                              <span className={`truncate text-[1rem] ${active ? 'font-medium' : 'font-normal'}`}>{item.label}</span>
+                            </span>
+                            {typeof badge === 'number' && badge > 0 && (
+                              <span className={`min-w-8 h-8 px-2 rounded-full text-sm flex items-center justify-center ${
+                                active ? 'bg-white/20 text-white' : 'bg-amber-200 text-amber-900'
+                              }`}>
+                                {badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="px-6 py-5 border-t border-slate-200 dark:border-slate-800 text-left">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {APP_VERSION_INFO.name} v{APP_VERSION_INFO.version}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  Build {APP_VERSION_INFO.build}
+                </p>
+              </div>
+            </aside>
+          </div>
+        )}
       </div>
     </EnumProvider>
   );
