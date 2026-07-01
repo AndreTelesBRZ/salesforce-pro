@@ -24,9 +24,10 @@ type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'o
 const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ className?: string }>; }[] = [
   { view: 'dashboard', label: 'Início', icon: Store },
   { view: 'products', label: 'Catálogo', icon: LayoutGrid },
+  { view: 'cart', label: 'Carrinho', icon: ShoppingCart },
+  { view: 'drafts', label: 'Rascunhos', icon: ClipboardList },
   { view: 'reports', label: 'Relatórios', icon: BarChart3 },
   { view: 'sales-history', label: 'Consulta de vendas', icon: FileText },
-  { view: 'cart', label: 'Carrinho / Rascunhos', icon: ShoppingCart },
   { view: 'orders', label: 'Histórico', icon: FileText },
   { view: 'customers', label: 'Carteira', icon: User },
   { view: 'sync', label: 'Sincronizar', icon: Download },
@@ -258,7 +259,7 @@ export default function App() {
     { items: visibleNavMenuItems.filter((item) => item.view === 'dashboard') },
     {
       title: 'Vendas',
-      items: visibleNavMenuItems.filter((item) => ['products', 'drafts', 'sales-history'].includes(item.view)),
+      items: visibleNavMenuItems.filter((item) => ['products', 'cart', 'drafts', 'sales-history'].includes(item.view)),
     },
     {
       title: 'Acompanhamento',
