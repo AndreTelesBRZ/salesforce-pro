@@ -10,6 +10,7 @@ import { OrderHistory } from './components/OrderHistory';
 import { SyncData } from './components/SyncData';
 import { ReportsPage } from './components/ReportsPage';
 import { DraftsPage } from './src/pages/DraftsPage';
+import { CounterSalePage } from './components/CounterSalePage';
 import { apiService } from './services/api';
 import { dbService } from './services/db';
 import { Product, CartItem, ThemeMode, Customer, UserSessionProfile } from './types';
@@ -40,6 +41,20 @@ const resolveProtectedStoreLabel = (): string => {
   return tenant.mapped ? tenant.storeCode.replace(/^0+/, '') : '';
 };
 
+type RouteMode = 'app' | 'balcao';
+
+const resolveRouteMode = (): RouteMode => {
+  if (typeof window === 'undefined') return 'app';
+  const path = window.location.pathname.toLowerCase().replace(/\/$/, '') || '/';
+  return path === '/balcao' || path === '/venda-balcao' ? 'balcao' : 'app';
+};
+
+const navigateToPath = (path: string) => {
+  if (typeof window === 'undefined') return;
+  window.history.pushState({}, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+};
+
 export default function App() {
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -56,6 +71,7 @@ export default function App() {
   const [storeInfo, setStoreInfo] = useState<any | undefined>(undefined);
   const [salesHistoryCustomer, setSalesHistoryCustomer] = useState<Customer | null>(null);
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
+  const [routeMode, setRouteMode] = useState<RouteMode>(resolveRouteMode());
 
   const canAccessView = (view: View, profile: UserSessionProfile | null): boolean => {
     if (!profile) return view === 'dashboard' || view === 'settings';
@@ -82,6 +98,12 @@ export default function App() {
         return false;
     }
   };
+
+  useEffect(() => {
+    const handlePopState = () => setRouteMode(resolveRouteMode());
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     const initApp = async () => {
@@ -234,6 +256,7 @@ export default function App() {
   }, [isAuthenticated, currentView, cart.length]);
 
   const handleLoginSuccess = () => {
+    const nextRouteMode = resolveRouteMode();
     setIsAuthenticated(true);
     setUserProfile(apiService.getCurrentUserProfile());
     setCurrentUser(apiService.getUsername());
@@ -242,7 +265,10 @@ export default function App() {
     });
     setSellerCode(apiService.getSellerId());
     setShowSettingsFromLogin(false);
-    setCurrentView('dashboard');
+    setRouteMode(nextRouteMode);
+    if (nextRouteMode !== 'balcao') {
+      setCurrentView('dashboard');
+    }
     refreshStoreInfo();
   };
 
@@ -253,6 +279,9 @@ export default function App() {
     setCurrentView('dashboard');
     setStoreInfo(undefined);
   };
+
+  const openCounterSale = () => navigateToPath('/balcao');
+  const closeCounterSale = () => navigateToPath('/');
 
   const visibleNavMenuItems = navMenuItems.filter((item) => canAccessView(item.view, userProfile));
   const menuSections: { title?: string; items: typeof visibleNavMenuItems }[] = [
@@ -379,6 +408,21 @@ export default function App() {
     );
   }
 
+  if (routeMode === 'balcao') {
+    return (
+      <EnumProvider>
+        <CounterSalePage
+          currentUser={currentUser}
+          sellerCode={sellerCode}
+          storeInfo={storeInfo}
+          permissions={userProfile?.permissions || null}
+          onBackToApp={closeCounterSale}
+          onLogout={handleLogout}
+        />
+      </EnumProvider>
+    );
+  }
+
   const getHeaderTitle = () => {
     switch (currentView) {
       case 'dashboard': return 'Início';
@@ -398,56 +442,56 @@ export default function App() {
 
   return (
     <EnumProvider>
-      <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-        <header className="bg-blue-900 text-white shadow-lg sticky top-0 z-30 border-b border-blue-800">
-          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+      <div className="flex flex-col h-screen bg-[#0a0a0f] text-white">
+        <header className="bg-[#0d0d14] text-white sticky top-0 z-30 border-b border-white/[0.08]">
+          <div className="max-w-2xl mx-auto px-3 py-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
               {currentView !== 'dashboard' ? (
                 <button
                   onClick={() => setCurrentView('dashboard')}
-                  className="p-2 hover:bg-blue-800 rounded-full transition-colors text-white"
+                  className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-white shrink-0"
                 >
-                  <ArrowLeft className="w-6 h-6" />
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
               ) : (
                 <button
                   onClick={() => setIsMainMenuOpen(true)}
-                  className="p-2 bg-blue-800 rounded-lg shadow-inner text-orange-400"
+                  className="p-1.5 bg-white/[0.08] hover:bg-white/[0.14] rounded-lg transition-colors text-white/70 shrink-0"
                   aria-label="Abrir menu principal"
                 >
-                  <Menu className="w-6 h-6" />
+                  <Menu className="w-4.5 h-4.5" />
                 </button>
               )}
-              <div>
-                <h1 className="text-lg font-bold leading-tight text-white">
+              <div className="min-w-0">
+                <h1 className="text-sm font-semibold leading-tight text-white truncate">
                   {getHeaderTitle()}
                 </h1>
                 {currentView === 'dashboard' && (
-                  <p className="text-xs text-orange-300 font-medium">SalesForce Pro</p>
+                  <p className="text-[10px] text-white/35 font-medium tracking-wide">SalesForce Pro</p>
                 )}
               </div>
             </div>
             {storeInfo && (
-              <div className="hidden md:flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full border border-white/25">
+              <div className="hidden md:flex items-center gap-2 bg-white/[0.06] px-2.5 py-1 rounded-full border border-white/[0.08]">
                 {storeInfo.logo_url ? (
-                  <img src={storeInfo.logo_url} alt={storeInfo.trade_name || 'Loja'} className="h-9 w-9 object-contain rounded-full border border-white/30" />
+                  <img src={storeInfo.logo_url} alt={storeInfo.trade_name || 'Loja'} className="h-6 w-6 object-contain rounded-full border border-white/20" />
                 ) : (
-                  <Store className="w-6 h-6 text-white/80" />
+                  <Store className="w-4 h-4 text-white/50" />
                 )}
-                <div className="text-left text-xs">
-                  <p className="font-semibold leading-none">{storeInfo.trade_name || storeInfo.legal_name || 'SalesForce Pro'}</p>
-                  <p className="text-[10px] uppercase tracking-wider text-white/70">
+                <div className="text-left">
+                  <p className="text-xs font-semibold leading-none text-white/80">{storeInfo.trade_name || storeInfo.legal_name || 'SalesForce Pro'}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-white/40">
                     Loja {resolveProtectedStoreLabel() || storeInfo.id?.toString().padStart(2, '0')}
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               {currentUser && (
-                <div className="hidden sm:flex flex-col items-end mr-1">
-                  <span className="text-[10px] text-blue-300 uppercase font-bold tracking-wider">Vendedor</span>
-                  <span className="text-sm font-bold text-white leading-none">
+                <div className="hidden sm:flex flex-col items-end">
+                  <span className="text-[9px] text-white/30 uppercase font-bold tracking-wider">Vendedor</span>
+                  <span className="text-xs font-bold text-white/80 leading-none">
                     {currentUser}{sellerCode ? ` (${sellerCode})` : ''}
                   </span>
                 </div>
@@ -455,12 +499,12 @@ export default function App() {
 
               <button
                 onClick={() => setCurrentView('cart')}
-                className="relative p-2 hover:bg-blue-800 rounded-full text-blue-200 hover:text-white transition-colors"
+                className="relative p-1.5 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors"
                 title="Carrinho"
               >
-                <ShoppingCart className="w-5 h-5" />
+                <ShoppingCart className="w-4.5 h-4.5" />
                 {cart.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border border-blue-900">
+                  <span className="absolute -top-0.5 -right-0.5 bg-blue-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                     {cart.reduce((a, b) => a + b.quantity, 0)}
                   </span>
                 )}
@@ -468,10 +512,10 @@ export default function App() {
 
               <button
                 onClick={handleLogout}
-                className="p-2 hover:bg-blue-800 rounded-full text-blue-200 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors"
                 title="Sair"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-4.5 h-4.5" />
               </button>
             </div>
           </div>
@@ -566,29 +610,29 @@ export default function App() {
               role="dialog"
               aria-modal="true"
               aria-label="Menu principal"
-              className="relative z-10 h-full max-w-sm w-full bg-white dark:bg-slate-900 shadow-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
+              className="relative z-10 h-full max-w-xs w-full bg-[#0d0d14] shadow-2xl border-r border-white/[0.08] flex flex-col overflow-hidden"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center justify-between px-6 py-7 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
                 <div>
-                  <p className="text-[15px] font-medium text-slate-400 dark:text-slate-500">Menu</p>
-                  <h2 className="text-[2rem] leading-none font-semibold tracking-tight text-slate-900 dark:text-white">SalesForce Pro</h2>
+                  <p className="text-[11px] font-medium text-white/30 uppercase tracking-widest">Menu</p>
+                  <h2 className="text-xl leading-none font-bold tracking-tight text-white mt-0.5">SalesForce Pro</h2>
                 </div>
                 <button
                   onClick={() => setIsMainMenuOpen(false)}
-                  className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-full transition-colors"
+                  className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-full transition-colors"
                   aria-label="Fechar menu"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                <div className="space-y-6">
+              <div className="flex-1 overflow-y-auto px-3 py-3">
+                <div className="space-y-4">
                   {menuSections.map((section) => (
-                    <div key={section.title || 'principal'} className="space-y-2">
+                    <div key={section.title || 'principal'} className="space-y-0.5">
                       {section.title && (
-                        <p className="px-3 text-xs font-medium uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
+                        <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-white/30">
                           {section.title}
                         </p>
                       )}
@@ -602,19 +646,19 @@ export default function App() {
                               setCurrentView(item.view);
                               setIsMainMenuOpen(false);
                             }}
-                            className={`w-full text-left flex items-center justify-between gap-3 rounded-2xl px-5 py-4 transition-colors ${
+                            className={`w-full text-left flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 transition-colors ${
                               active
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                ? 'bg-blue-600/90 text-white'
+                                : 'text-white/70 hover:bg-white/[0.07] hover:text-white'
                             }`}
                           >
-                            <span className="flex items-center gap-4 min-w-0">
-                              <item.icon className={`w-5 h-5 ${active ? 'text-white' : 'text-slate-700 dark:text-slate-200'}`} />
-                              <span className={`truncate text-[1rem] ${active ? 'font-medium' : 'font-normal'}`}>{item.label}</span>
+                            <span className="flex items-center gap-3 min-w-0">
+                              <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-white' : 'text-white/50'}`} />
+                              <span className={`truncate text-sm ${active ? 'font-semibold' : 'font-normal'}`}>{item.label}</span>
                             </span>
                             {typeof badge === 'number' && badge > 0 && (
-                              <span className={`min-w-8 h-8 px-2 rounded-full text-sm flex items-center justify-center ${
-                                active ? 'bg-white/20 text-white' : 'bg-amber-200 text-amber-900'
+                              <span className={`min-w-5 h-5 px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                                active ? 'bg-white/25 text-white' : 'bg-amber-400 text-black'
                               }`}>
                                 {badge}
                               </span>
@@ -627,15 +671,16 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="px-6 py-5 border-t border-slate-200 dark:border-slate-800 text-left">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+              <div className="px-5 py-3.5 border-t border-white/[0.08] text-left">
+                <p className="text-[11px] text-white/30">
                   {APP_VERSION_INFO.name} v{APP_VERSION_INFO.version}
                 </p>
-                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                <p className="mt-0.5 text-[10px] text-white/20">
                   Build {APP_VERSION_INFO.build}
                 </p>
               </div>
             </aside>
+
           </div>
         )}
       </div>

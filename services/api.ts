@@ -1429,6 +1429,12 @@ class ApiService {
       });
   }
 
+  private mapTechnicalAuthEndpointToLocal(endpoint: string): string {
+      if (endpoint === '/auth/login') return '/api/login';
+      if (endpoint.startsWith('/auth/')) return `/api${endpoint}`;
+      return endpoint;
+  }
+
   private async postTechnicalAuthEndpoint(endpoint: string, payload: Record<string, any>): Promise<Response> {
       const diagnostics = this.getTenantDiagnostics();
       if (!diagnostics.domainMapped || !diagnostics.backendConfigured) {
@@ -1438,6 +1444,19 @@ class ApiService {
       if (!baseUrl) {
           throw new Error('Backend do tenant não configurado.');
       }
+
+      if (this.isLocalDevOrigin()) {
+          const headers = {
+              ...this.getTechnicalAuthHeaders(),
+              'X-Backend-Url': baseUrl,
+          };
+          return this.fetchAppLocal(this.mapTechnicalAuthEndpointToLocal(endpoint), {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payload)
+          });
+      }
+
       return fetch(`${baseUrl}${endpoint}`, {
           method: 'POST',
           headers: this.getTechnicalAuthHeaders(),
@@ -2349,6 +2368,10 @@ class ApiService {
 
       return {
         id: String(item.plu || item.codigo || item.id),
+        code: readCode(item.codigo ?? item.code ?? item.id),
+        plu: readCode(item.plu ?? item.PLU ?? item.codigo_plu),
+        reference: readCode(item.referencia ?? item.reference ?? item.ref_produto ?? item.codigo_referencia),
+        barcode: readCode(item.codigo_barras ?? item.barcode ?? item.ean ?? item.ean13 ?? item.gtin),
         name: productName,
         // Evita duplicação se a descrição for igual ao nome
         description: (item.descricao_completa && item.descricao_completa !== productName) ? item.descricao_completa : (item.description || ''),

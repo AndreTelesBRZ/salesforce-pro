@@ -317,185 +317,179 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, cartCount, per
   });
 
   return (
-    <div className="min-h-full bg-black px-4 pb-12 pt-6 text-white">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <section>
-          <p className="mb-3 text-sm font-medium uppercase tracking-[0.14em] text-white/60">Resumo</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-[28px] bg-white p-6 text-slate-900 shadow-sm">
-              <div className="flex items-center gap-3 text-slate-400">
-                <div className="flex h-6 w-6 items-center justify-center rounded-md border border-current">
-                  <DollarSign className="h-4 w-4" />
-                </div>
-                <p className="text-lg font-medium">Vendas hoje</p>
-              </div>
-              <p className="mt-5 text-[2.5rem] font-semibold leading-none tracking-tight">
-                {currencyFormatter.format(todayTotal)}
-              </p>
-            </div>
+    <div className="min-h-full bg-[#0a0a0f] px-3 pb-8 pt-4 text-white">
+      <div className="mx-auto max-w-2xl space-y-3">
 
-            <button
-              type="button"
-              onClick={() => delinquencyItems.length > 0 && !delinquencyLoading && setShowDelinquencyModal(true)}
-              className="rounded-[28px] bg-rose-200 p-6 text-left text-rose-900 shadow-sm transition hover:bg-rose-100 disabled:cursor-default"
-              disabled={delinquencyLoading || delinquencyItems.length === 0}
-            >
-              <div className="flex items-center gap-3 text-rose-700">
-                <div className="flex h-6 w-6 items-center justify-center rounded-md border border-current">
-                  <AlertTriangle className="h-4 w-4" />
-                </div>
-                <p className="text-lg font-medium">Inadimplência</p>
-              </div>
-              <p className="mt-5 text-[2.5rem] font-semibold leading-none tracking-tight">
-                {delinquencyLoading ? '...' : currencyFormatter.format(delinquencyTotal)}
-              </p>
-              <p className="mt-3 text-sm text-rose-700/90">
-                {delinquencyCustomers > 0 ? `Ver clientes (${delinquencyCustomers})` : 'Nenhum cliente em aberto'}
-              </p>
-            </button>
+        {/* ── Métricas principais em linha ── */}
+        <div className="grid grid-cols-2 gap-2">
+          {/* Vendas hoje */}
+          <div className="rounded-2xl bg-white/[0.06] border border-white/[0.08] p-3.5 backdrop-blur-sm">
+            <div className="flex items-center gap-1.5 text-white/50 mb-2">
+              <DollarSign className="h-3.5 w-3.5" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest">Vendas hoje</span>
+            </div>
+            <p className="text-xl font-bold leading-none tracking-tight text-white">
+              {currencyFormatter.format(todayTotal)}
+            </p>
           </div>
 
-          <div className="mt-4 rounded-[28px] bg-[#111111] p-6 text-white shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.14em] text-white/65">Meta mensal</p>
-                <p className="mt-4 text-3xl font-semibold leading-none">R$ 0</p>
-              </div>
-              <div className="text-right">
-                <p className="text-4xl leading-none text-amber-400">
-                  <Award className="inline h-5 w-5" />
-                </p>
-                <p className="mt-3 text-2xl font-medium">{monthProgressRounded}% atingido</p>
-              </div>
+          {/* Inadimplência */}
+          <button
+            type="button"
+            onClick={() => delinquencyItems.length > 0 && !delinquencyLoading && setShowDelinquencyModal(true)}
+            className="rounded-2xl bg-rose-500/10 border border-rose-500/20 p-3.5 text-left transition hover:bg-rose-500/15 disabled:cursor-default active:scale-[0.98]"
+            disabled={delinquencyLoading || delinquencyItems.length === 0}
+          >
+            <div className="flex items-center gap-1.5 text-rose-400/80 mb-2">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest">Inadimplência</span>
             </div>
-            <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/12">
-              <div
-                className="h-full rounded-full bg-lime-500 transition-all"
-                style={{ width: `${Math.max(monthProgress, monthGoal > 0 ? 2 : 0)}%` }}
-              />
-            </div>
-            <div className="mt-4 flex items-center justify-between text-[2rem] leading-none text-white/85">
-              <span className="text-xl">R$ 0</span>
-              <span className="text-xl">de {currencyFormatter.format(monthGoal)}</span>
-            </div>
-          </div>
+            <p className="text-xl font-bold leading-none tracking-tight text-rose-400">
+              {delinquencyLoading ? '···' : currencyFormatter.format(delinquencyTotal)}
+            </p>
+            {delinquencyCustomers > 0 && (
+              <p className="mt-1.5 text-[10px] text-rose-400/70">
+                {delinquencyCustomers} cliente{delinquencyCustomers !== 1 ? 's' : ''} →
+              </p>
+            )}
+          </button>
+        </div>
 
-          <div className="mt-4">
-            <TicketMedioCard data={averageTicketData} loading={ticketLoading} />
+        {/* ── Meta mensal ── */}
+        <div className="rounded-2xl bg-white/[0.06] border border-white/[0.08] p-3.5 backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-1.5 text-white/50">
+              <Award className="h-3.5 w-3.5 text-amber-400" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-white/50">Meta mensal</span>
+            </div>
+            <span className="text-xs font-bold text-amber-400">{monthProgressRounded}%</span>
           </div>
-        </section>
+          <div className="h-1.5 rounded-full bg-white/10 overflow-hidden mb-2.5">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-amber-400 to-lime-400 transition-all duration-700"
+              style={{ width: `${Math.max(monthProgress, monthGoal > 0 ? 2 : 0)}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-white/40">
+            <span>{currencyFormatter.format(todayTotal)}</span>
+            <span>meta {currencyFormatter.format(monthGoal)}</span>
+          </div>
+        </div>
 
+        {/* ── Ticket médio (compacto) ── */}
+        <TicketMedioCard data={averageTicketData} loading={ticketLoading} />
+
+        {/* ── Clientes inativos ── */}
         {inactiveCount > 0 && !inactiveLoading && (
-          <section>
-            <button
-              type="button"
-              onClick={() => setShowInactiveModal(true)}
-              className="w-full rounded-[24px] border border-white/10 bg-white/5 px-5 py-4 text-left transition hover:bg-white/10"
-            >
-              <p className="text-sm font-medium uppercase tracking-[0.14em] text-white/50">Acompanhamento</p>
-              <div className="mt-3 flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setShowInactiveModal(true)}
+            className="w-full rounded-2xl border border-amber-500/20 bg-amber-500/8 px-3.5 py-3 text-left transition hover:bg-amber-500/12 active:scale-[0.99]"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 text-amber-400">
+                  <User className="h-3.5 w-3.5" />
+                </span>
                 <div>
-                  <p className="text-xl font-medium text-white">Clientes sem compra há 60 dias</p>
-                  <p className="mt-1 text-sm text-white/60">{inactiveCount} cliente{inactiveCount === 1 ? '' : 's'} na carteira para reativação</p>
+                  <p className="text-sm font-semibold text-white leading-none">Sem compra há 60 dias</p>
+                  <p className="text-[10px] text-white/45 mt-0.5">Carteira para reativação</p>
                 </div>
-                <div className="rounded-full bg-white/10 px-4 py-2 text-lg text-white">{inactiveCount}</div>
               </div>
-            </button>
-          </section>
+              <span className="text-sm font-bold text-amber-400 bg-amber-400/15 px-2.5 py-1 rounded-full">{inactiveCount}</span>
+            </div>
+          </button>
         )}
 
-        <section>
-          <p className="mb-3 text-sm font-medium uppercase tracking-[0.14em] text-white/60">Ações rápidas</p>
-          {perms.can_view_sales && perms.can_create_sales && (
-            <button
-              onClick={() => onNavigate('cart')}
-              className="flex w-full items-center justify-center gap-4 rounded-[26px] bg-blue-600 px-6 py-6 text-2xl font-medium text-white shadow-sm transition hover:bg-blue-500"
-            >
-              <ShoppingCart className="h-7 w-7" />
-              <span>Novo pedido</span>
-              {cartCount > 0 && (
-                <span className="rounded-full bg-white/20 px-3 py-1 text-sm font-semibold">
-                  {cartCount}
-                </span>
-              )}
-            </button>
-          )}
-        </section>
+        {/* ── Novo pedido (CTA principal) ── */}
+        {perms.can_view_sales && perms.can_create_sales && (
+          <button
+            onClick={() => onNavigate('cart')}
+            className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-blue-600 px-4 py-3.5 text-base font-semibold text-white shadow-lg shadow-blue-900/40 transition hover:bg-blue-500 active:scale-[0.98]"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            <span>Novo pedido</span>
+            {cartCount > 0 && (
+              <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs font-bold">{cartCount}</span>
+            )}
+          </button>
+        )}
 
+        {/* ── Ações rápidas (grid compacto) ── */}
         {quickSections.map((section) => (
-          <section key={section.title}>
-            <p className="mb-3 text-sm font-medium text-white/75">{section.title}</p>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div key={section.title}>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/35 px-0.5">{section.title}</p>
+            <div className="grid grid-cols-3 gap-2">
               {section.items.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => onNavigate(item.id)}
-                  className="relative flex min-h-[150px] flex-col items-center justify-center rounded-[24px] bg-white px-6 py-7 text-slate-900 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                  className="relative flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/[0.06] border border-white/[0.08] px-3 py-4 text-white transition hover:bg-white/[0.10] active:scale-[0.97]"
                 >
                   {item.badge && item.badge > 0 && (
-                    <span className="absolute right-4 top-4 rounded-full bg-amber-200 px-3 py-1 text-sm font-semibold text-amber-900">
+                    <span className="absolute right-2 top-2 rounded-full bg-amber-400 px-1.5 py-0.5 text-[9px] font-bold text-black leading-none">
                       {item.badge}
                     </span>
                   )}
-                  <item.icon className="h-10 w-10 text-slate-700" />
-                  <span className="mt-6 text-2xl font-medium tracking-tight">{item.label}</span>
+                  <item.icon className="h-5 w-5 text-white/70" />
+                  <span className="text-[11px] font-medium text-white/80 text-center leading-tight">{item.label}</span>
                 </button>
               ))}
             </div>
-          </section>
+          </div>
         ))}
 
+        {/* ── Alerta banco de dados local ── */}
         {!isStoragePersisted && !permissionRequested && (
-          <section className="rounded-[24px] border border-orange-300/40 bg-orange-50 p-5 text-slate-900 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-orange-100 text-orange-600">
-                  <Database className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold">Instalar banco de dados local</h3>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Autorize o armazenamento persistente para evitar que Android ou navegador limpem clientes, produtos e pedidos offline.
-                  </p>
-                </div>
+          <div className="rounded-2xl border border-orange-400/20 bg-orange-400/8 p-3.5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-400/15 text-orange-400">
+                <Database className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white leading-none">Banco de dados local</p>
+                <p className="text-[10px] text-white/50 mt-0.5">Autorize para salvar dados offline.</p>
               </div>
               <button
                 onClick={handleRequestPersistence}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-orange-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-orange-700"
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-orange-400"
               >
-                <ShieldCheck className="h-4 w-4" />
-                Autorizar agora
+                <ShieldCheck className="h-3 w-3" />
+                Autorizar
               </button>
             </div>
-          </section>
+          </div>
         )}
 
-        <section className="rounded-[24px] bg-white px-5 py-4 text-slate-700 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-base">
-              <span className="inline-flex items-center gap-2">
-                <LayoutGrid className="h-4 w-4 text-slate-500" />
-                {localCount !== null ? `${localCount} produtos` : '... produtos'}
+        {/* ── Status do dispositivo ── */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] px-3.5 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/35">
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5">
+                <LayoutGrid className="h-3 w-3" />
+                {localCount !== null ? `${localCount} produtos` : '—'}
               </span>
-              <span className="inline-flex items-center gap-2">
-                <User className="h-4 w-4 text-slate-500" />
-                {localCustomerCount !== null ? `${localCustomerCount} clientes` : '... clientes'}
+              <span className="flex items-center gap-1.5">
+                <User className="h-3 w-3" />
+                {localCustomerCount !== null ? `${localCustomerCount} clientes` : '—'}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-4 text-base">
-              <span className={`inline-flex items-center gap-2 font-medium ${(localCount || 0) > 0 ? 'text-amber-700' : 'text-slate-500'}`}>
-                <UploadCloud className="h-4 w-4" />
-                {pendingCount > 0 ? `Offline · ${pendingCount} pendente${pendingCount > 1 ? 's' : ''}` : 'Offline · não sincronizado'}
-              </span>
+            <div className="flex items-center gap-2">
+              {pendingCount > 0 && (
+                <span className="flex items-center gap-1 text-amber-400/70 font-medium">
+                  <UploadCloud className="h-3 w-3" />
+                  {pendingCount} pendente{pendingCount > 1 ? 's' : ''}
+                </span>
+              )}
               {isLinkedDevice && (
-                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-700">
-                  <Zap className="h-4 w-4" />
-                  Dispositivo vinculado
+                <span className="flex items-center gap-1 text-emerald-400/80 font-medium">
+                  <Zap className="h-3 w-3" />
+                  Vinculado
                 </span>
               )}
             </div>
           </div>
-        </section>
+        </div>
       </div>
 
       {showDelinquencyModal && (

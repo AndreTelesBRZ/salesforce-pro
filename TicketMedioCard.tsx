@@ -25,41 +25,38 @@ export const TicketMedioCard: React.FC<TicketMedioCardProps> = ({ data, loading 
   const showPlaceholder = loading || data === null;
 
   return (
-    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex items-center gap-3 text-slate-400 dark:text-slate-500">
-        <div className="h-6 w-6 rounded-md border border-current" />
-        <p className="text-lg font-medium leading-none">
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.06] p-3.5 backdrop-blur-sm">
+      <div className="flex items-center gap-1.5 text-white/50 mb-2.5">
+        <div className="h-3.5 w-3.5 rounded border border-current" />
+        <p className="text-[10px] font-semibold uppercase tracking-widest">
           Ticket médio ({periodDays}d)
         </p>
       </div>
 
-      <div className="mt-5">
-        <p className="text-[2.25rem] font-semibold leading-none tracking-tight text-slate-900 dark:text-white">
-          {showPlaceholder ? (
-            <span className="flex items-center gap-2 text-lg font-medium text-slate-500 dark:text-slate-400">
-              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-              Carregando...
-            </span>
-          ) : (
-            currencyFormatter.format(average)
-          )}
-        </p>
-      </div>
+      <p className="text-xl font-bold leading-none tracking-tight text-white mb-3">
+        {showPlaceholder ? (
+          <span className="flex items-center gap-2 text-sm font-medium text-white/40">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
+            Carregando...
+          </span>
+        ) : (
+          currencyFormatter.format(average)
+        )}
+      </p>
 
-      <div className="mt-6 border-t border-slate-200 pt-5 dark:border-slate-700">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm text-slate-400 dark:text-slate-500">Total no período</p>
-            <p className="mt-1 text-2xl font-medium text-slate-900 dark:text-white">
-              {showPlaceholder ? '---' : currencyFormatter.format(total)}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-slate-400 dark:text-slate-500">Pedidos faturados</p>
-            <p className="mt-1 text-2xl font-medium text-slate-900 dark:text-white">
-              {showPlaceholder ? '---' : formatCount(orderCount)}
-            </p>
-          </div>
+      <div className="flex items-center gap-4 border-t border-white/[0.08] pt-2.5">
+        <div>
+          <p className="text-[10px] text-white/35">Total no período</p>
+          <p className="text-sm font-semibold text-white/80 mt-0.5">
+            {showPlaceholder ? '—' : currencyFormatter.format(total)}
+          </p>
+        </div>
+        <div className="w-px h-6 bg-white/10" />
+        <div>
+          <p className="text-[10px] text-white/35">Pedidos faturados</p>
+          <p className="text-sm font-semibold text-white/80 mt-0.5">
+            {showPlaceholder ? '—' : formatCount(orderCount)}
+          </p>
         </div>
       </div>
     </div>

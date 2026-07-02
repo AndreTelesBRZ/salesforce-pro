@@ -1,7 +1,6 @@
 # Multi-stage build: build Vite app, run Node server to serve API and static files
 
 FROM node:18-alpine AS builder
-RUN apk add --no-cache python3 make g++ sqlite-dev
 WORKDIR /app
 COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* .npmrc* ./
 RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
@@ -25,7 +24,7 @@ RUN npm run build
 FROM node:18-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache curl python3 make g++ sqlite-dev
+RUN apk add --no-cache curl
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/dist ./dist

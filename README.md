@@ -29,6 +29,25 @@ Aplicativo de força de vendas híbrido (Web/Mobile) com backend Node/Express e 
    `npm run dev`
 
    - Frontend roda em `http://localhost:3000`
+   
+    Notes for local tenant testing
+    --------------------------------
+    - For safety, local-to-EDSON mapping is disabled by default. To enable it,
+       create a `.env.local` (or export in your shell) with:
+
+    ```bash
+    VITE_ALLOW_LOCAL_EDSON=true
+    VITE_APP_INTEGRATION_TOKEN_EDSON=seu_token_aqui
+    ```
+
+    - Allowed local hosts (only when `VITE_ALLOW_LOCAL_EDSON=true`):
+       `localhost`, `127.0.0.1`, `10.0.0.78`, `100.93.108.124`.
+    - With the variable enabled, those hosts will be mapped to the EDSON tenant
+       for development testing. If the variable is not set to `true`, the app
+       keeps showing `Domínio não configurado` for unknown hosts.
+    - Production behavior is unchanged: no hosts are auto-mapped in production
+       and real domains (`edsondosparafusos.app.br`, `llfix.app.br`) continue
+       to be resolved normally.
 - Configure `VITE_BACKEND_URL=https://apiforce.edsondosparafusos.app.br` (ou o tenant desejado) para que todas as chamadas `fetchWithAuth('/api/...')` usem URLs absolutas diretamente no backend FastAPI/Django; o Vite não envia mais o tráfego por um servidor local nem depende de proxy para `/api`.
 - Configure `VITE_API_USERNAME` e `VITE_API_PASSWORD` com as credenciais técnicas usadas para obter o JWT remoto quando o app operar em modo token de integração.
    - Cada requisição envia `Authorization: Bearer <JWT>`, `X-App-Token: <APP_INTEGRATION_TOKEN>` e `Content-Type: application/json` para o backend remoto, então qualquer 401/403 vem do FastAPI verdadeiro e não de um bloqueio de CORS ou proxy local.

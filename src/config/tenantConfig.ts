@@ -97,6 +97,44 @@ export const getTenantConfig = (hostname?: string): TenantResolution => {
   const host = normalizeHostname(
     hostname || (typeof window !== 'undefined' ? window.location.hostname : '')
   );
+  // Allow mapping a small set of local development hosts to the EDSON tenant
+  // only when explicitly enabled via `VITE_ALLOW_LOCAL_EDSON=true` in
+  // local env (e.g. .env.local). This avoids loosening domain checks in
+  // production and requires an explicit opt-in for local testing.
+  const localAllowedHosts = ['localhost', '127.0.0.1', '10.0.0.78', '100.93.108.124'];
+  // Try to detect the opt-in flag in multiple ways:
+  // 1) `import.meta.env` (normal Vite behavior)
+  // 2) resolveEnvValue() which attempts `import.meta.env[key]` (string access)
+  const importMetaEnv = (import.meta as any)?.env || {};
+  const allowLocalEdson = resolveEnvValue('VITE_ALLOW_LOCAL_EDSON') === 'true' || importMetaEnv.VITE_ALLOW_LOCAL_EDSON === 'true';
+
+  // Browser-side fallback: the dev helper writes `public/__local_env.js` which
+  // sets `window.__ALLOW_LOCAL_EDSON` and `window.__EDSON_TOKEN`. Use these
+  // only as a fallback when server-side env wasn't available.
+  const browserAllow = typeof window !== 'undefined' ? (window as any).__ALLOW_LOCAL_EDSON : undefined;
+  const browserToken = typeof window !== 'undefined' ? (window as any).__EDSON_TOKEN : undefined;
+  const allowFromBrowser = browserAllow === true || browserAllow === 'true';
+  const effectiveAllow = allowLocalEdson || allowFromBrowser;
+
+  if (effectiveAllow && host && localAllowedHosts.includes(host)) {
+    const edsonTenant = TENANTS.find((t) => t.tenant === 'EDSON');
+    if (edsonTenant) {
+      const edsonToken = resolveEnvValue('VITE_APP_INTEGRATION_TOKEN_EDSON') || importMetaEnv.VITE_APP_INTEGRATION_TOKEN_EDSON || browserToken || '';
+      return {
+        tenant: edsonTenant.tenant,
+        hostname: host,
+        domain: edsonTenant.domain,
+        storeCode: edsonTenant.storeCode,
+        label: edsonTenant.label,
+        storeName: edsonTenant.storeName,
+        tokenEnvVar: edsonTenant.tokenEnvVar,
+        token: edsonToken,
+        backendUrl: edsonTenant.backendUrl,
+        mapped: true,
+      };
+    }
+  }
+
   const matchedTenant = TENANTS.find((tenant) => matchesTenantDomain(host, tenant.domain));
 
   if (!matchedTenant) {
@@ -175,3 +213,7 @@ export const getTenantDiagnostics = (hostname?: string): {
     domainMapped: true,
   };
 };
+
+// Development debug helpers: expose functions on `window` so we can inspect
+// runtime env values and the resolved tenant from the browser console.
+// Note: no debug helpers are left in the final code.

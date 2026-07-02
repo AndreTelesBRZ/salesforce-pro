@@ -43,7 +43,7 @@ try {
 }
 
 const HOST = '0.0.0.0';
-const PORT = 3000;
+const PORT = 3002;
 
 async function startClient() {
   const define = {
@@ -60,7 +60,7 @@ async function startClient() {
       port: PORT,
       proxy: {
         '/api': {
-          target: 'http://127.0.0.1:8080',
+          target: 'http://127.0.0.1:8092',
           changeOrigin: true,
           secure: false,
         },

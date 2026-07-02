@@ -3,6 +3,8 @@ export interface Product {
   id: string;
   code?: string;
   plu?: string;
+  reference?: string;
+  barcode?: string;
   name: string;
   description: string;
   price: number;

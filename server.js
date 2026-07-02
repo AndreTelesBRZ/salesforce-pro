@@ -259,7 +259,8 @@ const requireRemoteBackendContext = (req, res) => {
     res.status(400).json({ message: 'Configuração de loja inválida. Backend do ERP não identificado.' });
     return null;
   }
-  const integrationToken = resolveIntegrationTokenForBackend(backendUrl);
+  const hintedAppToken = getHeaderValue(req.headers['x-app-token']);
+  const integrationToken = resolveIntegrationTokenForBackend(backendUrl) || hintedAppToken;
   if (!integrationToken) {
     res.status(400).json({ message: 'Token de integração inválido ou não configurado para esta loja.' });
     return null;
@@ -347,6 +348,31 @@ const validateProfileAgainstBackend = (backendUrl, payload) => {
     return { valid: false, message: 'Usuário sem acesso à loja selecionada.' };
   }
   return { valid: true };
+};
+
+const resolveAuthenticatedUserPayload = async (backendUrl, accessToken, fallbackPayload = null) => {
+  const profileResponse = await fetchRemoteProfile(backendUrl, accessToken);
+  if (profileResponse?.response?.ok) {
+    const storeValidation = validateProfileAgainstBackend(backendUrl, profileResponse.data);
+    if (!storeValidation.valid) {
+      return { ok: false, status: 403, message: storeValidation.message };
+    }
+    return { ok: true, user: extractProfileUser(profileResponse.data) };
+  }
+
+  const fallbackUser = extractProfileUser(fallbackPayload);
+  if (fallbackUser && Object.keys(fallbackUser).length > 0) {
+    const storeValidation = validateProfileAgainstBackend(backendUrl, fallbackUser);
+    if (!storeValidation.valid) {
+      return { ok: false, status: 403, message: storeValidation.message };
+    }
+    return { ok: true, user: fallbackUser };
+  }
+
+  const message = profileResponse
+    ? extractRemoteMessage(profileResponse.data, profileResponse.text, profileResponse.response.status)
+    : 'Não foi possível confirmar o usuário autenticado no ERP.';
+  return { ok: false, status: 502, message };
 };
 
 // Middleware
@@ -809,20 +835,16 @@ app.post('/api/login', async (req, res) => {
           return res.status(502).json({ message: 'ERP respondeu sem token de autenticação.' });
       }
 
-      const profileResponse = await fetchRemoteProfile(context.backendUrl, accessToken);
-      if (!profileResponse || !profileResponse.response.ok) {
-          const message = profileResponse
-            ? extractRemoteMessage(profileResponse.data, profileResponse.text, profileResponse.response.status)
-            : 'Não foi possível confirmar o usuário autenticado no ERP.';
-          return res.status(502).json({ message });
+      const authenticatedUser = await resolveAuthenticatedUserPayload(
+          context.backendUrl,
+          accessToken,
+          remoteLogin.data?.user || remoteLogin.data
+      );
+      if (!authenticatedUser.ok) {
+          return res.status(authenticatedUser.status).json({ message: authenticatedUser.message });
       }
 
-      const storeValidation = validateProfileAgainstBackend(context.backendUrl, profileResponse.data);
-      if (!storeValidation.valid) {
-          return res.status(403).json({ message: storeValidation.message });
-      }
-
-      const remoteUser = extractProfileUser(profileResponse.data);
+      const remoteUser = authenticatedUser.user;
       return res.status(200).json({
           token: {
               access_token: accessToken,
@@ -911,20 +933,16 @@ app.post('/api/auth/verify-code', async (req, res) => {
             return res.status(502).json({ message: 'ERP respondeu sem token de autenticação.' });
         }
 
-        const profileResponse = await fetchRemoteProfile(context.backendUrl, accessToken);
-        if (!profileResponse || !profileResponse.response.ok) {
-            const message = profileResponse
-              ? extractRemoteMessage(profileResponse.data, profileResponse.text, profileResponse.response.status)
-              : 'Não foi possível confirmar o usuário autenticado no ERP.';
-            return res.status(502).json({ message });
+        const authenticatedUser = await resolveAuthenticatedUserPayload(
+            context.backendUrl,
+            accessToken,
+            remoteVerify.data?.user || remoteVerify.data
+        );
+        if (!authenticatedUser.ok) {
+            return res.status(authenticatedUser.status).json({ message: authenticatedUser.message });
         }
 
-        const storeValidation = validateProfileAgainstBackend(context.backendUrl, profileResponse.data);
-        if (!storeValidation.valid) {
-            return res.status(403).json({ message: storeValidation.message });
-        }
-
-        const remoteUser = extractProfileUser(profileResponse.data);
+        const remoteUser = authenticatedUser.user;
         return res.status(200).json({
             token: {
                 access_token: accessToken,

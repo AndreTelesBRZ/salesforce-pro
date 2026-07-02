@@ -345,7 +345,16 @@ class DatabaseService {
 
           // Filtro de Texto
           if (match && terms.length > 0) {
-            const text = `${p.id} ${p.name} ${p.description || ''} ${p.category || ''}`.toLowerCase();
+            const text = [
+              p.id,
+              p.code,
+              p.plu,
+              p.reference,
+              p.barcode,
+              p.name,
+              p.description || '',
+              p.category || '',
+            ].filter(Boolean).join(' ').toLowerCase();
             // Verifica se todos os termos digitados estão presentes
             for (const term of terms) {
                 if (!text.includes(term)) {
