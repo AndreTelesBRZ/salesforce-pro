@@ -1,5 +1,6 @@
 
 import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption, PaginatedResults, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportColumn, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView, SalesHistoryResponse, UserPermissions, UserSessionProfile } from '../types';
+import { readEnv } from '../src/config/env';
 
 const PAGAMENTO_STATUS = {
   PENDENTE: 'aguardando',
@@ -451,12 +452,10 @@ class ApiService {
     };
 
     // Permite definir um backend padrão via variável de build do Vite
-    try {
-      const viteBackend = (import.meta as any)?.env?.VITE_BACKEND_URL;
-      if (viteBackend && typeof viteBackend === 'string' && viteBackend.trim() !== '') {
-        this.config.backendUrl = viteBackend.trim();
-      }
-    } catch {}
+    const viteBackend = readEnv('VITE_BACKEND_URL');
+    if (viteBackend) {
+      this.config.backendUrl = viteBackend;
+    }
 
     const savedConfig = localStorage.getItem('appConfig');
     if (savedConfig) {

@@ -15,12 +15,18 @@ interface SettingsProps {
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
 
+const maskToken = (value?: string): string => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return '';
+  if (raw.length <= 8) return `${raw.slice(0, 2)}...${raw.slice(-2)}`;
+  return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
+};
+
 export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeChange }) => {
   const [config, setConfig] = useState<AppConfig>(apiService.getConfig());
   const [message, setMessage] = useState('');
   const [testStatus, setTestStatus] = useState<TestStatus>('idle');
   const [testErrorMsg, setTestErrorMsg] = useState('');
-  const [showToken, setShowToken] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [connectionProfile, setConnectionProfile] = useState<ConnectionProfileSummary | null>(null);
@@ -34,6 +40,8 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const detectedStoreLabel = connectionProfile?.lojaCodigo || storeInfo?.store_code || storeInfo?.codigo || '';
   const domainMapped = tenantDiagnostics.domainMapped;
   const tenantLabel = tenantDiagnostics.tenant.mapped ? `${tenantDiagnostics.tenant.label} (${tenantDiagnostics.tenant.storeCode})` : 'Não configurado';
+  const displayedToken = tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken;
+  const maskedToken = maskToken(displayedToken) || 'Nao configurado';
 
   // Auto-teste
   useEffect(() => {
@@ -221,22 +229,18 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
              </label>
              <div className="relative">
                  <input
-                   type={showToken ? "text" : "password"}
-                   value={tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken}
+                   type="text"
+                   value={maskedToken}
                    readOnly
                    disabled
                    className="w-full p-3 pr-10 border rounded-md dark:bg-slate-900 dark:text-white dark:border-slate-700"
                  />
-                 <button 
-                    type="button"
-                    onClick={() => setShowToken(!showToken)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                 >
-                    {showToken ? 'Ocultar' : 'Ver'}
-                 </button>
+                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                    mascarado
+                 </span>
              </div>
              <p className="text-[10px] text-slate-500 mt-2">
-                O token é resolvido automaticamente pelo domínio. Não há edição manual quando a loja é definida pelo hostname.
+                O token é resolvido automaticamente pelo domínio e exibido apenas com máscara. Não há edição manual quando a loja é definida pelo hostname.
              </p>
         </div>
 

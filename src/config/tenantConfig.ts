@@ -1,3 +1,5 @@
+import { readEnv } from './env';
+
 export type TenantKey = 'EDSON' | 'LLFIX';
 
 export interface TenantConfig {
@@ -38,15 +40,6 @@ interface TenantDefinition {
   backendUrl: string;
   tokenEnvVar: 'VITE_APP_INTEGRATION_TOKEN_EDSON' | 'VITE_APP_INTEGRATION_TOKEN_LLFIX';
 }
-
-const resolveEnvValue = (key: string): string => {
-  try {
-    const value = (import.meta as any)?.env?.[key];
-    return typeof value === 'string' ? value.trim() : '';
-  } catch {
-    return '';
-  }
-};
 
 const TENANTS: TenantDefinition[] = [
   {
@@ -102,11 +95,7 @@ export const getTenantConfig = (hostname?: string): TenantResolution => {
   // local env (e.g. .env.local). This avoids loosening domain checks in
   // production and requires an explicit opt-in for local testing.
   const localAllowedHosts = ['localhost', '127.0.0.1', '10.0.0.78', '100.93.108.124'];
-  // Try to detect the opt-in flag in multiple ways:
-  // 1) `import.meta.env` (normal Vite behavior)
-  // 2) resolveEnvValue() which attempts `import.meta.env[key]` (string access)
-  const importMetaEnv = (import.meta as any)?.env || {};
-  const allowLocalEdson = resolveEnvValue('VITE_ALLOW_LOCAL_EDSON') === 'true' || importMetaEnv.VITE_ALLOW_LOCAL_EDSON === 'true';
+  const allowLocalEdson = readEnv('VITE_ALLOW_LOCAL_EDSON') === 'true';
 
   // Browser-side fallback: the dev helper writes `public/__local_env.js` which
   // sets `window.__ALLOW_LOCAL_EDSON` and `window.__EDSON_TOKEN`. Use these
@@ -119,7 +108,7 @@ export const getTenantConfig = (hostname?: string): TenantResolution => {
   if (effectiveAllow && host && localAllowedHosts.includes(host)) {
     const edsonTenant = TENANTS.find((t) => t.tenant === 'EDSON');
     if (edsonTenant) {
-      const edsonToken = resolveEnvValue('VITE_APP_INTEGRATION_TOKEN_EDSON') || importMetaEnv.VITE_APP_INTEGRATION_TOKEN_EDSON || browserToken || '';
+      const edsonToken = readEnv('VITE_APP_INTEGRATION_TOKEN_EDSON') || browserToken || '';
       return {
         tenant: edsonTenant.tenant,
         hostname: host,
@@ -162,7 +151,7 @@ export const getTenantConfig = (hostname?: string): TenantResolution => {
     label: matchedTenant.label,
     storeName: matchedTenant.storeName,
     tokenEnvVar: matchedTenant.tokenEnvVar,
-    token: resolveEnvValue(matchedTenant.tokenEnvVar),
+    token: readEnv(matchedTenant.tokenEnvVar),
     backendUrl: matchedTenant.backendUrl,
     mapped: true,
   };
