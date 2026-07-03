@@ -27,6 +27,7 @@ export interface OrderDraft {
   retry_count?: number;
   display_id?: number;
   notes?: string;
+  carrier?: string;
   payment_method?: string;
   payment_method_id?: string;
   shipping_method?: string;
