@@ -46,8 +46,9 @@ type RouteMode = 'app' | 'balcao' | 'desktop';
 const resolveRouteMode = (): RouteMode => {
   if (typeof window === 'undefined') return 'app';
   const path = window.location.pathname.toLowerCase().replace(/\/$/, '') || '/';
-  if (path === '/balcao' || path === '/venda-balcao') return 'balcao';
-  if (path === '/venda-desktop' || path === '/pedido-desktop' || path === '/pedido') return 'desktop';
+  if (path === '/balcao') return 'balcao';
+  // Rota exclusiva para venda balcão desktop. /pedido é mantida por compatibilidade.
+  if (path === '/venda-balcao' || path === '/pedido-balcao' || path === '/pedido' || path === '/venda-desktop' || path === '/pedido-desktop') return 'desktop';
   return 'app';
 };
 
@@ -426,9 +427,27 @@ export default function App() {
   }
 
   if (routeMode === 'desktop') {
+    if (!userProfile) {
+      return (
+        <div className="min-h-screen w-full bg-[#f4f5f7] dark:bg-slate-950 flex items-center justify-center text-slate-500">
+          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Carregando perfil...
+        </div>
+      );
+    }
+    if (!canAccessView('cart', userProfile)) {
+      return (
+        <div className="min-h-screen w-full bg-[#f4f5f7] dark:bg-slate-950 flex items-center justify-center p-6">
+          <div className="max-w-md rounded-xl border border-[#eaecf0] bg-white p-6 text-center shadow-sm dark:bg-slate-900 dark:border-slate-700">
+            <ShoppingCart className="mx-auto mb-3 h-8 w-8 text-[#98a2b3]" />
+            <h1 className="text-base font-semibold text-[#1a1d21] dark:text-white">Acesso restrito</h1>
+            <p className="mt-2 text-sm text-[#667085] dark:text-slate-400">Seu perfil não possui permissão para criar vendas.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <EnumProvider>
-        <div className="min-h-screen w-full bg-[#f4f5f7] dark:bg-slate-950 text-slate-800 dark:text-white flex items-center justify-center p-4 md:p-8 overflow-y-auto">
+        <div className="min-h-screen w-full bg-[#f4f5f7] dark:bg-slate-950 text-slate-800 dark:text-white p-6 overflow-auto">
           <Cart
             cart={cart}
             onUpdateQuantity={updateQuantity}

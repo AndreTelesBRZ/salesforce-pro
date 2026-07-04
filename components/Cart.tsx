@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
-import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
@@ -254,210 +254,22 @@ const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialV
   );
 };
 
-interface SefazData {
-  razaoSocial: string;
-  nomeFantasia: string;
-  situacao: string;
-  endereco: string;
-  uf: string;
-  municipio: string;
-}
-
-interface AddCustomerModalProps {
-  onClose: () => void;
-  onSelectCustomer: (customer: Customer) => void;
-}
-
-const normalizeCnpj = (value: string) => value.replace(/\D/g, '');
-
-const isValidCnpj = (value: string) => {
-  const cnpj = normalizeCnpj(value);
-  if (cnpj.length !== 14) return false;
-  if (/^(\d)\1{13}$/.test(cnpj)) return false;
-
-  const calcDigit = (base: string) => {
-    let sum = 0;
-    let pos = base.length - 7;
-    for (let i = 0; i < base.length; i++) {
-      sum += Number(base.charAt(i)) * pos--;
-      if (pos < 2) pos = 9;
-    }
-    const mod = sum % 11;
-    return mod < 2 ? 0 : 11 - mod;
-  };
-
-  const base12 = cnpj.substring(0, 12);
-  if (calcDigit(base12) !== Number(cnpj.charAt(12))) return false;
-  const base13 = cnpj.substring(0, 13);
-  return calcDigit(base13) === Number(cnpj.charAt(13));
-};
-
-const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ onClose, onSelectCustomer }) => {
-  const [cnpj, setCnpj] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [existingCustomer, setExistingCustomer] = useState<Customer | null>(null);
-  const [sefazData, setSefazData] = useState<SefazData | null>(null);
-
-  const handleConsultar = async () => {
-    const normalized = normalizeCnpj(cnpj);
-    if (!isValidCnpj(normalized)) {
-      setError('CNPJ invalido.');
-      setExistingCustomer(null);
-      setSefazData(null);
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setExistingCustomer(null);
-    setSefazData(null);
-
-    try {
-      const existing = await apiService.getCustomerByCnpj(normalized);
-      if (existing) {
-        setExistingCustomer(existing);
-        return;
-      }
-
-      const sefaz = await apiService.lookupSefazByCnpj(normalized);
-      setSefazData(sefaz);
-    } catch (e: any) {
-      setError(e.message || 'Falha na consulta.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSelectExisting = () => {
-    if (!existingCustomer) return;
-    onSelectCustomer(existingCustomer);
-    onClose();
-  };
-
-  const handleCreateTemp = async () => {
-    if (!sefazData) return;
-    setLoading(true);
-    setError('');
-    try {
-      const temp = await apiService.createTempCustomer({
-        cnpj: normalizeCnpj(cnpj),
-        razaoSocial: sefazData.razaoSocial,
-        nomeFantasia: sefazData.nomeFantasia || sefazData.razaoSocial,
-        endereco: sefazData.endereco,
-        uf: sefazData.uf,
-        municipio: sefazData.municipio,
-        vendedorId: apiService.getSellerId()
-      });
-      onSelectCustomer(temp);
-      onClose();
-    } catch (e: any) {
-      setError(e.message || 'Falha ao criar cliente temporario.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-xl shadow-2xl overflow-hidden">
-        <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-          <div>
-            <h3 className="font-bold text-lg">Adicionar Cliente</h3>
-            <p className="text-xs text-slate-300">Consulta por CNPJ via API</p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-white/80 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">CNPJ</label>
-            <div className="mt-1 flex gap-2">
-              <input
-                type="text"
-                value={cnpj}
-                onChange={(e) => setCnpj(e.target.value)}
-                placeholder="00.000.000/0000-00"
-                className="flex-1 p-2 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-              />
-              <button
-                onClick={handleConsultar}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-70"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Consultar
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">
-              {error}
-            </div>
-          )}
-
-          {existingCustomer && (
-            <div className="p-4 rounded-lg border border-emerald-200 bg-emerald-50">
-              <div className="flex items-center gap-2 text-emerald-700 font-semibold">
-                <CheckCircle className="w-4 h-4" />
-                Cliente ja cadastrado
-              </div>
-              <div className="mt-2 text-sm text-emerald-900">
-                <div><strong>Razao Social:</strong> {existingCustomer.name}</div>
-                <div><strong>Codigo:</strong> {existingCustomer.id}</div>
-                <div><strong>Vendedor:</strong> {existingCustomer.sellerId || 'Nao informado'}</div>
-              </div>
-              <button
-                onClick={handleSelectExisting}
-                className="mt-3 px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700"
-              >
-                Prosseguir com este cliente
-              </button>
-            </div>
-          )}
-
-          {sefazData && (
-            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
-              <div className="text-sm text-slate-700 font-semibold">Dados SEFAZ</div>
-              <div className="mt-2 text-sm text-slate-800 space-y-1">
-                <div><strong>Razao Social:</strong> {sefazData.razaoSocial}</div>
-                <div><strong>Nome Fantasia:</strong> {sefazData.nomeFantasia}</div>
-                <div><strong>Situacao:</strong> {sefazData.situacao}</div>
-                <div><strong>Endereco:</strong> {sefazData.endereco}</div>
-                <div><strong>UF / Municipio:</strong> {sefazData.uf} / {sefazData.municipio}</div>
-              </div>
-              <button
-                onClick={handleCreateTemp}
-                disabled={loading}
-                className="mt-3 px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 disabled:opacity-70"
-              >
-                Cadastrar temporario
-              </button>
-            </div>
-          )}
-
-          {!existingCustomer && !sefazData && !error && (
-            <div className="text-xs text-slate-500">
-              Informe o CNPJ e clique em consultar para validar cliente.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const getProductProfit = (productId: string): number => {
-  const cleanId = productId.trim().replace('-', '');
-  if (cleanId === '0017299') return 4.58;
-  if (cleanId === '0138352') return 5.20;
-  // Deterministic fallback margin between 4.0% and 12.0%
-  const hash = productId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const baseMargin = 4.0 + (hash % 80) / 10;
-  return Number(baseMargin.toFixed(2));
+const DEFAULT_COUNTER_CUSTOMER: Customer = {
+  id: '0',
+  name: 'Consumidor Final',
+  fantasyName: '',
+  document: '',
+  type: 'NORMAL',
+  address: '',
+  addressNumber: '',
+  neighborhood: '',
+  city: '',
+  state: '',
+  zipCode: '',
+  phone: '',
+  email: '',
+  origin: 'BALCAO',
+  sellerId: '',
 };
 
 export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft, onAddToCart }) => {
@@ -465,12 +277,11 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [success, setSuccess] = useState(false);
   const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(DEFAULT_COUNTER_CUSTOMER);
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [notes, setNotes] = useState('');
-  const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [currentDraft, setCurrentDraft] = useState<OrderDraft | null>(null);
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
 
@@ -479,13 +290,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
   const [planValidationError, setPlanValidationError] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('pix');
-  const [shippingMethod, setShippingMethod] = useState('cif');
-  const [carrier, setCarrier] = useState('Expresso Log');
+  const [paymentMethod, setPaymentMethod] = useState('dinheiro');
+  const [shippingMethod, setShippingMethod] = useState('sem_frete');
+  const [carrier, setCarrier] = useState('Retirada em Loja');
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<Product[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(0);
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
@@ -582,9 +394,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   useEffect(() => {
       apiService.getCustomers().then(apiData => {
           setCustomers(apiData);
-          if (!selectedCustomer) {
-             const defaultCus = apiData.find(c => c.id === '0');
-             if (defaultCus) setSelectedCustomer(defaultCus);
+          const defaultCus = apiData.find(c => c.id === '0');
+          if (defaultCus && selectedCustomer?.id === DEFAULT_COUNTER_CUSTOMER.id) {
+             setSelectedCustomer(defaultCus);
           }
       });
   }, []);
@@ -597,9 +409,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     }
     setCurrentDraft(draftToEdit);
     setNotes(draftToEdit.notes || '');
-    setPaymentMethod(draftToEdit.payment_method || 'pix');
-    setShippingMethod(draftToEdit.shipping_method || 'cif');
-    setCarrier(draftToEdit.carrier || 'Expresso Log');
+    setPaymentMethod(draftToEdit.payment_method || 'dinheiro');
+    setShippingMethod(draftToEdit.shipping_method || 'sem_frete');
+    setCarrier(draftToEdit.carrier || 'Retirada em Loja');
     setLastOrderNumber(draftToEdit.display_id ?? null);
     setPendingCustomerId(draftToEdit.cliente_id || null);
   }, [draftToEdit]);
@@ -635,6 +447,43 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     setPendingCustomerId(null);
   }, [pendingCustomerId, customers, draftToEdit]);
 
+  // Global desktop keyboard shortcuts
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      const isInputActive = document.activeElement && 
+        (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT');
+
+      if (e.key === 'F8') {
+        e.preventDefault();
+        handleSaveDraft();
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        handleSendToERP();
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        setShowCustomerSearch(true);
+      } else if (e.key === 'F3') {
+        e.preventDefault();
+        setShowProductSearch(true);
+      }
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key.toLowerCase() === 's') {
+          e.preventDefault();
+          handleSaveDraft();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          handleSendToERP();
+        } else if (e.key.toLowerCase() === 'c' && !isInputActive) {
+          e.preventDefault();
+          setShowCustomerSearch(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, [selectedCustomer, paymentMethod, shippingMethod, selectedPlan, cart, carrier, notes]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -653,6 +502,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       try {
         const data = await apiService.getProducts(1, 20, productSearchTerm);
         setSearchResults(data);
+        setFocusedIndex(0);
       } catch (err) {
         console.error(err);
       } finally {
@@ -662,6 +512,33 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     const delayDebounceFn = setTimeout(fetchResults, productSearchTerm ? 300 : 0);
     return () => clearTimeout(delayDebounceFn);
   }, [productSearchTerm, showProductSearch]);
+
+  // Keyboard navigation inside search results
+  useEffect(() => {
+    if (!showProductSearch) return;
+    const handleSearchKeys = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFocusedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFocusedIndex(prev => Math.max(prev - 1, 0));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selectedProd = searchResults[focusedIndex];
+        if (selectedProd) {
+          handleSelectProduct(selectedProd);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowProductSearch(false);
+        setProductSearchTerm('');
+        focusLastCartQuantity();
+      }
+    };
+    window.addEventListener('keydown', handleSearchKeys);
+    return () => window.removeEventListener('keydown', handleSearchKeys);
+  }, [showProductSearch, searchResults, focusedIndex, onAddToCart]);
 
   useEffect(() => {
       if (!selectedCustomer) return;
@@ -933,6 +810,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const handleNewOrder = () => {
     setSuccess(false);
     setCurrentDraft(null);
+    setPendingCustomerId(null);
+    setSelectedCustomer(DEFAULT_COUNTER_CUSTOMER);
+    setPaymentMethod('dinheiro');
+    setShippingMethod('sem_frete');
+    setCarrier('Retirada em Loja');
+    setSelectedPlan(null);
+    setNotes('');
     if (onClearDraft) onClearDraft();
     onClear();
   };
@@ -944,9 +828,26 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       window.open(url, '_blank');
   };
 
+  const focusLastCartQuantity = () => {
+      setTimeout(() => {
+        const inputs = document.querySelectorAll<HTMLElement>('[data-qty-input]');
+        const target = inputs[inputs.length - 1];
+        if (target) target.focus();
+      }, 80);
+  };
+
+  const handleSelectProduct = (product: Product) => {
+      if (!onAddToCart) return;
+      onAddToCart(product);
+      setShowProductSearch(false);
+      setProductSearchTerm('');
+      focusLastCartQuantity();
+  };
+
   const confirmClearCart = () => {
       onClear();
       setShowClearConfirm(false);
+      focusLastCartQuantity();
   };
 
   // --- TELA DE CONFIRMAÇÃO DE LIMPEZA ---
@@ -1037,12 +938,6 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
           onConfirm={(val) => { if (onUpdatePrice) onUpdatePrice(editingPrice.id, val); setEditingPrice(null); }}
         />
       )}
-      {showAddCustomer && (
-        <AddCustomerModal
-          onClose={() => setShowAddCustomer(false)}
-          onSelectCustomer={(customer) => { setSelectedCustomer(customer); setShowCustomerSearch(false); }}
-        />
-      )}
       {showClearConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-[#eaecf0] dark:border-slate-700">
@@ -1092,13 +987,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   Nenhum produto encontrado para "{productSearchTerm}"
                 </div>
               ) : (
-                searchResults.map(prod => {
+                searchResults.map((prod, index) => {
                   const isInCart = cart.some(item => item.id === prod.id);
                   const cartQty = cart.find(item => item.id === prod.id)?.quantity || 0;
+                  const isFocused = focusedIndex === index;
                   return (
                     <div 
                       key={prod.id} 
-                      className="flex items-center justify-between p-3 rounded-xl hover:bg-[#f9fafb] dark:hover:bg-slate-800/60 transition-colors border border-transparent hover:border-[#eaecf0] dark:hover:border-slate-800"
+                      className={`flex items-center justify-between p-3 rounded-xl transition-colors border ${
+                        isFocused 
+                          ? 'bg-[#eff4ff] dark:bg-blue-900/20 border-[#155eef]' 
+                          : 'border-transparent hover:bg-[#f9fafb] dark:hover:bg-slate-800/60'
+                      }`}
                     >
                       <div className="min-w-0 pr-3">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -1122,7 +1022,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                         </span>
                         {onAddToCart && (
                           <button
-                            onClick={() => onAddToCart(prod)}
+                            onClick={() => handleSelectProduct(prod)}
                             className={`p-2 rounded-lg transition-all active:scale-95 ${
                               isInCart 
                                 ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' 
@@ -1155,7 +1055,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       )}
 
       {/* CARD PRINCIPAL */}
-      <div className="w-full max-w-[1440px] mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border border-[#eaecf0] dark:border-slate-700 my-4 mx-4 md:my-6 md:mx-auto overflow-hidden">
+      <div className="w-full max-w-[1440px] mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border border-[#eaecf0] dark:border-slate-700 overflow-hidden">
 
         {/* ── HEADER ── */}
         <div className="flex items-center justify-between px-7 py-[18px] border-b border-[#eaecf0] dark:border-slate-700">
@@ -1211,34 +1111,28 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         </div>
 
         {/* ── GRID: Conteúdo + Sidebar ── */}
-        <div className="px-7 pt-5 pb-0 grid grid-cols-1 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_320px] gap-8">
+        <div className="px-7 pt-5 pb-5 grid grid-cols-1 lg:grid-cols-[1fr_230px] gap-4 items-start">
 
           {/* ── COLUNA ESQUERDA ── */}
           <div>
             {/* CLIENTE */}
-            <p className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">Cliente</p>
-
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
             {!selectedCustomer ? (
-              <div className="relative mb-5">
+              <div className="relative">
                 <button
                   onClick={() => setShowCustomerSearch(!showCustomerSearch)}
-                  className="w-full flex items-center gap-3 p-3.5 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-xl text-[#667085] dark:text-slate-400 hover:bg-[#f2f4f7] dark:hover:bg-slate-700 transition-colors text-sm"
+                  className="w-full flex items-center gap-3 text-[#667085] dark:text-slate-400 transition-colors text-sm"
                 >
-                  <div className="w-[38px] h-[38px] rounded-[10px] bg-[#eaecf0] dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-[#eaecf0] dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
                     <User className="w-4 h-4 text-[#98a2b3]" />
                   </div>
-                  <span className="text-[14px]">Selecionar cliente...</span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowAddCustomer(true); }}
-                    className="ml-auto text-[11px] text-[#155eef] hover:text-[#1349c5] font-medium px-2 py-1 rounded-md hover:bg-[#eff4ff] dark:hover:bg-blue-900/20 transition-colors flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" /> Novo
-                  </button>
+                  <span className="text-[13px]">Consumidor Final <span className="text-xs text-[#98a2b3]">(F2 para trocar)</span></span>
                 </button>
                 {showCustomerSearch && (
                   <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 shadow-xl rounded-xl z-20 overflow-hidden">
                     <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
                       <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
                         className="flex-1 p-2 border border-[#eaecf0] dark:border-slate-600 rounded-lg text-sm dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#155eef]" />
                       <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
                     </div>
@@ -1255,8 +1149,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 )}
               </div>
             ) : (
-              <div className="relative mb-5">
-                <div className="flex items-center gap-3 p-[14px] bg-[#f9fafb] dark:bg-slate-800 rounded-xl border border-[#eaecf0] dark:border-slate-700">
+              <div className="relative">
+                <div className="flex items-center gap-3">
                   <div className="w-[38px] h-[38px] rounded-[10px] bg-gradient-to-br from-[#155eef] to-[#7f56d9] flex items-center justify-center flex-shrink-0">
                     <span className="text-white font-semibold text-[14px]">
                       {selectedCustomer.name.slice(0,2).toUpperCase()}
@@ -1264,26 +1158,28 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-[14px] font-semibold text-[#1a1d21] dark:text-white leading-tight">{selectedCustomer.name}</p>
+                      <p className="text-[14px] font-semibold text-[#1a1d21] dark:text-white leading-tight truncate">{selectedCustomer.name}</p>
                       {selectedCustomer.type === 'TEMPORARIO' && (
-                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">Temp.</span>
+                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 shrink-0">Temp.</span>
                       )}
                     </div>
                     <p className="text-[12px] text-[#667085] dark:text-slate-400 mt-[2px] truncate">
                       {selectedCustomer.document}
-                      {selectedCustomer.phone ? <>&nbsp;·&nbsp;{selectedCustomer.phone}</> : null}
-                      {selectedCustomer.city ? <>&nbsp;·&nbsp;{selectedCustomer.city} - {selectedCustomer.state || 'CE'}</> : null}
+                      {selectedCustomer.city ? <>&nbsp;·&nbsp;{selectedCustomer.city}/{selectedCustomer.state || 'CE'}</> : null}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setShowAddCustomer(true)} className="text-xs text-[#155eef] hover:text-[#1349c5] font-medium px-2 py-1 rounded-md hover:bg-[#eff4ff] dark:hover:bg-blue-900/20 transition-colors">+ Novo</button>
-                    <button onClick={() => setShowCustomerSearch(!showCustomerSearch)} className="text-xs text-[#667085] hover:text-[#1a1d21] dark:text-slate-400 dark:hover:text-white font-medium px-2 py-1 rounded-md hover:bg-[#f2f4f7] dark:hover:bg-slate-700 transition-colors">Trocar</button>
-                  </div>
+                  <button
+                    onClick={() => setShowCustomerSearch(!showCustomerSearch)}
+                    className="ml-auto text-[12px] text-[#155eef] hover:text-[#1349c5] dark:text-blue-400 dark:hover:text-blue-300 font-medium transition-colors shrink-0"
+                  >
+                    Trocar
+                  </button>
                 </div>
                 {showCustomerSearch && (
                   <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 shadow-xl rounded-xl z-20 overflow-hidden">
                     <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
                       <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
                         className="flex-1 p-2 border border-[#eaecf0] dark:border-slate-600 rounded-lg text-sm dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#155eef]" />
                       <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
                     </div>
@@ -1301,16 +1197,24 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               </div>
             )}
 
-            {/* ITENS DO PEDIDO */}
-            <p className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">Itens do pedido</p>
+            </div>
 
-            <table className="w-full border-collapse mb-2">
+            {/* ITENS DO PEDIDO */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
+              <p className="flex items-center justify-between text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">
+                <span>Itens do pedido</span>
+                <span className="font-normal normal-case tracking-normal text-[#98a2b3] dark:text-slate-500">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</span>
+              </p>
+
+            <div className="overflow-x-auto mb-0">
+              <table className="w-full border-collapse mb-2">
               <thead>
                 <tr>
-                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 pr-2">Produto</td>
-                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Qtd.</td>
+                  <td className="w-[38%] text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 pr-2">Produto</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Qtde.</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Und.</td>
                   <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Valor emb.</td>
-                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Lucro</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Estoque</td>
                   <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Total</td>
                   <td className="pb-2 border-b border-[#eaecf0] dark:border-slate-700"></td>
                 </tr>
@@ -1318,7 +1222,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               <tbody>
                 {cart.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-[#667085] dark:text-slate-500 text-sm">
+                    <td colSpan={7} className="py-12 text-center text-[#667085] dark:text-slate-500 text-sm">
                       Nenhum produto no pedido. Pressione <kbd className="bg-white dark:bg-slate-800 border border-[#d0d5dd] dark:border-slate-700 px-1.5 py-[2px] rounded-[5px] text-[11px] font-normal select-none">⌘K</kbd> ou clique na barra de busca para adicionar.
                     </td>
                   </tr>
@@ -1329,63 +1233,73 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   const discountAmount = hasDiscount ? referencePrice - item.price : 0;
                   const discountPercent = hasDiscount ? (discountAmount / referencePrice) * 100 : 0;
                   const stockQty = item.stock ?? 0;
+                  const stockStatus = stockQty < 0 ? 'negative' : stockQty < item.quantity ? 'insufficient' : 'available';
+                  const stockBadgeClass = stockStatus === 'available'
+                    ? 'bg-[#ecfdf3] dark:bg-emerald-900/30 text-[#067647] dark:text-emerald-400'
+                    : stockStatus === 'insufficient'
+                      ? 'bg-[#fffaeb] dark:bg-amber-900/20 text-[#b54708] dark:text-amber-400'
+                      : 'bg-[#fef3f2] dark:bg-red-900/20 text-[#b42318] dark:text-red-400';
+                  const stockIcon = stockStatus === 'available' ? '🟢' : stockStatus === 'insufficient' ? '🟡' : '🔴';
                   const step = (item.unit === 'un' || item.unit === 'pc' || item.unit === 'pç') ? 1 : 0.5;
                   const rowTotal = item.price * item.quantity;
                   return (
                     <tr key={item.id} className="border-b border-[#f2f4f7] dark:border-slate-800 hover:bg-[#f9fafb] dark:hover:bg-slate-800/40 group transition-colors">
                       {/* Produto */}
-                      <td className="py-[11px] pr-2">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[11px] font-medium px-[7px] py-[2px] rounded-[6px]">{item.id}</span>
-                          </div>
-                          <button
-                            onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
-                            className="text-[13px] text-[#1a1d21] dark:text-white hover:text-[#155eef] dark:hover:text-blue-400 transition-colors text-left font-normal"
-                            title="Editar preço"
-                          >
-                            {item.name}
-                          </button>
-                          {hasDiscount && (
-                            <span className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              Desc. R$ {discountAmount.toFixed(2)} ({discountPercent.toFixed(1)}%)
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      {/* Qtd */}
-                      <td className="py-[11px] pr-2 text-right">
-                        <div className="flex items-center justify-end gap-0.5">
-                          <button onClick={() => onUpdateQuantity(item.id, item.quantity - step)}
-                            className="w-5 h-5 flex items-center justify-center rounded text-[#98a2b3] hover:text-[#155eef] hover:bg-[#eff4ff] dark:hover:bg-blue-900/30 transition-colors">
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <button onClick={() => setEditingItem({ id: item.id, name: item.name, quantity: item.quantity, unit: item.unit })}
-                            className="min-w-[40px] text-center text-[13px] font-normal text-[#1a1d21] dark:text-white hover:text-[#155eef] transition-colors">
-                            {item.quantity.toLocaleString('pt-BR', { minimumFractionDigits: item.quantity % 1 !== 0 ? 3 : 0, maximumFractionDigits: 3 })}
-                          </button>
-                          <button onClick={() => onUpdateQuantity(item.id, item.quantity + step)}
-                            className="w-5 h-5 flex items-center justify-center rounded text-[#98a2b3] hover:text-[#155eef] hover:bg-[#eff4ff] dark:hover:bg-blue-900/30 transition-colors">
-                            <Plus className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </td>
-                      {/* Valor emb. */}
-                      <td className="py-[11px] pr-2 text-right text-[13px]">
+                      <td className="py-[13px] pr-2 text-[13px] text-[#1a1d21] dark:text-white">
+                        <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[11px] font-medium px-[7px] py-[2px] rounded-[6px] mr-2">{item.id}</span>
                         <button
                           onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
-                          className="text-[#1a1d21] dark:text-white hover:text-[#155eef] dark:hover:text-blue-400 font-medium inline-flex items-center gap-1 transition-colors justify-end w-full"
+                          className="text-left hover:text-[#155eef] dark:hover:text-blue-400 transition-colors"
                           title="Editar preço"
                         >
-                          R$ {item.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          <svg className="w-3.5 h-3.5 text-[#98a2b3] opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                          {item.name}
+                        </button>
+                        {hasDiscount && (
+                          <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            Desc. R$ {discountAmount.toFixed(2)} ({discountPercent.toFixed(1)}%)
+                          </span>
+                        )}
+                      </td>
+                      {/* Qtd */}
+                      <td className="py-[13px] pr-2 text-center">
+                        <button
+                          onClick={() => setEditingItem({ id: item.id, name: item.name, quantity: item.quantity, unit: item.unit })}
+                          data-qty-input
+                          className="border-b border-dashed border-[#d0d5dd] pb-px text-[13px] text-[#1a1d21] dark:text-white hover:border-[#155eef] hover:bg-[#eff4ff] dark:hover:bg-blue-900/20 focus:outline-none"
+                          title="Clique para editar a quantidade"
+                        >
+                          {item.quantity.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
                         </button>
                       </td>
-                      {/* Lucro */}
-                      <td className="py-[11px] pr-2 text-right">
-                        <span className="bg-[#ecfdf3] dark:bg-emerald-900/30 text-[#067647] dark:text-emerald-400 text-[11px] font-medium px-[7px] py-[2px] rounded-[6px]">
-                          {getProductProfit(item.id).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                      {/* Und. */}
+                      <td className="py-[11px] pr-2 text-center">
+                        <span className="inline-flex items-center justify-center min-w-8 rounded-md bg-[#f2f4f7] dark:bg-slate-800 px-2 py-[3px] text-[11px] font-medium text-[#475467] dark:text-slate-300">
+                          {item.unit}
+                        </span>
+                      </td>
+                      {/* Valor emb. */}
+                      <td className="py-[13px] pr-2 text-right text-[13px]">
+                        <button
+                          onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
+                          className="inline-flex items-center justify-end gap-1 text-[#1a1d21] dark:text-white font-medium hover:text-[#155eef] dark:hover:text-blue-400 transition-colors w-full"
+                          title="Editar valor ou aplicar desconto"
+                        >
+                          {item.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <svg className="h-[13px] w-[13px] text-[#98a2b3]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                        </button>
+                      </td>
+                      {/* Estoque */}
+                      <td className="py-[13px] pr-2 text-center">
+                        <span className="inline-flex items-center justify-center gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[12px] font-medium tabular-nums ${stockBadgeClass}`}
+                            title={stockStatus === 'available' ? 'Estoque disponível' : stockStatus === 'insufficient' ? 'Estoque insuficiente' : 'Estoque negativo'}
+                          >
+                            <span aria-hidden="true">{stockIcon}</span>
+                            {stockQty}
+                          </span>
+                          <Search className="h-[13px] w-[13px] text-[#98a2b3]" />
                         </span>
                       </td>
                       {/* Total */}
@@ -1409,16 +1323,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             {/* Adicionar item */}
             <div 
               onClick={() => setShowProductSearch(true)}
-              className="flex items-center gap-2 px-[10px] py-[10px] border border-dashed border-[#d0d5dd] dark:border-slate-600 rounded-[10px] text-[#667085] dark:text-slate-500 text-[13px] mb-5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              className="flex items-center gap-2 px-[10px] py-[10px] border border-dashed border-[#d0d5dd] dark:border-slate-600 rounded-[10px] text-[#667085] dark:text-slate-500 text-[13px] mt-[14px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             >
               <Plus className="w-[15px] h-[15px]" />
               <span>Adicionar item · pressione</span>
               <span className="bg-white dark:bg-slate-700 border border-[#d0d5dd] dark:border-slate-600 rounded-[5px] px-1.5 py-[2px] text-[11px] text-[#667085] dark:text-slate-400 mx-0.5">⌘K</span>
               <span>para buscar</span>
             </div>
+            </div>
+            </div>
 
             {/* Observações */}
-            <div className="mb-5">
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-0">
               <label className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em]">Observações</label>
               <textarea
                 value={notes}
@@ -1431,32 +1347,27 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
           </div>
 
           {/* ── SIDEBAR DIREITA ── */}
-          <div className="pt-0 lg:pt-[28px]">
+          <div>
 
             {/* LIMITE DE CRÉDITO */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
             <p className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">Limite de crédito</p>
-            <div className="bg-[#f9fafb] dark:bg-slate-800 rounded-xl p-[14px] border border-[#eaecf0] dark:border-slate-700 mb-5">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-[12px] text-[#667085] dark:text-slate-400">Utilizado</span>
-                <span className="text-[12px] font-semibold text-[#1a1d21] dark:text-white">
-                  {Math.round(((9522.17 + total) / 60000.00) * 100)}%
-                </span>
-              </div>
-              <div className="h-[6px] bg-[#eaecf0] dark:bg-slate-700 rounded-full overflow-hidden mb-2.5">
-                <div
-                  className="h-full bg-[#155eef] rounded-full transition-all duration-500"
-                  style={{ width: `${Math.round(((9522.17 + total) / 60000.00) * 100)}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-[12px] text-[#667085] dark:text-slate-400">
-                <span>Saldo</span>
-                <span className="font-medium text-[#1a1d21] dark:text-white">
-                  R$ {(50477.83 - total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
+            <div>
+              {!selectedCustomer || selectedCustomer.id === '0' || selectedCustomer.id === 'consumidor-final' ? (
+                <p className="text-[12px] text-[#98a2b3] dark:text-slate-500 text-center py-1">
+                  Selecione um cliente para consultar o limite.
+                </p>
+              ) : (
+                <div className="rounded-lg border border-dashed border-[#d0d5dd] dark:border-slate-700 bg-[#f9fafb] dark:bg-slate-800/50 px-3 py-3 text-[12px] text-[#667085] dark:text-slate-400">
+                  Limite de crédito indisponível para este cliente. Integração de crédito pendente no frontend.
+                </div>
+              )}
+            </div>
+
             </div>
 
             {/* PRAZO & TRANSPORTE */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-0">
             <p className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">Prazo &amp; transporte</p>
 
             {/* Condição de Pagamento */}
@@ -1466,7 +1377,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <select
                   value={paymentMethod}
                   onChange={e => setPaymentMethod(e.target.value)}
-                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-2 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
                 >
                   {paymentSelectOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1488,7 +1399,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   <select
                     value={selectedPlan?.code || ''}
                     onChange={e => setSelectedPlan(paymentPlans.find(p => p.code === e.target.value) || null)}
-                    className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-2 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                    className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
                   >
                     {paymentPlans.map(p => <option key={p.code} value={p.code}>{p.description}</option>)}
                   </select>
@@ -1502,10 +1413,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             {/* Vencimento */}
             <div className="mb-3.5">
               <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Vencimento</p>
-              <div className="text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-2 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg">
+              <div className="text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg">
                 {selectedPlan?.daysFirstInstallment
                   ? new Date(Date.now() + selectedPlan.daysFirstInstallment * 86400000).toLocaleDateString('pt-BR')
-                  : new Date(Date.now() + 30 * 86400000).toLocaleDateString('pt-BR')
+                  : 'Dia'
                 }
               </div>
             </div>
@@ -1517,9 +1428,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <select
                   value={carrier}
                   onChange={e => setCarrier(e.target.value)}
-                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-2 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
                 >
-                  {['Expresso Log', 'Rede Cargo', 'Direct Transportes', 'Retirada em Loja'].map(opt => (
+                  {['Retirada em Loja', 'Expresso Log', 'Rede Cargo', 'Direct Transportes'].map(opt => (
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
@@ -1536,7 +1447,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <select
                   value={shippingMethod}
                   onChange={e => setShippingMethod(e.target.value)}
-                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-2 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
                 >
                   {shippingSelectOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1548,49 +1459,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               </div>
             </div>
 
-            {/* RESUMO DE VALORES */}
-            <div className="border-t border-b border-[#eaecf0] dark:border-slate-700 py-3.5 my-4 space-y-2">
-              <div className="flex justify-between text-xs text-[#667085] dark:text-slate-400">
-                <span>Subtotal</span>
-                <span>R$ {cart.reduce((sum, item) => sum + ((item.basePrice ?? item.price) * item.quantity), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-              </div>
-              {cart.reduce((sum, item) => sum + (((item.basePrice ?? item.price) - item.price) * item.quantity), 0) > 0 && (
-                <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-medium">
-                  <span>Desconto</span>
-                  <span>- R$ {cart.reduce((sum, item) => sum + (((item.basePrice ?? item.price) - item.price) * item.quantity), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-xs text-[#667085] dark:text-slate-400">
-                <span>Modalidade Frete</span>
-                <span className="uppercase font-medium text-[#1a1d21] dark:text-white">{shippingMethod}</span>
-              </div>
-              <div className="flex justify-between text-sm font-semibold text-[#1a1d21] dark:text-white pt-1">
-                <span>Total do Pedido</span>
-                <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-
-            {/* Ações rápidas */}
-            <div className="flex gap-2 mt-2 mb-5">
-              <button
-                onClick={() => setShowClearConfirm(true)}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-[#667085] dark:text-slate-400 bg-white dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg hover:bg-[#f9fafb] dark:hover:bg-slate-700 transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> Limpar
-              </button>
-              <button
-                onClick={shareQuote}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-[#667085] dark:text-slate-400 bg-white dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg hover:bg-[#f9fafb] dark:hover:bg-slate-700 transition-colors"
-              >
-                <Share2 className="w-3.5 h-3.5" /> WhatsApp
-              </button>
             </div>
           </div>
         </div>
 
         {/* ── FOOTER ── */}
-        <div className="flex items-center justify-between px-7 py-4 mt-5 bg-[#f9fafb] dark:bg-slate-900 border-t border-[#eaecf0] dark:border-slate-700">
+        <div className="flex items-center justify-between px-7 py-4 bg-[#f9fafb] dark:bg-slate-900 border-t border-[#eaecf0] dark:border-slate-700 select-none">
           <span className="text-[12px] text-[#667085] dark:text-slate-500">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</span>
+          
           <div className="flex items-center gap-2">
             <span className="text-[12px] text-[#667085] dark:text-slate-400">Total do pedido</span>
             <span className="text-[20px] font-bold text-[#1a1d21] dark:text-white tracking-[-0.02em]">
