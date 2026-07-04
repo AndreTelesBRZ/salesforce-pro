@@ -41,12 +41,14 @@ const resolveProtectedStoreLabel = (): string => {
   return tenant.mapped ? tenant.storeCode.replace(/^0+/, '') : '';
 };
 
-type RouteMode = 'app' | 'balcao';
+type RouteMode = 'app' | 'balcao' | 'desktop';
 
 const resolveRouteMode = (): RouteMode => {
   if (typeof window === 'undefined') return 'app';
   const path = window.location.pathname.toLowerCase().replace(/\/$/, '') || '/';
-  return path === '/balcao' || path === '/venda-balcao' ? 'balcao' : 'app';
+  if (path === '/balcao' || path === '/venda-balcao') return 'balcao';
+  if (path === '/venda-desktop' || path === '/pedido-desktop' || path === '/pedido') return 'desktop';
+  return 'app';
 };
 
 const navigateToPath = (path: string) => {
@@ -423,6 +425,35 @@ export default function App() {
     );
   }
 
+  if (routeMode === 'desktop') {
+    return (
+      <EnumProvider>
+        <div className="min-h-screen w-full bg-[#f4f5f7] dark:bg-slate-950 text-slate-800 dark:text-white flex items-center justify-center p-4 md:p-8 overflow-y-auto">
+          <Cart
+            cart={cart}
+            onUpdateQuantity={updateQuantity}
+            onUpdatePrice={(id, newPrice) => {
+              if (isNaN(newPrice) || newPrice < 0) return;
+              if (newPrice === 0) {
+                removeFromCart(id);
+                return;
+              }
+              setCart(prev => prev.map(i => {
+                if (i.id !== id) return i;
+                return { ...i, price: newPrice };
+              }));
+            }}
+            onRemove={removeFromCart}
+            onClear={clearCart}
+            draftToEdit={draftToEdit}
+            onClearDraft={clearDraftEditing}
+            onAddToCart={addToCart}
+          />
+        </div>
+      </EnumProvider>
+    );
+  }
+
   const getHeaderTitle = () => {
     switch (currentView) {
       case 'dashboard': return 'Início';
@@ -558,6 +589,7 @@ export default function App() {
                 onClear={clearCart}
                 draftToEdit={draftToEdit}
                 onClearDraft={clearDraftEditing}
+                onAddToCart={addToCart}
               />
             )}
             {(currentView === 'orders' || currentView === 'send') && canAccessView(currentView, userProfile) && (

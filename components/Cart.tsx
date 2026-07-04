@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
+import { Product, CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
 import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
@@ -66,6 +66,7 @@ interface CartProps {
   onClear: () => void;
   draftToEdit?: OrderDraft | null;
   onClearDraft?: () => void;
+  onAddToCart?: (product: Product) => void;
 }
 
 const createOrderUUID = (): string => {
@@ -459,7 +460,7 @@ const getProductProfit = (productId: string): number => {
   return Number(baseMargin.toFixed(2));
 };
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft, onAddToCart }) => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
@@ -481,6 +482,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [paymentMethod, setPaymentMethod] = useState('pix');
   const [shippingMethod, setShippingMethod] = useState('cif');
   const [carrier, setCarrier] = useState('Expresso Log');
+  const [showProductSearch, setShowProductSearch] = useState(false);
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
@@ -629,6 +634,34 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     }
     setPendingCustomerId(null);
   }, [pendingCustomerId, customers, draftToEdit]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowProductSearch(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!showProductSearch) return;
+    const fetchResults = async () => {
+      setSearchLoading(true);
+      try {
+        const data = await apiService.getProducts(1, 20, productSearchTerm);
+        setSearchResults(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setSearchLoading(false);
+      }
+    };
+    const delayDebounceFn = setTimeout(fetchResults, productSearchTerm ? 300 : 0);
+    return () => clearTimeout(delayDebounceFn);
+  }, [productSearchTerm, showProductSearch]);
 
   useEffect(() => {
       if (!selectedCustomer) return;
@@ -977,14 +1010,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     );
   }
 
-  if (cart.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 text-slate-400 dark:text-slate-500">
-        <ShoppingCart className="w-16 h-16 mb-4 opacity-20" />
-        <p>Seu carrinho está vazio.</p>
-      </div>
-    );
-  }
+
 
   return (
     <div className="flex flex-col h-full bg-[#f4f5f7] dark:bg-slate-950 transition-colors relative">
@@ -1032,8 +1058,104 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         </div>
       )}
 
+      {showProductSearch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm">
+          <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[#eaecf0] dark:border-slate-800 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
+            {/* Search Input Header */}
+            <div className="p-4 border-b border-[#eaecf0] dark:border-slate-800 flex items-center gap-3 bg-[#f9fafb] dark:bg-slate-800/50">
+              <Search className="w-5 h-5 text-[#98a2b3] shrink-0" />
+              <input
+                type="text"
+                placeholder="Buscar produto por nome ou código..."
+                value={productSearchTerm}
+                onChange={e => setProductSearchTerm(e.target.value)}
+                autoFocus
+                className="flex-1 bg-transparent border-none outline-none text-sm text-[#1a1d21] dark:text-white placeholder:text-[#98a2b3]"
+              />
+              <button 
+                onClick={() => { setShowProductSearch(false); setProductSearchTerm(''); }}
+                className="p-1.5 text-[#98a2b3] hover:text-[#667085] hover:bg-slate-100 dark:hover:bg-slate-850 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Product List */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {searchLoading ? (
+                <div className="flex items-center justify-center py-12 text-[#667085]">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#155eef] mr-2" />
+                  <span className="text-sm">Pesquisando catálogo...</span>
+                </div>
+              ) : searchResults.length === 0 ? (
+                <div className="text-center py-12 text-[#667085] text-sm">
+                  Nenhum produto encontrado para "{productSearchTerm}"
+                </div>
+              ) : (
+                searchResults.map(prod => {
+                  const isInCart = cart.some(item => item.id === prod.id);
+                  const cartQty = cart.find(item => item.id === prod.id)?.quantity || 0;
+                  return (
+                    <div 
+                      key={prod.id} 
+                      className="flex items-center justify-between p-3 rounded-xl hover:bg-[#f9fafb] dark:hover:bg-slate-800/60 transition-colors border border-transparent hover:border-[#eaecf0] dark:hover:border-slate-800"
+                    >
+                      <div className="min-w-0 pr-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                            {prod.id}
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {prod.category}
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-semibold text-[#1a1d21] dark:text-white mt-1 truncate">
+                          {prod.name}
+                        </h4>
+                        <div className="flex items-center gap-2 mt-0.5 text-xs text-[#667085] dark:text-slate-400">
+                          <span>Estoque: <strong className={prod.stock <= 0 ? "text-red-500" : "text-emerald-500"}>{prod.stock} {prod.unit.toLowerCase()}</strong></span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-sm font-bold text-[#1a1d21] dark:text-white">
+                          R$ {prod.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        {onAddToCart && (
+                          <button
+                            onClick={() => onAddToCart(prod)}
+                            className={`p-2 rounded-lg transition-all active:scale-95 ${
+                              isInCart 
+                                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' 
+                                : 'bg-[#155eef] hover:bg-[#1349c5] text-white'
+                            }`}
+                            title={isInCart ? `Adicionado (${cartQty}x)` : 'Adicionar ao carrinho'}
+                          >
+                            {isInCart ? (
+                              <div className="flex items-center gap-1 text-xs font-semibold px-1">
+                                <Check className="w-3.5 h-3.5" /> {cartQty}x
+                              </div>
+                            ) : (
+                              <Plus className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            
+            {/* Keyboard shortcut footer hint */}
+            <div className="p-3 border-t border-[#eaecf0] dark:border-slate-800 bg-[#f9fafb] dark:bg-slate-800/30 text-center text-[11px] text-[#667085]">
+              Use as setas para navegar e clique no botão para adicionar
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CARD PRINCIPAL */}
-      <div className="w-full max-w-[960px] mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border border-[#eaecf0] dark:border-slate-700 my-4 mx-4 md:my-6 md:mx-auto overflow-hidden">
+      <div className="w-full max-w-[1440px] mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border border-[#eaecf0] dark:border-slate-700 my-4 mx-4 md:my-6 md:mx-auto overflow-hidden">
 
         {/* ── HEADER ── */}
         <div className="flex items-center justify-between px-7 py-[18px] border-b border-[#eaecf0] dark:border-slate-700">
@@ -1079,14 +1201,17 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         </div>
 
         {/* ── BARRA DE BUSCA ── */}
-        <div className="mx-7 mt-5 flex items-center gap-2.5 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-[10px] px-3.5 py-2.5">
+        <div 
+          onClick={() => setShowProductSearch(true)}
+          className="mx-7 mt-5 flex items-center gap-2.5 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-[10px] px-3.5 py-2.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors"
+        >
           <Search className="w-4 h-4 text-[#98a2b3] flex-shrink-0" />
           <span className="flex-1 text-[13px] text-[#98a2b3] dark:text-slate-500 select-none">Buscar produto por nome ou código...</span>
           <span className="bg-white dark:bg-slate-700 border border-[#d0d5dd] dark:border-slate-600 rounded-[5px] px-1.5 py-[2px] text-[11px] text-[#667085] dark:text-slate-400 font-normal select-none">⌘K</span>
         </div>
 
         {/* ── GRID: Conteúdo + Sidebar ── */}
-        <div className="px-7 pt-5 pb-0 grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
+        <div className="px-7 pt-5 pb-0 grid grid-cols-1 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_320px] gap-8">
 
           {/* ── COLUNA ESQUERDA ── */}
           <div>
@@ -1144,9 +1269,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                         <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">Temp.</span>
                       )}
                     </div>
-                    <p className="text-[12px] text-[#667085] dark:text-slate-400 mt-[2px]">
+                    <p className="text-[12px] text-[#667085] dark:text-slate-400 mt-[2px] truncate">
                       {selectedCustomer.document}
                       {selectedCustomer.phone ? <>&nbsp;·&nbsp;{selectedCustomer.phone}</> : null}
+                      {selectedCustomer.city ? <>&nbsp;·&nbsp;{selectedCustomer.city} - {selectedCustomer.state || 'CE'}</> : null}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
@@ -1190,7 +1316,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 </tr>
               </thead>
               <tbody>
-                {cart.map((item) => {
+                {cart.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-[#667085] dark:text-slate-500 text-sm">
+                      Nenhum produto no pedido. Pressione <kbd className="bg-white dark:bg-slate-800 border border-[#d0d5dd] dark:border-slate-700 px-1.5 py-[2px] rounded-[5px] text-[11px] font-normal select-none">⌘K</kbd> ou clique na barra de busca para adicionar.
+                    </td>
+                  </tr>
+                ) :
+                  cart.map((item) => {
                   const referencePrice = item.basePrice ?? item.price;
                   const hasDiscount = referencePrice > 0 && item.price < referencePrice;
                   const discountAmount = hasDiscount ? referencePrice - item.price : 0;
@@ -1239,8 +1372,15 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                         </div>
                       </td>
                       {/* Valor emb. */}
-                      <td className="py-[11px] pr-2 text-right text-[13px] text-[#1a1d21] dark:text-white">
-                        {item.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <td className="py-[11px] pr-2 text-right text-[13px]">
+                        <button
+                          onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
+                          className="text-[#1a1d21] dark:text-white hover:text-[#155eef] dark:hover:text-blue-400 font-medium inline-flex items-center gap-1 transition-colors justify-end w-full"
+                          title="Editar preço"
+                        >
+                          R$ {item.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <svg className="w-3.5 h-3.5 text-[#98a2b3] opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                        </button>
                       </td>
                       {/* Lucro */}
                       <td className="py-[11px] pr-2 text-right">
@@ -1267,7 +1407,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             </table>
 
             {/* Adicionar item */}
-            <div className="flex items-center gap-2 px-[10px] py-[10px] border border-dashed border-[#d0d5dd] dark:border-slate-600 rounded-[10px] text-[#667085] dark:text-slate-500 text-[13px] mb-5">
+            <div 
+              onClick={() => setShowProductSearch(true)}
+              className="flex items-center gap-2 px-[10px] py-[10px] border border-dashed border-[#d0d5dd] dark:border-slate-600 rounded-[10px] text-[#667085] dark:text-slate-500 text-[13px] mb-5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            >
               <Plus className="w-[15px] h-[15px]" />
               <span>Adicionar item · pressione</span>
               <span className="bg-white dark:bg-slate-700 border border-[#d0d5dd] dark:border-slate-600 rounded-[5px] px-1.5 py-[2px] text-[11px] text-[#667085] dark:text-slate-400 mx-0.5">⌘K</span>
@@ -1402,6 +1545,28 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98a2b3" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
                 </div>
+              </div>
+            </div>
+
+            {/* RESUMO DE VALORES */}
+            <div className="border-t border-b border-[#eaecf0] dark:border-slate-700 py-3.5 my-4 space-y-2">
+              <div className="flex justify-between text-xs text-[#667085] dark:text-slate-400">
+                <span>Subtotal</span>
+                <span>R$ {cart.reduce((sum, item) => sum + ((item.basePrice ?? item.price) * item.quantity), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              {cart.reduce((sum, item) => sum + (((item.basePrice ?? item.price) - item.price) * item.quantity), 0) > 0 && (
+                <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-medium">
+                  <span>Desconto</span>
+                  <span>- R$ {cart.reduce((sum, item) => sum + (((item.basePrice ?? item.price) - item.price) * item.quantity), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-xs text-[#667085] dark:text-slate-400">
+                <span>Modalidade Frete</span>
+                <span className="uppercase font-medium text-[#1a1d21] dark:text-white">{shippingMethod}</span>
+              </div>
+              <div className="flex justify-between text-sm font-semibold text-[#1a1d21] dark:text-white pt-1">
+                <span>Total do Pedido</span>
+                <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
 
