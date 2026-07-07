@@ -5,6 +5,21 @@ import { apiService } from '../services/api';
 import { geminiService } from '../services/geminiService';
 import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2, RefreshCcw } from 'lucide-react';
 
+// TODO: substituir por campo "estoque_minimo" vindo da API quando o backend estiver pronto
+const ESTOQUE_BAIXO_LIMITE = 3;
+
+function getStockColor(stock: number): string {
+  if (stock < 0) return 'text-red-600 dark:text-red-400';
+  if (stock < ESTOQUE_BAIXO_LIMITE) return 'text-yellow-600 dark:text-yellow-400';
+  return 'text-green-600 dark:text-green-400';
+}
+
+function getStockBadgeBg(stock: number): string {
+  if (stock < 0) return 'bg-red-600/80';
+  if (stock < ESTOQUE_BAIXO_LIMITE) return 'bg-yellow-500/80';
+  return 'bg-green-600/80';
+}
+
 interface ProductListProps {
   onAddToCart: (product: Product) => void;
   onRemoveFromCart: (id: string) => void;
@@ -40,6 +55,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
   const [exportingCatalog, setExportingCatalog] = useState(false);
 
   const observer = useRef<IntersectionObserver | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
      setIsTyping(true);
@@ -65,6 +81,11 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleToggleCart = (product: Product) => {
+    onToggleCart(product);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
   const handleManualRefresh = () => {
@@ -334,6 +355,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
         <div className="flex gap-2 items-center">
             <div className="relative flex-1">
               <input
+                ref={searchInputRef}
                 type="text"
                 value={searchTerm}
                 onChange={(e) => { const v = e.target.value; setSearchTerm(v); localStorage.setItem('PRODUCT_SEARCH_PL', v); }}
@@ -441,7 +463,6 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
               const isLastElement = index === products.length - 1;
               const cartItem = getCartItem(product.id);
               const isInCart = !!cartItem;
-              const isOutOfStock = (typeof product.stock === 'number' ? product.stock : 0) <= 0;
               const quantity = cartItem?.quantity || 0;
               const qtyDisplay = Number.isInteger(quantity) ? quantity : quantity.toFixed(2);
 
@@ -452,8 +473,6 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                     className={`bg-white dark:bg-slate-800 rounded-lg shadow-sm border overflow-hidden flex flex-col transition-all ${
                         isInCart 
                         ? 'border-orange-500 dark:border-orange-500 ring-1 ring-orange-500/50' 
-                        : isOutOfStock
-                        ? 'border-red-500/80 dark:border-red-500 bg-red-50/70 dark:bg-red-900/50'
                         : 'border-slate-200 dark:border-slate-700'
                     }`}
                 >
@@ -476,14 +495,9 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                         {imageLoadingId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
                     </button>
 
-                    <span className={`absolute bottom-2 right-2 text-xs px-2 py-1 rounded-full backdrop-blur-sm ${isOutOfStock ? 'bg-red-600/90 text-white' : 'bg-black/60 text-white'}`}>
+                    <span className={`absolute bottom-2 right-2 ${getStockBadgeBg(product.stock)} text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm`}>
                       Est: {product.stock}
                     </span>
-                    {isOutOfStock && (
-                      <span className="absolute bottom-2 left-2 text-xs font-bold text-red-600 dark:text-red-300 bg-white/80 dark:bg-red-900/70 px-2 py-0.5 rounded-full shadow-sm">
-                        Sem estoque
-                      </span>
-                    )}
 
                     {isInCart && (
                       <div className="absolute top-2 left-2 bg-orange-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg flex items-center gap-1 animate-in zoom-in">
@@ -515,7 +529,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                             <span className="text-xl font-bold text-blue-800 dark:text-blue-400">R$ {product.price.toFixed(2)}</span>
                         </div>
                         <button 
-                            onClick={() => onToggleCart(product)}
+                            onClick={() => handleToggleCart(product)}
                             className={`p-3 rounded-lg shadow-lg active:scale-95 transition-all flex items-center gap-2 ${
                                 isInCart
                                 ? 'bg-orange-700 text-white shadow-orange-600/30 ring-2 ring-orange-300 dark:ring-orange-900'
@@ -544,8 +558,6 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                       className={`p-3 rounded-lg border flex items-start justify-between gap-3 shadow-sm active:scale-[0.99] transition-all ${
                         isInCart 
                         ? 'bg-orange-50/50 border-orange-400 dark:bg-orange-900/10 dark:border-orange-500' 
-                        : isOutOfStock
-                        ? 'bg-red-50/50 border-red-300 dark:bg-red-900/10 dark:border-red-500'
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                     }`}
                   >
@@ -554,18 +566,14 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                          <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] border font-bold ${
                              isInCart
                              ? 'bg-orange-100 text-orange-700 border-orange-200'
-                             : isOutOfStock
-                             ? 'bg-red-100 text-red-600 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-600'
                              : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'
                          }`}>
                            {product.id}
                         </span>
                          <span className="truncate max-w-[100px] hidden sm:inline">{product.category}</span>
                          <span className="hidden sm:inline text-slate-300 dark:text-slate-600">•</span>
-                         <span className={`flex items-center gap-1 whitespace-nowrap font-medium ${
-                            isOutOfStock ? 'text-red-500 dark:text-red-300' : 'text-slate-600 dark:text-slate-300'
-                         }`}>
-                           <Box className="w-3 h-3" /> {product.stock} {product.unit}
+                         <span className={`flex items-center gap-1 whitespace-nowrap font-medium ${getStockColor(product.stock)}`}>
+                           <Box className={`w-3 h-3 ${getStockColor(product.stock)}`} /> {product.stock} {product.unit}
                         </span>
                       </div>
 
@@ -592,7 +600,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                       </div>
                       <div className="flex gap-2">
                       <button 
-                        onClick={() => onToggleCart(product)}
+                        onClick={() => handleToggleCart(product)}
                         className={`p-2 rounded-lg transition-colors ${
                             isInCart
                             ? 'bg-orange-600 text-white hover:bg-orange-700'
