@@ -449,6 +449,7 @@ export default function App() {
       <EnumProvider>
         <div className="min-h-screen w-full bg-[#f4f5f7] dark:bg-slate-950 text-slate-800 dark:text-white p-6 overflow-auto">
           <Cart
+            storeInfo={storeInfo}
             cart={cart}
             onUpdateQuantity={updateQuantity}
             onUpdatePrice={(id, newPrice) => {
@@ -591,6 +592,7 @@ export default function App() {
             )}
             {currentView === 'cart' && canAccessView('cart', userProfile) && (
               <Cart
+                storeInfo={storeInfo}
                 cart={cart}
                 onUpdateQuantity={updateQuantity}
                 onUpdatePrice={(id, newPrice) => {
@@ -620,6 +622,7 @@ export default function App() {
             )}
             {currentView === 'drafts' && canAccessView('drafts', userProfile) && (
               <DraftsPage
+                storeInfo={storeInfo}
                 onNavigate={(v) => setCurrentView(v as View)}
                 onEditDraft={(draft) => {
                   try {

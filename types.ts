@@ -51,7 +51,9 @@ export interface CartItem extends Product {
 
 export interface Order {
   id: string;
-  displayId?: number; // Numeração sequencial visual
+  displayId?: number; // Numeração interna sequencial
+  numero_orcamento?: string;
+  numero_pedido?: string;
   customerId?: string;
   customerName?: string;
   customerDoc?: string;

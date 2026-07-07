@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowUpRight, Download, Edit3, Loader2, Trash2 } from 'lucide-react';
 import { Order } from '../../types';
 import { OrderDraft } from '../types/orderDraft';
+import { buildBudgetNumber, getDocumentKind, getDocumentLabels, getDocumentNumber } from '../utils/documentIdentity';
 import { apiService } from '../../services/api';
 import { deleteDraft, getAllDrafts, updateDraft } from '../services/draftDB';
 
@@ -10,6 +11,7 @@ type AppView = 'dashboard' | 'products' | 'cart' | 'orders' | 'settings' | 'cust
 interface DraftsPageProps {
   onNavigate: (view: AppView) => void;
   onEditDraft: (draft: OrderDraft) => void;
+  storeInfo?: Record<string, any> | null;
 }
 
 const buildOrderFromDraft = (draft: OrderDraft): Order => {
@@ -28,6 +30,8 @@ const buildOrderFromDraft = (draft: OrderDraft): Order => {
   return {
     id: draft.id,
     displayId: draft.display_id,
+    numero_orcamento: draft.numero_orcamento,
+    numero_pedido: draft.numero_pedido,
     items,
     total: draft.total,
     customerId: draft.cliente_id,
@@ -59,7 +63,7 @@ const statusStyles: Record<OrderDraft['status'], string> = {
   ERROR: 'bg-red-50 text-red-700 border border-red-100',
 };
 
-export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft }) => {
+export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft, storeInfo }) => {
   const [drafts, setDrafts] = useState<OrderDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -131,6 +135,12 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft 
     setDownloadingPdfId(draft.id);
     try {
       const order = buildOrderFromDraft(draft);
+      const number = buildBudgetNumber({
+        store: storeInfo,
+        sellerCode: apiService.getSellerId() || apiService.getUsername(),
+        issuedAt: draft.data_criacao,
+        existingNumber: draft.numero_orcamento || null,
+      });
       const payload = {
         id: order.id,
         displayId: order.displayId,
@@ -146,7 +156,15 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft 
         paymentInstallments: order.paymentInstallments,
         items: order.items,
         total: order.total,
+        status: 'draft',
+        businessStatus: 'orcamento',
+        documentType: 'budget',
+        numero_orcamento: number,
+        numero_pedido: draft.numero_pedido,
       };
+      if (!storeInfo) {
+        throw new Error('Dados da loja indisponíveis.');
+      }
       const res = await apiService.fetchAppLocal('/api/recibo/pdf/public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -158,7 +176,7 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'rascunho-' + (order.displayId || order.id) + '.pdf';
+      a.download = 'orcamento-' + getDocumentNumber({ numero_orcamento: number, displayId: order.displayId }) + '.pdf';
       a.target = '_blank';
       a.rel = 'noreferrer';
       document.body.appendChild(a);
@@ -224,7 +242,7 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft 
             <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
               <div>
                 <p className="text-sm text-slate-500 dark:text-slate-400">Cliente ID • {draft.cliente_id}</p>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Pedido {draft.display_id ? `#${draft.display_id}` : draft.id}</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Orçamento {draft.numero_orcamento ? `#${draft.numero_orcamento}` : draft.display_id ? `#${draft.display_id}` : draft.id}</h2>
               </div>
               <span className={`px-3 py-1 rounded-full text-[11px] font-semibold uppercase ${statusStyles[draft.status]}`}>
                 {draft.status}

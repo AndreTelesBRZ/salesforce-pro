@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
+import { getDocumentKind, getDocumentLabels, getDocumentNumber } from '../src/utils/documentIdentity';
 import { Order } from '../types';
 import { FileText, Printer, ChevronDown, ChevronUp, Calendar, Package, RefreshCw, AlertCircle, CheckCircle2, Loader2, Download, Copy, Share2, X } from 'lucide-react';
 
@@ -196,6 +197,11 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
     window.print();
   };
 
+  const receiptKind = viewingReceipt
+    ? getDocumentKind({ status: viewingReceipt.status, businessStatus: viewingReceipt.businessStatus })
+    : 'pedido';
+  const receiptLabels = getDocumentLabels(receiptKind);
+
   const filteredOrders = orders.filter((order) => {
     if (activeTab === 'all') return true;
     return order.status === activeTab;
@@ -317,7 +323,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
           <div id="receipt-modal" className="bg-white w-full max-w-[820px] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="bg-slate-900 p-4 flex justify-between items-center no-print shrink-0">
               <h3 className="text-white font-bold flex items-center gap-2">
-                <Printer className="w-5 h-5" /> Visualizar Recibo
+                <Printer className="w-5 h-5" /> Visualizar Documento
               </h3>
               <button onClick={() => setViewingReceipt(null)} className="text-white/70 hover:text-white">
                 <X className="w-6 h-6" />
@@ -337,9 +343,9 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                           />
                         )}
                         <div className="space-y-1">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Comprovante de Pedido</p>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">{receiptLabels.cover}</p>
                           <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">{headerStore?.trade_name || 'SalesForce Pro'}</h1>
-                          <p className="text-sm text-slate-600">{headerStore?.legal_name || 'Documento comercial de pedido'}</p>
+                          <p className="text-sm text-slate-600">{headerStore?.legal_name || receiptLabels.subtitle}</p>
                           {headerStore?.document && (
                             <p className="text-xs text-slate-500">CNPJ/CPF: {headerStore.document}</p>
                           )}
@@ -354,8 +360,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                         </div>
                       </div>
                       <div className="w-[220px] shrink-0 border border-slate-200 rounded-2xl bg-white px-4 py-3">
-                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Pedido</p>
-                        <p className="text-2xl font-mono font-bold text-slate-900 mt-1">#{viewingReceipt.displayId}</p>
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">{receiptLabels.numberLabel}</p>
+                        <p className="text-2xl font-mono font-bold text-slate-900 mt-1">#{getDocumentNumber(viewingReceipt as any)}</p>
                         <div className="mt-4 pt-3 border-t border-slate-100">
                           <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Data de Emissão</p>
                           <p className="text-sm font-semibold text-slate-800 mt-1">{formatDate(viewingReceipt.createdAt)}</p>
@@ -385,7 +391,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                     <div className="mt-5 border border-slate-200 rounded-2xl overflow-hidden">
                       <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
                         <div>
-                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">Itens do Pedido</p>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]">{receiptLabels.items}</p>
                           <p className="text-sm font-semibold text-slate-800 mt-1">{viewingReceipt.items.length} item(ns)</p>
                         </div>
                         <div className="text-right text-xs text-slate-500">
@@ -502,6 +508,11 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                       paymentInstallments: viewingReceipt.paymentInstallments,
                       items: viewingReceipt.items,
                       total: viewingReceipt.total,
+                      status: receiptKind === 'orcamento' ? 'draft' : viewingReceipt.status,
+                      businessStatus: viewingReceipt.businessStatus || (receiptKind === 'orcamento' ? 'orcamento' : undefined),
+                      documentType: receiptKind === 'orcamento' ? 'budget' : 'order',
+                      numero_orcamento: viewingReceipt.numero_orcamento || getDocumentNumber(viewingReceipt as any),
+                      numero_pedido: viewingReceipt.numero_pedido,
                       store: headerStore
                     };
                     const res = await apiService.fetchAppLocal('/api/recibo/pdf/public', {
@@ -514,7 +525,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({ onNavigate, initialT
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `pedido-${viewingReceipt.displayId}.pdf`;
+                    a.download = `${receiptLabels.filenamePrefix}-${getDocumentNumber(viewingReceipt as any)}.pdf`;
                     a.target = '_blank';
                     a.rel = 'noreferrer';
                     document.body.appendChild(a);

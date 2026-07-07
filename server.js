@@ -1668,10 +1668,43 @@ const formatDateTimePtBr = (value) => {
   }
 };
 
+const getReceiptDocumentKind = (receipt = {}) => {
+  const status = String(receipt.status || '').trim().toLowerCase();
+  const businessStatus = String(receipt.businessStatus || receipt.business_status || '').trim().toLowerCase();
+  const documentType = String(receipt.documentType || receipt.document_type || '').trim().toLowerCase();
+  if (
+    documentType === 'orcamento' ||
+    documentType === 'orçamento' ||
+    documentType === 'budget' ||
+    status === 'draft' ||
+    status === 'rascunho' ||
+    businessStatus === 'orcamento' ||
+    businessStatus === 'rascunho'
+  ) {
+    return 'orcamento';
+  }
+  return 'pedido';
+};
+
+const getReceiptDocumentLabels = (kind) => {
+  const isBudget = kind === 'orcamento';
+  return {
+    headline: isBudget ? 'ORÇAMENTO' : 'PEDIDO',
+    cover: isBudget ? 'ORÇAMENTO COMERCIAL' : 'COMPROVANTE DE PEDIDO',
+    subtitle: isBudget ? 'Documento comercial de orçamento' : 'Documento comercial de pedido',
+    items: isBudget ? 'ITENS DO ORÇAMENTO' : 'ITENS DO PEDIDO',
+    numberLabel: isBudget ? 'ORÇAMENTO Nº' : 'PEDIDO Nº',
+    filenamePrefix: isBudget ? 'orcamento' : 'pedido',
+  };
+};
+
 const renderReceiptPDF = (doc, receipt, store) => {
+  const documentKind = getReceiptDocumentKind(receipt);
+  const documentLabels = getReceiptDocumentLabels(documentKind);
   const marginLeft = doc.page.margins.left;
   const marginTop = doc.page.margins.top;
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const contentBottom = doc.page.height - doc.page.margins.bottom;
   const dateLabel = formatDatePtBr(receipt.createdAt);
   const total = Number(receipt.total || 0);
   const items = Array.isArray(receipt.items) ? receipt.items : [];
@@ -1729,11 +1762,12 @@ const renderReceiptPDF = (doc, receipt, store) => {
   const metaHeight = 128;
   const orderCardWidth = 150;
   const companyWidth = pageWidth - orderCardWidth - 16;
+  const hasStoreIdentity = Boolean(store && (store.trade_name || store.legal_name || store.document || store.logo_url));
 
   drawBox(marginLeft, metaTop, pageWidth, metaHeight, { fill: '#f8fafc', stroke: '#d7dee7', radius: 14 });
 
   let logoOffset = 0;
-  if (store?.logo_url) {
+  if (hasStoreIdentity && store?.logo_url) {
     try {
       doc.image(store.logo_url, marginLeft + 16, metaTop + 16, { fit: [54, 54], align: 'center', valign: 'center' });
       drawBox(marginLeft + 12, metaTop + 12, 62, 62, { stroke: '#d7dee7', radius: 12 });
@@ -1746,11 +1780,15 @@ const renderReceiptPDF = (doc, receipt, store) => {
   const companyTextWidth = companyWidth - logoOffset - 10;
   const companyBottomLimit = metaTop + metaHeight - 14;
 
-  writeLabel('Comprovante de Pedido', companyX, companyY, companyTextWidth);
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(18).text(store?.trade_name || 'SalesForce Pro', companyX, companyY + 14, { width: companyTextWidth, lineBreak: false });
+  writeLabel(documentLabels.cover, companyX, companyY, companyTextWidth);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(18).text(store?.trade_name || documentLabels.headline, companyX, companyY + 14, { width: companyTextWidth, lineBreak: false });
 
   let companyCursorY = companyY + 40;
-  doc.fillColor('#475569').font('Helvetica').fontSize(9.5).text(store?.legal_name || 'Documento comercial de pedido', companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+  if (hasStoreIdentity) {
+    doc.fillColor('#475569').font('Helvetica').fontSize(9.5).text(store?.legal_name || documentLabels.subtitle, companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+  } else {
+    doc.fillColor('#b91c1c').font('Helvetica-Bold').fontSize(9.5).text('Dados da loja indisponíveis', companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+  }
   companyCursorY += 16;
 
   if (store?.document) {
@@ -1784,8 +1822,8 @@ const renderReceiptPDF = (doc, receipt, store) => {
   const orderX = marginLeft + pageWidth - orderCardWidth - 16;
   const orderY = metaTop + 16;
   drawBox(orderX, orderY, orderCardWidth, 80, { fill: '#ffffff', stroke: '#d7dee7', radius: 12 });
-  writeLabel('Pedido', orderX + 12, orderY + 10, orderCardWidth - 24);
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(18).text(`#${receipt.displayId || ''}`, orderX + 12, orderY + 26, { width: orderCardWidth - 24 });
+  writeLabel(documentLabels.numberLabel, orderX + 12, orderY + 10, orderCardWidth - 24);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(18).text(`#${receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || ''}`, orderX + 12, orderY + 26, { width: orderCardWidth - 24 });
   doc.save();
   doc.moveTo(orderX + 12, orderY + 50).lineTo(orderX + orderCardWidth - 12, orderY + 50).strokeColor('#e2e8f0').lineWidth(1).stroke();
   doc.restore();
@@ -1819,8 +1857,8 @@ const renderReceiptPDF = (doc, receipt, store) => {
   const descWidth = colUnitPrice - colDesc - 12;
 
   drawBox(marginLeft, tableTop, pageWidth, tableHeaderHeight, { fill: '#f1f5f9', stroke: '#d7dee7', radius: 12 });
-  writeLabel('Itens do Pedido', marginLeft + 14, tableTop + 8, 180);
-  doc.fillColor('#334155').font('Helvetica-Bold').fontSize(9).text(`${items.length} item(ns)`, marginLeft + 14, tableTop + 18, { width: 180 });
+  writeLabel(documentLabels.items, marginLeft + 14, tableTop + 8, 180);
+  doc.fillColor('#334155').font('Helvetica-Bold').fontSize(9).text(items.length + ' item(ns)', marginLeft + 14, tableTop + 18, { width: 180 });
   doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text('Valores em reais', marginLeft, tableTop + 13, { width: pageWidth - 14, align: 'right' });
 
   const headerY = tableTop + tableHeaderHeight + 8;
@@ -1860,10 +1898,15 @@ const renderReceiptPDF = (doc, receipt, store) => {
     cursorY += rowHeight + 8;
   });
 
-  const lowerTop = cursorY + 12;
+  let lowerTop = cursorY + 12;
   const notesWidth = pageWidth - 200 - gap;
   const sideCardWidth = 200;
   const notesHeight = 116;
+  const lowerBlockHeight = notesHeight + 16 + 72 + 26 + 42;
+  if (cursorY + lowerBlockHeight > contentBottom) {
+    startPage();
+    lowerTop = cursorY + 12;
+  }
 
   drawBox(marginLeft, lowerTop, notesWidth, notesHeight, { stroke: '#d7dee7', radius: 12 });
   writeLabel('Observações', marginLeft + 14, lowerTop + 12, notesWidth - 28);
@@ -2084,8 +2127,11 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
       } catch {}
     }
 
+    const documentKind = getReceiptDocumentKind(receipt);
+    const documentLabels = getReceiptDocumentLabels(documentKind);
+    const number = receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || 'recibo';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=pedido-${receipt.displayId || 'recibo'}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename=${documentLabels.filenamePrefix}-${number}.pdf`);
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     doc.pipe(res);
@@ -2111,8 +2157,11 @@ app.post('/api/recibo/pdf/public', async (req, res) => {
       } catch {}
     }
 
+    const documentKind = getReceiptDocumentKind(receipt);
+    const documentLabels = getReceiptDocumentLabels(documentKind);
+    const number = receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || 'recibo';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=pedido-${receipt.displayId || 'recibo'}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename=${documentLabels.filenamePrefix}-${number}.pdf`);
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     doc.pipe(res);

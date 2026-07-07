@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, LogOut, Minus, Package, Plus, RotateCcw, Save, Search, ShoppingCart, Store, Trash2, User, Wallet, XCircle, Tag, TrendingDown } from 'lucide-react';
 import { apiService } from '../services/api';
+import { buildBudgetNumber } from '../src/utils/documentIdentity';
 import { dbService } from '../services/db';
 import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
 import { DraftStatus, OrderDraft } from '../src/types/orderDraft';
@@ -334,6 +335,12 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
     status,
     retry_count: 0,
     display_id: await ensureDisplayId(),
+    numero_orcamento: buildBudgetNumber({
+      store: storeInfo,
+      sellerCode: sellerCode || currentUser,
+      issuedAt: new Date().toISOString(),
+      existingNumber: null,
+    }),
     notes,
     payment_method: paymentMethod,
     payment_method_id: paymentMethod,
@@ -350,6 +357,8 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
   const buildOrderFromDraft = (draft: OrderDraft): Order => ({
     id: draft.id,
     displayId: draft.display_id,
+    numero_orcamento: draft.numero_orcamento,
+    numero_pedido: draft.numero_pedido,
     customerId: draft.cliente_id,
     customerName: draft.cliente_nome,
     customerDoc: draft.cliente_documento,
@@ -403,7 +412,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
         await saveDraft(draft);
       }
       setCurrentDraftId(draft.id);
-      setFeedback({ type: 'success', text: `Rascunho #${draft.display_id} salvo com sucesso.` });
+      setFeedback({ type: 'success', text: `Orçamento #${draft.numero_orcamento || draft.display_id} salvo com sucesso.` });
     } catch (error: any) {
       setFeedback({ type: 'error', text: error?.message || 'Erro ao salvar rascunho.' });
     } finally {
@@ -434,7 +443,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
         throw new Error(result.message || 'Erro ao gerar pré-venda.');
       }
       await deleteDraft(draft.id);
-      setFeedback({ type: 'success', text: `Pré-venda #${draft.display_id} gerada com sucesso! 🎉` });
+      setFeedback({ type: 'success', text: `Pré-venda #${draft.numero_orcamento || draft.display_id} gerada com sucesso! 🎉` });
       resetSale();
     } catch (error: any) {
       if (draft) {
@@ -582,7 +591,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     value={customerSearch}
                     onChange={(event) => setCustomerSearch(event.target.value)}
                     placeholder="Nome, código, CPF/CNPJ ou telefone"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30"
                   />
                 </label>
               </div>
@@ -655,7 +664,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     value={productSearch}
                     onChange={(event) => setProductSearch(event.target.value)}
                     placeholder="Código, descrição, PLU, referência ou código de barras"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30"
                   />
                 </label>
               </div>
@@ -680,16 +689,16 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     return (
                       <div
                         key={product.id}
-                        className={`grid grid-cols-[1.1fr_2fr_0.7fr_0.7fr_1fr_80px] gap-2 border-b border-slate-50 px-4 py-2.5 text-sm transition-colors ${
+                        className={`grid grid-cols-1 gap-2 border-b border-slate-50 px-4 py-2.5 text-sm transition-colors md:grid-cols-[1.1fr_2fr_0.7fr_0.7fr_1fr_80px] ${
                           isJustAdded ? 'bg-emerald-50' : inCart ? 'bg-blue-50/60' : 'hover:bg-slate-50/80'
                         }`}
                       >
                         <div>
-                          <div className="font-semibold text-slate-800 text-xs">{product.id}</div>
-                          <div className="text-[10px] text-slate-400">{product.reference || product.barcode || product.plu || ''}</div>
+                          <div className="font-semibold text-slate-800 text-sm md:text-xs">{product.id}</div>
+                          <div className="text-[11px] text-slate-500 md:text-[10px]">{product.reference || product.barcode || product.plu || ''}</div>
                         </div>
                         <div>
-                          <div className="font-medium text-slate-900 text-xs leading-tight">{product.name}</div>
+                          <div className="font-medium text-slate-900 text-sm leading-tight md:text-xs">{product.name}</div>
                           {product.category && (
                             <span className={`mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-bold ${getCategoryColor(product.category)}`}>
                               {product.category}
@@ -697,12 +706,12 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                           )}
                         </div>
                         <div className="text-xs text-slate-500 self-center">{product.unit}</div>
-                        <div className={`text-xs font-semibold self-center ${outOfStock ? 'text-rose-600' : lowStock ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        <div className={`text-xs font-semibold self-center md:self-center ${outOfStock ? 'text-rose-600' : lowStock ? 'text-amber-600' : 'text-emerald-600'}`}>
                           {product.stock ?? '–'}
                           {lowStock && <span className="ml-0.5 text-[9px]">⚠</span>}
                         </div>
-                        <div className="text-xs font-bold text-slate-900 self-center">{formatMoney(product.price)}</div>
-                        <div className="flex items-center justify-end">
+                        <div className="text-xs font-bold text-slate-900 self-center md:self-center">{formatMoney(product.price)}</div>
+                        <div className="flex items-center justify-end md:justify-end">
                           <button
                             type="button"
                             onClick={() => addProductToCart(product)}
@@ -768,13 +777,13 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                         <div className="min-w-0 flex-1">
                           <div className="font-semibold text-slate-900 text-sm truncate">{item.name}</div>
                           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                            <span className="text-[10px] text-slate-400">{item.id}</span>
+                            <span className="text-[11px] text-slate-500 md:text-[10px]">{item.id}</span>
                             {item.stock !== undefined && (
                               <span className={`text-[10px] font-medium ${item.stock <= 0 ? 'text-rose-500' : 'text-slate-400'}`}>
                                 Estoque: {item.stock}
                               </span>
                             )}
-                            <span className="text-[10px] text-slate-400">{item.unit}</span>
+                            <span className="text-[11px] text-slate-500 md:text-[10px]">{item.unit}</span>
                           </div>
                         </div>
                         <button type="button" onClick={() => updateQuantity(item.id, 0)} className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition-colors flex-shrink-0">
@@ -849,7 +858,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                   <div className="min-w-0 flex-1">
                     <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cliente</div>
                     <div className="truncate text-xs font-semibold text-slate-800">{selectedCustomer?.name || 'Nenhum selecionado'}</div>
-                    <div className="text-[10px] text-slate-400">{selectedCustomer?.document || 'Consumidor padrão'}</div>
+                    <div className="text-[11px] text-slate-500 md:text-[10px]">{selectedCustomer?.document || 'Consumidor padrão'}</div>
                   </div>
                 </div>
               </div>

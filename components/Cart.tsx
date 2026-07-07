@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Product, CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
 import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
+import { buildBudgetNumber } from '../src/utils/documentIdentity';
 import { dbService } from '../services/db';
 import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
 import { DraftStatus, OrderDraft, OrderDraftItem } from '../src/types/orderDraft';
@@ -67,6 +68,7 @@ interface CartProps {
   draftToEdit?: OrderDraft | null;
   onClearDraft?: () => void;
   onAddToCart?: (product: Product) => void;
+  storeInfo?: Record<string, any> | null;
 }
 
 const createOrderUUID = (): string => {
@@ -272,10 +274,10 @@ const DEFAULT_COUNTER_CUSTOMER: Customer = {
   sellerId: '',
 };
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft, onAddToCart }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft, onAddToCart, storeInfo }) => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
+  const [lastOrderNumber, setLastOrderNumber] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(DEFAULT_COUNTER_CUSTOMER);
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
@@ -412,8 +414,11 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     setPaymentMethod(draftToEdit.payment_method || 'dinheiro');
     setShippingMethod(draftToEdit.shipping_method || 'sem_frete');
     setCarrier(draftToEdit.carrier || 'Retirada em Loja');
-    setLastOrderNumber(draftToEdit.display_id ?? null);
+    setLastOrderNumber(draftToEdit.display_id ? String(draftToEdit.display_id) : null);
     setPendingCustomerId(draftToEdit.cliente_id || null);
+    if (draftToEdit) {
+      setLastOrderNumber(draftToEdit.numero_orcamento || draftToEdit.numero_pedido || (draftToEdit.display_id ? String(draftToEdit.display_id) : null));
+    }
   }, [draftToEdit]);
 
   useEffect(() => {
@@ -674,6 +679,12 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     const now = new Date().toISOString();
     const draftId = currentDraft?.id || createOrderUUID();
     const displayId = await ensureDisplayId();
+    const numeroOrcamento = buildBudgetNumber({
+      store: storeInfo,
+      sellerCode: apiService.getSellerId() || apiService.getUsername(),
+      issuedAt: currentDraft?.data_criacao || now,
+      existingNumber: null,
+    });
     return {
     id: draftId,
     cliente_id: selectedCustomer?.id || '0',
@@ -688,6 +699,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       retry_count: currentDraft?.retry_count ?? 0,
       error_message: undefined,
       display_id: displayId,
+      numero_orcamento: numeroOrcamento,
       notes,
       carrier,
       payment_method: paymentMethod,
@@ -722,6 +734,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     return {
       id: draft.id,
       displayId: draft.display_id,
+      numero_orcamento: draft.numero_orcamento,
+      numero_pedido: draft.numero_pedido,
       items,
       total: draft.total,
       customerId: draft.cliente_id,
@@ -760,7 +774,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     try {
       const draft = await buildDraftPayload('DRAFT');
       await (currentDraft ? updateDraft(draft) : saveDraft(draft));
-      setLastOrderNumber(draft.display_id ?? null);
+      setLastOrderNumber(draft.numero_orcamento || String(draft.display_id ?? ''));
       setSuccess(true);
       setCurrentDraft(null);
       if (onClearDraft) onClearDraft();
@@ -786,7 +800,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         throw new Error(result.message || 'Erro ao enviar pedido');
       }
       await deleteDraft(draft.id);
-      setLastOrderNumber(draft.display_id ?? null);
+      setLastOrderNumber(draft.numero_orcamento || String(draft.display_id ?? ''));
       setSuccess(true);
       setCurrentDraft(null);
       if (onClearDraft) onClearDraft();
@@ -886,7 +900,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center mb-6">
           <Save className="w-10 h-10 text-orange-600 dark:text-orange-400" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Pedido #{lastOrderNumber} Salvo!</h2>
+        <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Orçamento #{lastOrderNumber} Salvo!</h2>
         
         <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 p-4 rounded-lg my-2 w-full max-w-sm">
             <p className="text-sm font-semibold text-orange-800 dark:text-orange-200 flex items-center justify-center gap-2">
@@ -965,7 +979,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 value={productSearchTerm}
                 onChange={e => setProductSearchTerm(e.target.value)}
                 autoFocus
-                className="flex-1 bg-transparent border-none outline-none text-sm text-[#1a1d21] dark:text-white placeholder:text-[#98a2b3]"
+                className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30"
               />
               <button 
                 onClick={() => { setShowProductSearch(false); setProductSearchTerm(''); }}
@@ -994,13 +1008,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   return (
                     <div 
                       key={prod.id} 
-                      className={`flex items-center justify-between p-3 rounded-xl transition-colors border ${
+                      className={`flex flex-col gap-3 p-3 rounded-xl transition-colors border sm:flex-row sm:items-center sm:justify-between ${
                         isFocused 
                           ? 'bg-[#eff4ff] dark:bg-blue-900/20 border-[#155eef]' 
                           : 'border-transparent hover:bg-[#f9fafb] dark:hover:bg-slate-800/60'
                       }`}
                     >
-                      <div className="min-w-0 pr-3">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">
                             {prod.id}
@@ -1009,10 +1023,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                             {prod.category}
                           </span>
                         </div>
-                        <h4 className="text-sm font-semibold text-[#1a1d21] dark:text-white mt-1 truncate">
+                        <h4 className="text-sm font-semibold text-[#1a1d21] dark:text-white mt-1 whitespace-normal break-words">
                           {prod.name}
                         </h4>
-                        <div className="flex items-center gap-2 mt-0.5 text-xs text-[#667085] dark:text-slate-400">
+                        <p className="mt-1 text-xs leading-relaxed text-[#667085] dark:text-slate-400 line-clamp-3 sm:line-clamp-2">
+                          {prod.description || 'Sem descrição cadastrada.'}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-[#667085] dark:text-slate-400">
                           <span>Estoque: <strong className={prod.stock <= 0 ? "text-red-500" : "text-emerald-500"}>{prod.stock} {prod.unit.toLowerCase()}</strong></span>
                         </div>
                       </div>
@@ -1067,7 +1084,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               <h1 className="text-[18px] font-semibold tracking-[-0.01em] text-[#1a1d21] dark:text-white leading-none">Pedido de venda</h1>
               {lastOrderNumber ? (
                 <span className="bg-[#fef6ee] dark:bg-orange-900/30 text-[#b93815] dark:text-orange-400 text-[11px] font-medium px-2.5 py-[3px] rounded-full">
-                  Rascunho · #{lastOrderNumber}
+                  Orçamento · #{lastOrderNumber}
                 </span>
               ) : (
                 <span className="bg-[#f2f4f7] dark:bg-slate-800 text-[#667085] dark:text-slate-400 text-[11px] font-medium px-2.5 py-[3px] rounded-full">
@@ -1133,7 +1150,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                     <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
                       <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
-                        className="flex-1 p-2 border border-[#eaecf0] dark:border-slate-600 rounded-lg text-sm dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#155eef]" />
+                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30" />
                       <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
                     </div>
                     <div className="max-h-52 overflow-y-auto p-1">
@@ -1180,7 +1197,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                     <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
                       <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
-                        className="flex-1 p-2 border border-[#eaecf0] dark:border-slate-600 rounded-lg text-sm dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#155eef]" />
+                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30" />
                       <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
                     </div>
                     <div className="max-h-52 overflow-y-auto p-1">

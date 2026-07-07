@@ -574,7 +574,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                       </h3>
                        
                        {product.description && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{product.description}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-3 sm:line-clamp-2 whitespace-normal break-words">{product.description}</p>
                        )}
 
                       {isInCart && (
