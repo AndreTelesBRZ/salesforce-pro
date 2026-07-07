@@ -148,7 +148,7 @@ export const getDocumentLabels = (kind: "orcamento" | "pedido") => {
   return {
     headline: isBudget ? "ORÇAMENTO" : "PEDIDO",
     cover: isBudget ? "ORÇAMENTO COMERCIAL" : "COMPROVANTE DE PEDIDO",
-    subtitle: isBudget ? "Documento comercial de orçamento" : "Documento comercial de pedido",
+    subtitle: "",
     items: isBudget ? "ITENS DO ORÇAMENTO" : "ITENS DO PEDIDO",
     numberLabel: isBudget ? "ORÇAMENTO Nº" : "PEDIDO Nº",
     filenamePrefix: isBudget ? "orcamento" : "pedido",

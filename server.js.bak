@@ -1804,8 +1804,7 @@ const renderReceiptPDF = (doc, receipt, store) => {
 
   const metaTop = marginTop;
   const metaHeight = 128;
-  const orderCardWidth = 200;
-  const orderCardHeight = 96;
+  const orderCardWidth = 150;
   const companyWidth = pageWidth - orderCardWidth - 16;
   const hasStoreIdentity = Boolean(store && (store.trade_name || store.legal_name || store.document || store.logo_url));
 
@@ -1866,64 +1865,14 @@ const renderReceiptPDF = (doc, receipt, store) => {
 
   const orderX = marginLeft + pageWidth - orderCardWidth - 16;
   const orderY = metaTop + 16;
-  const boxTextWidth = orderCardWidth - 24;
-  drawBox(orderX, orderY, orderCardWidth, orderCardHeight, { fill: '#ffffff', stroke: '#d7dee7', radius: 12 });
-  writeLabel(documentLabels.numberLabel, orderX + 12, orderY + 10, boxTextWidth);
-
-  // Render number with smart wrapping at dash boundaries
-  const numberStr = `#${receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || ''}`;
-  doc.fillColor('#0f172a').font('Helvetica-Bold');
-
-  let numFontSize = 10;
-  doc.fontSize(numFontSize);
-
-  // Split at dashes and render line by line, measuring each
-  const segs = numberStr.split('-');
-  const numLines = [];
-  let cur = segs[0];
-  for (let i = 1; i < segs.length; i++) {
-    const test = cur + '-' + segs[i];
-    if (doc.widthOfString(test) <= boxTextWidth) {
-      cur = test;
-    } else {
-      numLines.push(cur);
-      cur = segs[i];
-    }
-  }
-  numLines.push(cur);
-
-  // If still doesn't fit on available lines, reduce font
-  const maxLines = Math.floor((56 - 4) / 14); // lines within 56pt space at 14pt line height
-  if (numLines.length > maxLines) {
-    numFontSize = 8;
-    doc.fontSize(numFontSize);
-    // re-split
-    numLines.length = 0;
-    cur = segs[0];
-    for (let i = 1; i < segs.length; i++) {
-      const test = cur + '-' + segs[i];
-      if (doc.widthOfString(test) <= boxTextWidth) {
-        cur = test;
-      } else {
-        numLines.push(cur);
-        cur = segs[i];
-      }
-    }
-    numLines.push(cur);
-  }
-
-  const lineH = numFontSize * 1.4;
-  numLines.forEach((line, i) => {
-    doc.text(line, orderX + 12, orderY + 30 + i * lineH, { width: boxTextWidth });
-  });
-
-  const numberBlockBottom = orderY + 30 + numLines.length * lineH + 4;
-  const separatorY = Math.max(orderY + 56, numberBlockBottom);
+  drawBox(orderX, orderY, orderCardWidth, 80, { fill: '#ffffff', stroke: '#d7dee7', radius: 12 });
+  writeLabel(documentLabels.numberLabel, orderX + 12, orderY + 10, orderCardWidth - 24);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12).text(`#${receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || ''}`, orderX + 12, orderY + 26, { width: orderCardWidth - 24 });
   doc.save();
-  doc.moveTo(orderX + 12, separatorY).lineTo(orderX + orderCardWidth - 12, separatorY).strokeColor('#e2e8f0').lineWidth(1).stroke();
+  doc.moveTo(orderX + 12, orderY + 50).lineTo(orderX + orderCardWidth - 12, orderY + 50).strokeColor('#e2e8f0').lineWidth(1).stroke();
   doc.restore();
-  writeLabel('Data de Emiss\u00e3o', orderX + 12, separatorY + 8, boxTextWidth);
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(dateLabel, orderX + 12, separatorY + 20, { width: boxTextWidth });
+  writeLabel('Data de Emissão', orderX + 12, orderY + 58, orderCardWidth - 24);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(dateLabel, orderX + 12, orderY + 70, { width: orderCardWidth - 24 });
 
   const infoTop = metaTop + metaHeight + 16;
   const gap = 12;
@@ -1999,8 +1948,8 @@ const renderReceiptPDF = (doc, receipt, store) => {
   const notesHeight = 116;
   const lowerBlockHeight = notesHeight + 16 + 72 + 26 + 42;
   if (cursorY + lowerBlockHeight > contentBottom) {
-    doc.addPage({ margin: 40, size: 'A4' });
-    lowerTop = marginTop;
+    startPage();
+    lowerTop = cursorY + 12;
   }
 
   drawBox(marginLeft, lowerTop, notesWidth, notesHeight, { stroke: '#d7dee7', radius: 12 });
