@@ -19,7 +19,7 @@ import { OrderDraft } from './src/types/orderDraft';
 import { APP_VERSION_INFO } from './src/version';
 import { getTenantConfig } from './src/config/tenantConfig';
 import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList, BarChart3 } from 'lucide-react';
-import { SyncStatusBar } from './components/SyncStatusBar';
+import { SyncIndicator } from './components/SyncIndicator';
 import { backgroundSync } from './services/backgroundSync';
 
 type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
@@ -566,6 +566,7 @@ export default function App() {
                 )}
               </button>
 
+              <SyncIndicator />
               <button
                 onClick={handleLogout}
                 className="p-1.5 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors"
@@ -657,7 +658,6 @@ export default function App() {
             )}
           </div>
         </main>
-        <SyncStatusBar />
 
         {isMainMenuOpen && (
           <div className="fixed inset-0 z-40">
