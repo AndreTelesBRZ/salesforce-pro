@@ -153,9 +153,9 @@ const resolveSourceItem = (row: SalesHistoryReportRow, fallbackItems: SalesHisto
 const renderEmptyState = () => {
   return (
     <div className="p-10 text-center">
-      <Package className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-      <p className="font-medium text-slate-700 dark:text-slate-200">Nenhum resultado encontrado</p>
-      <p className="text-sm text-slate-500 dark:text-slate-400">Refine os filtros para visualizar o relatório.</p>
+      <Package className="w-12 h-12 mx-auto text-slate-400 mb-3" />
+      <p className="font-medium text-slate-800 dark:text-slate-100">Nenhum resultado encontrado</p>
+      <p className="text-sm text-slate-600 dark:text-slate-300">Refine os filtros para visualizar o relatório.</p>
     </div>
   );
 };
@@ -176,7 +176,7 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
 
   if (loading) {
     return (
-      <div className="p-10 text-center text-sm text-slate-500 dark:text-slate-400">
+      <div className="p-10 text-center text-sm text-slate-600 dark:text-slate-300">
         Carregando relatório...
       </div>
     );
@@ -205,13 +205,13 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-950/60">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Status</th>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Cliente</th>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Nf-e</th>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Emissão</th>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Vendedor</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Valor Bruto</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Valor Total</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Status</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Cliente</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Nf-e</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Emissão</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Vendedor</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">Valor Bruto</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">Valor Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,9 +226,9 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
                       if (sourceItem && onSelectRow) onSelectRow(sourceItem);
                     }}
                   >
-                    <td className="px-3 py-2">{row.status || '-'}</td>
-                    <td className="px-3 py-2">{row.cliente}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{row.status || '-'}</td>
+                    <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{row.cliente}</td>
+                    <td className="px-3 py-2 text-slate-900 dark:text-slate-100">
                       <div className="flex items-center gap-2">
                         <span>{formatNfeLabel(row)}</span>
                         {row.notaNumero && onDetailRow ? (
@@ -238,22 +238,22 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
                               event.stopPropagation();
                               onDetailRow({ row, item: sourceItem });
                             }}
-                            className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200 dark:hover:bg-blue-900/40"
+                            className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-900/40"
                           >
                             <Search className="h-3 w-3" /> Detalhar
                           </button>
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-3 py-2">{formatDate(row.emissaoDisplay || row.emissao)}</td>
-                    <td className="px-3 py-2">{row.vendedor}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(row.valorBruto)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(row.valorTotal)}</td>
+                    <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{formatDate(row.emissaoDisplay || row.emissao)}</td>
+                    <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{row.vendedor}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">{formatCurrency(row.valorBruto)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(row.valorTotal)}</td>
                   </tr>
                   );
                 })}
                 <tr className="border-t-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/40">
-                  <td colSpan={6} className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">Total por data de emissão</td>
+                  <td colSpan={6} className="px-3 py-2 text-right font-semibold text-slate-800 dark:text-slate-100">Total por data de emissão</td>
                   <td className="px-3 py-2 text-right tabular-nums font-bold text-slate-900 dark:text-white">{formatCurrency(group.totalDataEmissao.valorTotal)}</td>
                 </tr>
               </tbody>
@@ -263,7 +263,7 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
       </div>
 
       <div className="border-t border-slate-200 px-4 py-3 text-right dark:border-slate-800">
-        <span className="mr-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Total geral</span>
+        <span className="mr-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Total geral</span>
         <span className="text-base font-bold text-slate-900 dark:text-white">{formatCurrency(totalGeral)}</span>
       </div>
     </div>

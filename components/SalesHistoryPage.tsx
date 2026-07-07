@@ -598,7 +598,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   };
 
   return (
-    <div className="p-4 pb-20 space-y-4">
+    <div className="p-4 pb-20 space-y-4 text-slate-900 dark:text-slate-100">
       <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -607,14 +607,14 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
               Consulta de Vendas
             </div>
             <h2 className="mt-3 text-xl font-bold text-slate-900 dark:text-white">Histórico de vendas do cliente</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Resumo comercial agrupado por data de emissão, com subtotal diário e detalhe fiscal por nota.</p>
+            <p className="text-sm text-slate-700 dark:text-slate-200">Resumo comercial agrupado por data de emissão, com subtotal diário e detalhe fiscal por nota.</p>
           </div>
 
           <button
             type="button"
             onClick={() => setRefreshTick((current) => current + 1)}
             disabled={loadingHistory}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
           >
             {loadingHistory ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
             Atualizar
@@ -623,7 +623,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
 
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr] gap-4">
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Buscar cliente</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">Buscar cliente</label>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -650,10 +650,10 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                   className="w-full text-left px-3 py-2 border-b last:border-b-0 border-slate-200 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 transition-colors"
                 >
                   <div className="font-semibold text-sm text-slate-900 dark:text-white">{customer.name}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">{customer.id} • {customer.fantasyName || customer.document}</div>
+                  <div className="text-xs text-slate-700 dark:text-slate-200">{customer.id} • {customer.fantasyName || customer.document}</div>
                 </button>
               )) : (
-                <div className="px-3 py-4 text-sm text-slate-500 dark:text-slate-400">
+                <div className="px-3 py-4 text-sm text-slate-700 dark:text-slate-200">
                   {customersLoading ? 'Carregando carteira...' : customerQuery.trim() ? 'Nenhum cliente encontrado para a busca atual.' : 'Digite para buscar um cliente.'}
                 </div>
               )}
@@ -662,39 +662,39 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Busca geral</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Busca geral</span>
               <input type="text" value={draftFilters.q || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, q: event.target.value }))} placeholder="Cliente, nota, produto..." className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vendedor</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Vendedor</span>
               <input type="text" value={draftFilters.vendedor_codigo || ''} readOnly disabled placeholder="Código do vendedor" className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nota</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Nota</span>
               <input type="text" value={draftFilters.nota_numero || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, nota_numero: event.target.value }))} placeholder="Número da nota" className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Produto</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Produto</span>
               <input type="text" value={draftFilters.produto_codigo || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, produto_codigo: event.target.value }))} placeholder="Código do produto" className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Data inicial</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Data inicial</span>
               <input type="date" value={draftFilters.data_inicio || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, data_inicio: event.target.value }))} className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Data final</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Data final</span>
               <input type="date" value={draftFilters.data_fim || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, data_fim: event.target.value }))} className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Loja</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Loja</span>
               <input type="text" value={draftFilters.loja_codigo || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, loja_codigo: event.target.value }))} placeholder="Código da loja" className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pedido</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pedido</span>
               <input type="text" value={draftFilters.pedido_codigo || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, pedido_codigo: event.target.value }))} placeholder="Código do pedido" className="app-input w-full px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1 sm:col-span-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saída</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Saída</span>
               <input type="text" value={draftFilters.saida_codigo || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, saida_codigo: event.target.value }))} placeholder="Código da saída" className="app-input w-full px-3 py-2 text-sm" />
             </label>
           </div>
@@ -704,7 +704,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
           <button type="button" onClick={applyFilters} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">
             <Filter className="w-4 h-4" /> Aplicar filtros
           </button>
-          <button type="button" onClick={resetFilters} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+          <button type="button" onClick={resetFilters} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800">
             Limpar filtros
           </button>
           <label className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm text-slate-700 dark:text-slate-200">
@@ -718,19 +718,19 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
 
       <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resultados paginados</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Resultados paginados</p>
           <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{flatHistory.count}</p>
         </div>
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Datas na página</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Datas na página</p>
           <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{emissionGroups.length}</p>
         </div>
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notas do cliente</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Notas do cliente</p>
           <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{customerTotals.notes}</p>
         </div>
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Valor do cliente</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Valor do cliente</p>
           <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{formatCurrency(customerTotals.total)}</p>
         </div>
       </section>
@@ -739,9 +739,9 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
           <div>
             <h3 className="font-semibold text-slate-900 dark:text-white">Resumo por data de emissão</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Relatório operacional agrupado por data, usando report_view como fonte principal.</p>
+            <p className="text-xs text-slate-700 dark:text-slate-200">Relatório operacional agrupado por data, usando report_view como fonte principal.</p>
           </div>
-          <div className="text-right text-xs text-slate-500 dark:text-slate-400">
+          <div className="text-right text-xs text-slate-700 dark:text-slate-200">
             <div>{flatHistory.count} registro(s)</div>
             <div>Página {page} de {totalPages}</div>
           </div>
@@ -761,9 +761,9 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
         )}
 
         <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-          <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loadingHistory} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50">Página anterior</button>
-          <span className="text-xs text-slate-500 dark:text-slate-400">Mostrando {flatHistory.results.length} registro(s) nesta página</span>
-          <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages || loadingHistory} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50">Próxima página</button>
+          <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loadingHistory} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50">Página anterior</button>
+          <span className="text-xs text-slate-700 dark:text-slate-200">Mostrando {flatHistory.results.length} registro(s) nesta página</span>
+          <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages || loadingHistory} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50">Próxima página</button>
         </div>
       </section>
 
@@ -771,10 +771,10 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
           <div>
             <h3 className="font-semibold text-slate-900 dark:text-white">Detalhe agrupado por nota</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Detalhe fiscal do cliente selecionado com expansão dos itens da nota.</p>
+            <p className="text-xs text-slate-700 dark:text-slate-200">Detalhe fiscal do cliente selecionado com expansão dos itens da nota.</p>
           </div>
           {detailHeader ? (
-            <div className="text-right text-xs text-slate-500 dark:text-slate-400">
+            <div className="text-right text-xs text-slate-700 dark:text-slate-200">
               <div>{detailHeader.customerName}</div>
               <div>{detailHeader.sellerLabel}</div>
             </div>
@@ -783,20 +783,20 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
 
         {!appliedFilters.cliente_codigo && !selectedHistoryNote ? (
           <div className="p-10 text-center">
-            <Users className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-            <p className="font-medium text-slate-700 dark:text-slate-200">Selecione um cliente para ver o detalhe por nota</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">O resumo por data acima continua disponível mesmo sem cliente definido.</p>
+            <Users className="w-12 h-12 mx-auto text-slate-400 mb-3" />
+            <p className="font-medium text-slate-800 dark:text-slate-100">Selecione um cliente para ver o detalhe por nota</p>
+            <p className="text-sm text-slate-700 dark:text-slate-200">O resumo por data acima continua disponível mesmo sem cliente definido.</p>
           </div>
         ) : loadingHistory ? (
           <div className="p-10 text-center">
             <Loader2 className="w-8 h-8 mx-auto animate-spin text-blue-700 mb-3" />
-            <p className="text-slate-500 dark:text-slate-400">Carregando notas do cliente...</p>
+            <p className="text-slate-700 dark:text-slate-200">Carregando notas do cliente...</p>
           </div>
         ) : noteList.length === 0 ? (
           <div className="p-10 text-center">
-            <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-            <p className="font-medium text-slate-700 dark:text-slate-200">Nenhuma nota encontrada</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma nota encontrada na lista atual para os filtros aplicados.</p>
+            <FileText className="w-12 h-12 mx-auto text-slate-400 mb-3" />
+            <p className="font-medium text-slate-800 dark:text-slate-100">Nenhuma nota encontrada</p>
+            <p className="text-sm text-slate-700 dark:text-slate-200">Nenhuma nota encontrada na lista atual para os filtros aplicados.</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -819,13 +819,13 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                     className="w-full flex items-start justify-between gap-4 text-left cursor-pointer"
                   >
                     <div className="space-y-2 min-w-0">
-                      <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
                         <span className="inline-flex items-center gap-1"><Store className="w-3.5 h-3.5" /> Loja {note.lojaCodigo || '-'}</span>
                         <span className="inline-flex items-center gap-1"><Briefcase className="w-3.5 h-3.5" /> Saída {note.saidaCodigo || '-'}</span>
                       </div>
                       <div>
                         <h4 className="font-bold text-slate-900 dark:text-white">Nota {note.notaNumero || '-'} • Série {note.notaSerie || '-'}</h4>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                        <div className="text-sm text-slate-600 dark:text-slate-300 flex flex-wrap gap-x-4 gap-y-1 mt-1">
                           <span className="inline-flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {formatDateTime(note.notaData)}</span>
                           <span>Status doc: {note.documentoStatus || '-'}</span>
                           <span>NFe: {note.nfeStatus || '-'}</span>
@@ -833,7 +833,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <div className="text-xs text-slate-500 dark:text-slate-400">Valor total</div>
+                      <div className="text-xs text-slate-700 dark:text-slate-200">Valor total</div>
                       <div className="font-bold text-slate-900 dark:text-white">{formatCurrency(note.notaValorTotal)}</div>
                       <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                         <button
@@ -856,7 +856,7 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                   {expanded ? (
                     <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                       {itemState?.loading ? (
-                        <div className="p-6 text-center text-sm text-slate-500 dark:text-slate-400"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" />Carregando itens da nota...</div>
+                        <div className="p-6 text-center text-sm text-slate-700 dark:text-slate-200"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" />Carregando itens da nota...</div>
                       ) : itemState?.error ? (
                         <div className="p-4 text-sm text-rose-700 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/30">{itemState.error}</div>
                       ) : (
@@ -864,23 +864,23 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
                           <table className="min-w-full text-sm">
                             <thead className="bg-slate-50 dark:bg-slate-950/60">
                               <tr>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Código</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">Descrição</th>
-                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Qtd.</th>
-                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Unit.</th>
-                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Total</th>
-                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">Líquido</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-200">Código</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-200">Descrição</th>
+                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-200">Qtd.</th>
+                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-200">Unit.</th>
+                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-200">Total</th>
+                                <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-200">Líquido</th>
                               </tr>
                             </thead>
                             <tbody>
                               {(itemState?.items || []).map((item, index) => (
                                 <tr key={noteNumber + '-item-' + index} className="border-t border-slate-100 dark:border-slate-800">
-                                  <td className="px-3 py-2 font-mono text-xs">{item.produtoCodigo || '-'}</td>
-                                  <td className="px-3 py-2">{item.produtoDescricao || '-'}</td>
-                                  <td className="px-3 py-2 text-right">{item.itemQuantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}</td>
-                                  <td className="px-3 py-2 text-right">{formatCurrency(item.itemValorUnitario)}</td>
-                                  <td className="px-3 py-2 text-right">{formatCurrency(item.itemValorTotal)}</td>
-                                  <td className="px-3 py-2 text-right font-semibold">{formatCurrency(item.itemValorLiquido)}</td>
+                                  <td className="px-3 py-2 font-mono text-xs text-slate-900 dark:text-slate-100">{item.produtoCodigo || '-'}</td>
+                                  <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{item.produtoDescricao || '-'}</td>
+                                  <td className="px-3 py-2 text-right text-slate-900 dark:text-slate-100">{item.itemQuantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}</td>
+                                  <td className="px-3 py-2 text-right text-slate-900 dark:text-slate-100">{formatCurrency(item.itemValorUnitario)}</td>
+                                  <td className="px-3 py-2 text-right text-slate-900 dark:text-slate-100">{formatCurrency(item.itemValorTotal)}</td>
+                                  <td className="px-3 py-2 text-right font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(item.itemValorLiquido)}</td>
                                 </tr>
                               ))}
                             </tbody>

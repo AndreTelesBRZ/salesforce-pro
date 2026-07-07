@@ -19,6 +19,8 @@ import { OrderDraft } from './src/types/orderDraft';
 import { APP_VERSION_INFO } from './src/version';
 import { getTenantConfig } from './src/config/tenantConfig';
 import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, LayoutGrid, Settings as SettingsIcon, Download, UploadCloud, X, ClipboardList, BarChart3 } from 'lucide-react';
+import { SyncStatusBar } from './components/SyncStatusBar';
+import { backgroundSync } from './services/backgroundSync';
 
 type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
 
@@ -131,6 +133,7 @@ export default function App() {
             setCurrentUser(name);
           });
         });
+        backgroundSync.start();
       }
 
       setTheme(apiService.getConfig().theme);
@@ -273,6 +276,7 @@ export default function App() {
       setCurrentView('dashboard');
     }
     refreshStoreInfo();
+    backgroundSync.start();
   };
 
   const handleLogout = () => {
@@ -281,6 +285,7 @@ export default function App() {
     setUserProfile(null);
     setCurrentView('dashboard');
     setStoreInfo(undefined);
+    backgroundSync.stop();
   };
 
   const openCounterSale = () => navigateToPath('/balcao');
@@ -652,6 +657,7 @@ export default function App() {
             )}
           </div>
         </main>
+        <SyncStatusBar />
 
         {isMainMenuOpen && (
           <div className="fixed inset-0 z-40">
