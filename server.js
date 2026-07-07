@@ -18,9 +18,9 @@ const PORT = process.env.PORT || 8080;
 const SECRET_KEY = process.env.SECRET_KEY || 'super-secret-key-change-this-in-production';
 // Master Key para acesso facilitado (Bypass de JWT)
 const MASTER_KEY = process.env.MASTER_KEY || 'salesforce-pro-token';
-const APP_INTEGRATION_TOKEN = process.env.APP_INTEGRATION_TOKEN || '';
-const APP_INTEGRATION_TOKEN_EDSON = process.env.APP_INTEGRATION_TOKEN_EDSON || '';
-const APP_INTEGRATION_TOKEN_LLFIX = process.env.APP_INTEGRATION_TOKEN_LLFIX || '';
+const APP_INTEGRATION_TOKEN = process.env.APP_INTEGRATION_TOKEN || process.env.VITE_APP_INTEGRATION_TOKEN || '';
+const APP_INTEGRATION_TOKEN_EDSON = process.env.APP_INTEGRATION_TOKEN_EDSON || process.env.VITE_APP_INTEGRATION_TOKEN_EDSON || '';
+const APP_INTEGRATION_TOKEN_LLFIX = process.env.APP_INTEGRATION_TOKEN_LLFIX || process.env.VITE_APP_INTEGRATION_TOKEN_LLFIX || '';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 const DB_PATH = process.env.DB_PATH || './database.sqlite';

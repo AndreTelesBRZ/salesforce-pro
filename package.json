@@ -4,7 +4,7 @@
   "version": "1.0.5",
   "type": "module",
   "scripts": {
-    "dev": "node ./node_modules/concurrently/dist/bin/concurrently.js \"npm run server\" \"npm run client\"",
+    "dev": "bash run-dev.sh",
     "start": "node server.js",
     "server": "node server.js",
     "client": "node ./run-vite-dev.js",

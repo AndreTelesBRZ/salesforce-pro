@@ -1431,10 +1431,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             <div className="mb-3.5">
               <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Vencimento</p>
               <div className="text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg">
-                {selectedPlan?.daysFirstInstallment
-                  ? new Date(Date.now() + selectedPlan.daysFirstInstallment * 86400000).toLocaleDateString('pt-BR')
-                  : 'Dia'
-                }
+                {new Date(Date.now() + (selectedPlan?.daysFirstInstallment ?? 0) * 86400000).toLocaleDateString('pt-BR')}
               </div>
             </div>
 
@@ -1447,7 +1444,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   onChange={e => setCarrier(e.target.value)}
                   className="app-input w-full text-[13px] font-medium px-[10px] py-[7px] appearance-none cursor-pointer"
                 >
-                  {['Retirada em Loja', 'Expresso Log', 'Rede Cargo', 'Direct Transportes'].map(opt => (
+                  {['Retirada em Loja', 'Entrega Própria', 'Expresso Log', 'Rede Cargo', 'Direct Transportes'].map(opt => (
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
