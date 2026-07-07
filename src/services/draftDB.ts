@@ -3,7 +3,9 @@ import { OrderDraft } from '../types/orderDraft';
 const DB_NAME = 'salesforce_pwa';
 const STORE_NAME = 'order_drafts';
 
-const openDatabase = (): Promise<IDBDatabase> => {
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       reject(new Error('IndexedDB não está disponível neste ambiente.'));
@@ -21,9 +23,22 @@ const openDatabase = (): Promise<IDBDatabase> => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-};
+}
 
-export const dbPromise = openDatabase();
+function getDB(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise;
+  dbPromise = openDatabase().then((db) => {
+    db.onclose = () => {
+      dbPromise = null;
+    };
+    db.onversionchange = () => {
+      db.close();
+      dbPromise = null;
+    };
+    return db;
+  });
+  return dbPromise;
+}
 
 const buildError = (context: string, error: unknown): Error => {
   const message = error instanceof Error ? error.message : 'Erro desconhecido';
@@ -34,8 +49,15 @@ const withStore = async <T>(
   mode: IDBTransactionMode,
   callback: (store: IDBObjectStore) => Promise<T>
 ): Promise<T> => {
-  const db = await dbPromise;
-  const transaction = db.transaction(STORE_NAME, mode);
+  const db = await getDB();
+  let transaction: IDBTransaction;
+  try {
+    transaction = db.transaction(STORE_NAME, mode);
+  } catch (e) {
+    dbPromise = null;
+    const db2 = await getDB();
+    transaction = db2.transaction(STORE_NAME, mode);
+  }
   const store = transaction.objectStore(STORE_NAME);
   try {
     const result = await callback(store);

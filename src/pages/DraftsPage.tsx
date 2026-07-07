@@ -70,6 +70,8 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft,
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
+  const [headerStore, setHeaderStore] = useState<Record<string, any> | null>(storeInfo ?? null);
+  const [fallbackStoreLoaded, setFallbackStoreLoaded] = useState(false);
 
   const refreshDrafts = async () => {
     setLoading(true);
@@ -88,6 +90,25 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft,
   useEffect(() => {
     refreshDrafts();
   }, []);
+
+  useEffect(() => {
+    if (storeInfo !== undefined) {
+      setHeaderStore(storeInfo ?? null);
+      return;
+    }
+    if (fallbackStoreLoaded) return;
+    const loadHeaderStore = async () => {
+      try {
+        const data = await apiService.loadTenantStoreInfo(false);
+        setHeaderStore(data);
+      } catch (storeError) {
+        console.warn('Falha ao carregar dados da loja para os rascunhos', storeError);
+      } finally {
+        setFallbackStoreLoaded(true);
+      }
+    };
+    loadHeaderStore();
+  }, [storeInfo, fallbackStoreLoaded]);
 
   const handleDelete = async (draft: OrderDraft) => {
     if (!window.confirm('Remover este rascunho?')) return;
@@ -134,9 +155,18 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft,
   const handleDownloadPdf = async (draft: OrderDraft) => {
     setDownloadingPdfId(draft.id);
     try {
+      let resolvedStore = headerStore;
+      if (!resolvedStore) {
+        try {
+          resolvedStore = await apiService.loadTenantStoreInfo(false);
+          setHeaderStore(resolvedStore);
+        } catch (storeError) {
+          console.warn('Falha ao atualizar dados da loja para gerar PDF do rascunho', storeError);
+        }
+      }
       const order = buildOrderFromDraft(draft);
       const number = buildBudgetNumber({
-        store: storeInfo,
+        store: resolvedStore,
         sellerCode: apiService.getSellerId() || apiService.getUsername(),
         issuedAt: draft.data_criacao,
         existingNumber: draft.numero_orcamento || null,
@@ -161,10 +191,8 @@ export const DraftsPage: React.FC<DraftsPageProps> = ({ onNavigate, onEditDraft,
         documentType: 'budget',
         numero_orcamento: number,
         numero_pedido: draft.numero_pedido,
+        store: resolvedStore || undefined,
       };
-      if (!storeInfo) {
-        throw new Error('Dados da loja indisponíveis.');
-      }
       const res = await apiService.fetchAppLocal('/api/recibo/pdf/public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
