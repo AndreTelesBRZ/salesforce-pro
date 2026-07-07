@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
-import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, CheckCircle, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
+import { Product, CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
+import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
+import { buildBudgetNumber } from '../src/utils/documentIdentity';
 import { dbService } from '../services/db';
 import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
 import { DraftStatus, OrderDraft, OrderDraftItem } from '../src/types/orderDraft';
@@ -34,9 +35,9 @@ const FALLBACK_PAYMENT_METHODS: Array<EnumOption & { icon: IconType }> = [
 ];
 
 const FALLBACK_SHIPPING_METHODS: Array<EnumOption & { icon: IconType }> = [
+  { value: 'cif', label: 'CIF', icon: Package },
+  { value: 'fob', label: 'FOB', icon: Package },
   { value: 'retirada', label: 'Retirada', icon: Store },
-  { value: 'entrega_propria', label: 'Entrega Própria', icon: Truck },
-  { value: 'transportadora', label: 'Transportadora', icon: Package },
   { value: 'sem_frete', label: 'Sem frete', icon: Package },
 ];
 
@@ -66,6 +67,8 @@ interface CartProps {
   onClear: () => void;
   draftToEdit?: OrderDraft | null;
   onClearDraft?: () => void;
+  onAddToCart?: (product: Product) => void;
+  storeInfo?: Record<string, any> | null;
 }
 
 const createOrderUUID = (): string => {
@@ -253,214 +256,34 @@ const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialV
   );
 };
 
-interface SefazData {
-  razaoSocial: string;
-  nomeFantasia: string;
-  situacao: string;
-  endereco: string;
-  uf: string;
-  municipio: string;
-}
-
-interface AddCustomerModalProps {
-  onClose: () => void;
-  onSelectCustomer: (customer: Customer) => void;
-}
-
-const normalizeCnpj = (value: string) => value.replace(/\D/g, '');
-
-const isValidCnpj = (value: string) => {
-  const cnpj = normalizeCnpj(value);
-  if (cnpj.length !== 14) return false;
-  if (/^(\d)\1{13}$/.test(cnpj)) return false;
-
-  const calcDigit = (base: string) => {
-    let sum = 0;
-    let pos = base.length - 7;
-    for (let i = 0; i < base.length; i++) {
-      sum += Number(base.charAt(i)) * pos--;
-      if (pos < 2) pos = 9;
-    }
-    const mod = sum % 11;
-    return mod < 2 ? 0 : 11 - mod;
-  };
-
-  const base12 = cnpj.substring(0, 12);
-  if (calcDigit(base12) !== Number(cnpj.charAt(12))) return false;
-  const base13 = cnpj.substring(0, 13);
-  return calcDigit(base13) === Number(cnpj.charAt(13));
+const DEFAULT_COUNTER_CUSTOMER: Customer = {
+  id: '0',
+  name: 'Consumidor Final',
+  fantasyName: '',
+  document: '',
+  type: 'NORMAL',
+  address: '',
+  addressNumber: '',
+  neighborhood: '',
+  city: '',
+  state: '',
+  zipCode: '',
+  phone: '',
+  email: '',
+  origin: 'BALCAO',
+  sellerId: '',
 };
 
-const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ onClose, onSelectCustomer }) => {
-  const [cnpj, setCnpj] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [existingCustomer, setExistingCustomer] = useState<Customer | null>(null);
-  const [sefazData, setSefazData] = useState<SefazData | null>(null);
-
-  const handleConsultar = async () => {
-    const normalized = normalizeCnpj(cnpj);
-    if (!isValidCnpj(normalized)) {
-      setError('CNPJ invalido.');
-      setExistingCustomer(null);
-      setSefazData(null);
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setExistingCustomer(null);
-    setSefazData(null);
-
-    try {
-      const existing = await apiService.getCustomerByCnpj(normalized);
-      if (existing) {
-        setExistingCustomer(existing);
-        return;
-      }
-
-      const sefaz = await apiService.lookupSefazByCnpj(normalized);
-      setSefazData(sefaz);
-    } catch (e: any) {
-      setError(e.message || 'Falha na consulta.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSelectExisting = () => {
-    if (!existingCustomer) return;
-    onSelectCustomer(existingCustomer);
-    onClose();
-  };
-
-  const handleCreateTemp = async () => {
-    if (!sefazData) return;
-    setLoading(true);
-    setError('');
-    try {
-      const temp = await apiService.createTempCustomer({
-        cnpj: normalizeCnpj(cnpj),
-        razaoSocial: sefazData.razaoSocial,
-        nomeFantasia: sefazData.nomeFantasia || sefazData.razaoSocial,
-        endereco: sefazData.endereco,
-        uf: sefazData.uf,
-        municipio: sefazData.municipio,
-        vendedorId: apiService.getSellerId()
-      });
-      onSelectCustomer(temp);
-      onClose();
-    } catch (e: any) {
-      setError(e.message || 'Falha ao criar cliente temporario.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-xl shadow-2xl overflow-hidden">
-        <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-          <div>
-            <h3 className="font-bold text-lg">Adicionar Cliente</h3>
-            <p className="text-xs text-slate-300">Consulta por CNPJ via API</p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-white/80 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">CNPJ</label>
-            <div className="mt-1 flex gap-2">
-              <input
-                type="text"
-                value={cnpj}
-                onChange={(e) => setCnpj(e.target.value)}
-                placeholder="00.000.000/0000-00"
-                className="flex-1 p-2 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-              />
-              <button
-                onClick={handleConsultar}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-70"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Consultar
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">
-              {error}
-            </div>
-          )}
-
-          {existingCustomer && (
-            <div className="p-4 rounded-lg border border-emerald-200 bg-emerald-50">
-              <div className="flex items-center gap-2 text-emerald-700 font-semibold">
-                <CheckCircle className="w-4 h-4" />
-                Cliente ja cadastrado
-              </div>
-              <div className="mt-2 text-sm text-emerald-900">
-                <div><strong>Razao Social:</strong> {existingCustomer.name}</div>
-                <div><strong>Codigo:</strong> {existingCustomer.id}</div>
-                <div><strong>Vendedor:</strong> {existingCustomer.sellerId || 'Nao informado'}</div>
-              </div>
-              <button
-                onClick={handleSelectExisting}
-                className="mt-3 px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700"
-              >
-                Prosseguir com este cliente
-              </button>
-            </div>
-          )}
-
-          {sefazData && (
-            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">
-              <div className="text-sm text-slate-700 font-semibold">Dados SEFAZ</div>
-              <div className="mt-2 text-sm text-slate-800 space-y-1">
-                <div><strong>Razao Social:</strong> {sefazData.razaoSocial}</div>
-                <div><strong>Nome Fantasia:</strong> {sefazData.nomeFantasia}</div>
-                <div><strong>Situacao:</strong> {sefazData.situacao}</div>
-                <div><strong>Endereco:</strong> {sefazData.endereco}</div>
-                <div><strong>UF / Municipio:</strong> {sefazData.uf} / {sefazData.municipio}</div>
-              </div>
-              <button
-                onClick={handleCreateTemp}
-                disabled={loading}
-                className="mt-3 px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 disabled:opacity-70"
-              >
-                Cadastrar temporario
-              </button>
-            </div>
-          )}
-
-          {!existingCustomer && !sefazData && !error && (
-            <div className="text-xs text-slate-500">
-              Informe o CNPJ e clique em consultar para validar cliente.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft, onAddToCart, storeInfo }) => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [lastOrderNumber, setLastOrderNumber] = useState<number | null>(null);
+  const [lastOrderNumber, setLastOrderNumber] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(DEFAULT_COUNTER_CUSTOMER);
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [notes, setNotes] = useState('');
-  const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [currentDraft, setCurrentDraft] = useState<OrderDraft | null>(null);
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null);
 
@@ -469,8 +292,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
   const [planValidationError, setPlanValidationError] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('pix');
-  const [shippingMethod, setShippingMethod] = useState('retirada');
+  const [paymentMethod, setPaymentMethod] = useState('dinheiro');
+  const [shippingMethod, setShippingMethod] = useState('sem_frete');
+  const [carrier, setCarrier] = useState('Retirada em Loja');
+  const [showProductSearch, setShowProductSearch] = useState(false);
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(0);
   
   // State para o Modal Keypad
   const [editingItem, setEditingItem] = useState<{ id: string, name: string, quantity: number, unit: string } | null>(null);
@@ -567,9 +396,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   useEffect(() => {
       apiService.getCustomers().then(apiData => {
           setCustomers(apiData);
-          if (!selectedCustomer) {
-             const defaultCus = apiData.find(c => c.id === '0');
-             if (defaultCus) setSelectedCustomer(defaultCus);
+          const defaultCus = apiData.find(c => c.id === '0');
+          if (defaultCus && selectedCustomer?.id === DEFAULT_COUNTER_CUSTOMER.id) {
+             setSelectedCustomer(defaultCus);
           }
       });
   }, []);
@@ -582,10 +411,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     }
     setCurrentDraft(draftToEdit);
     setNotes(draftToEdit.notes || '');
-    setPaymentMethod(draftToEdit.payment_method || 'pix');
-    setShippingMethod(draftToEdit.shipping_method || 'retirada');
-    setLastOrderNumber(draftToEdit.display_id ?? null);
+    setPaymentMethod(draftToEdit.payment_method || 'dinheiro');
+    setShippingMethod(draftToEdit.shipping_method || 'sem_frete');
+    setCarrier(draftToEdit.carrier || 'Retirada em Loja');
+    setLastOrderNumber(draftToEdit.display_id ? String(draftToEdit.display_id) : null);
     setPendingCustomerId(draftToEdit.cliente_id || null);
+    if (draftToEdit) {
+      setLastOrderNumber(draftToEdit.numero_orcamento || draftToEdit.numero_pedido || (draftToEdit.display_id ? String(draftToEdit.display_id) : null));
+    }
   }, [draftToEdit]);
 
   useEffect(() => {
@@ -618,6 +451,99 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     }
     setPendingCustomerId(null);
   }, [pendingCustomerId, customers, draftToEdit]);
+
+  // Global desktop keyboard shortcuts
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      const isInputActive = document.activeElement && 
+        (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT');
+
+      if (e.key === 'F8') {
+        e.preventDefault();
+        handleSaveDraft();
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        handleSendToERP();
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        setShowCustomerSearch(true);
+      } else if (e.key === 'F3') {
+        e.preventDefault();
+        setShowProductSearch(true);
+      }
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key.toLowerCase() === 's') {
+          e.preventDefault();
+          handleSaveDraft();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          handleSendToERP();
+        } else if (e.key.toLowerCase() === 'c' && !isInputActive) {
+          e.preventDefault();
+          setShowCustomerSearch(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, [selectedCustomer, paymentMethod, shippingMethod, selectedPlan, cart, carrier, notes]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowProductSearch(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!showProductSearch) return;
+    const fetchResults = async () => {
+      setSearchLoading(true);
+      try {
+        const data = await apiService.getProducts(1, 20, productSearchTerm);
+        setSearchResults(data);
+        setFocusedIndex(0);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setSearchLoading(false);
+      }
+    };
+    const delayDebounceFn = setTimeout(fetchResults, productSearchTerm ? 300 : 0);
+    return () => clearTimeout(delayDebounceFn);
+  }, [productSearchTerm, showProductSearch]);
+
+  // Keyboard navigation inside search results
+  useEffect(() => {
+    if (!showProductSearch) return;
+    const handleSearchKeys = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFocusedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFocusedIndex(prev => Math.max(prev - 1, 0));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selectedProd = searchResults[focusedIndex];
+        if (selectedProd) {
+          handleSelectProduct(selectedProd);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowProductSearch(false);
+        setProductSearchTerm('');
+        focusLastCartQuantity();
+      }
+    };
+    window.addEventListener('keydown', handleSearchKeys);
+    return () => window.removeEventListener('keydown', handleSearchKeys);
+  }, [showProductSearch, searchResults, focusedIndex, onAddToCart]);
 
   useEffect(() => {
       if (!selectedCustomer) return;
@@ -753,6 +679,12 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     const now = new Date().toISOString();
     const draftId = currentDraft?.id || createOrderUUID();
     const displayId = await ensureDisplayId();
+    const numeroOrcamento = buildBudgetNumber({
+      store: storeInfo,
+      sellerCode: apiService.getSellerId() || apiService.getUsername(),
+      issuedAt: currentDraft?.data_criacao || now,
+      existingNumber: null,
+    });
     return {
     id: draftId,
     cliente_id: selectedCustomer?.id || '0',
@@ -767,7 +699,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       retry_count: currentDraft?.retry_count ?? 0,
       error_message: undefined,
       display_id: displayId,
+      numero_orcamento: numeroOrcamento,
       notes,
+      carrier,
       payment_method: paymentMethod,
       payment_method_id: paymentMethod,
       shipping_method: shippingMethod,
@@ -800,6 +734,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     return {
       id: draft.id,
       displayId: draft.display_id,
+      numero_orcamento: draft.numero_orcamento,
+      numero_pedido: draft.numero_pedido,
       items,
       total: draft.total,
       customerId: draft.cliente_id,
@@ -838,7 +774,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     try {
       const draft = await buildDraftPayload('DRAFT');
       await (currentDraft ? updateDraft(draft) : saveDraft(draft));
-      setLastOrderNumber(draft.display_id ?? null);
+      setLastOrderNumber(draft.numero_orcamento || String(draft.display_id ?? ''));
       setSuccess(true);
       setCurrentDraft(null);
       if (onClearDraft) onClearDraft();
@@ -864,7 +800,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         throw new Error(result.message || 'Erro ao enviar pedido');
       }
       await deleteDraft(draft.id);
-      setLastOrderNumber(draft.display_id ?? null);
+      setLastOrderNumber(draft.numero_orcamento || String(draft.display_id ?? ''));
       setSuccess(true);
       setCurrentDraft(null);
       if (onClearDraft) onClearDraft();
@@ -888,6 +824,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const handleNewOrder = () => {
     setSuccess(false);
     setCurrentDraft(null);
+    setPendingCustomerId(null);
+    setSelectedCustomer(DEFAULT_COUNTER_CUSTOMER);
+    setPaymentMethod('dinheiro');
+    setShippingMethod('sem_frete');
+    setCarrier('Retirada em Loja');
+    setSelectedPlan(null);
+    setNotes('');
     if (onClearDraft) onClearDraft();
     onClear();
   };
@@ -899,9 +842,26 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       window.open(url, '_blank');
   };
 
+  const focusLastCartQuantity = () => {
+      setTimeout(() => {
+        const inputs = document.querySelectorAll<HTMLElement>('[data-qty-input]');
+        const target = inputs[inputs.length - 1];
+        if (target) target.focus();
+      }, 80);
+  };
+
+  const handleSelectProduct = (product: Product) => {
+      if (!onAddToCart) return;
+      onAddToCart(product);
+      setShowProductSearch(false);
+      setProductSearchTerm('');
+      focusLastCartQuantity();
+  };
+
   const confirmClearCart = () => {
       onClear();
       setShowClearConfirm(false);
+      focusLastCartQuantity();
   };
 
   // --- TELA DE CONFIRMAÇÃO DE LIMPEZA ---
@@ -940,7 +900,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center mb-6">
           <Save className="w-10 h-10 text-orange-600 dark:text-orange-400" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Pedido #{lastOrderNumber} Salvo!</h2>
+        <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Orçamento #{lastOrderNumber} Salvo!</h2>
         
         <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 p-4 rounded-lg my-2 w-full max-w-sm">
             <p className="text-sm font-semibold text-orange-800 dark:text-orange-200 flex items-center justify-center gap-2">
@@ -965,438 +925,570 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     );
   }
 
-  if (cart.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 text-slate-400 dark:text-slate-500">
-        <ShoppingCart className="w-16 h-16 mb-4 opacity-20" />
-        <p>Seu carrinho está vazio.</p>
-      </div>
-    );
-  }
+
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-800 max-w-2xl mx-auto shadow-sm md:rounded-lg md:my-6 overflow-hidden transition-colors relative">
-      
-      {/* --- MODAL KEYPAD: Quantidade --- */}
+    <div className="flex flex-col h-full bg-[#f4f5f7] dark:bg-slate-950 transition-colors relative">
+
+      {/* MODAIS */}
       {editingItem && (
-        <NumericKeypadModal 
-            title="Quantidade"
-            initialValue={editingItem.quantity}
-            itemName={editingItem.name}
-            unit={editingItem.unit}
-            onClose={() => setEditingItem(null)}
-            onConfirm={(val) => {
-                onUpdateQuantity(editingItem.id, val);
-                setEditingItem(null);
-            }}
+        <NumericKeypadModal
+          title="Quantidade"
+          initialValue={editingItem.quantity}
+          itemName={editingItem.name}
+          unit={editingItem.unit}
+          onClose={() => setEditingItem(null)}
+          onConfirm={(val) => { onUpdateQuantity(editingItem.id, val); setEditingItem(null); }}
         />
       )}
-
-      {/* --- MODAL KEYPAD: Preço --- */}
       {editingPrice && (
-        <NumericKeypadModal 
-            title="Preço Unitário"
-            initialValue={editingPrice.price}
-            itemName={editingPrice.name}
-            unit={editingPrice.unit}
-            referenceValue={editingPrice.basePrice}
-            onClose={() => setEditingPrice(null)}
-            onConfirm={(val) => {
-                if (onUpdatePrice) onUpdatePrice(editingPrice.id, val);
-                setEditingPrice(null);
-            }}
+        <NumericKeypadModal
+          title="Preço Unitário"
+          initialValue={editingPrice.price}
+          itemName={editingPrice.name}
+          unit={editingPrice.unit}
+          referenceValue={editingPrice.basePrice}
+          onClose={() => setEditingPrice(null)}
+          onConfirm={(val) => { if (onUpdatePrice) onUpdatePrice(editingPrice.id, val); setEditingPrice(null); }}
         />
       )}
-
-      {showAddCustomer && (
-        <AddCustomerModal
-          onClose={() => setShowAddCustomer(false)}
-          onSelectCustomer={(customer) => {
-            setSelectedCustomer(customer);
-            setShowCustomerSearch(false);
-          }}
-        />
-      )}
-
-      {/* Customer Selection */}
-      <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex justify-between items-center mb-3">
-             <h2 className="text-lg font-bold text-slate-800 dark:text-white">Cliente</h2>
-             <div className="flex items-center gap-2">
-                <button
-                    onClick={() => setShowAddCustomer(true)}
-                    className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                >
-                    <Plus className="w-3.5 h-3.5" /> Adicionar Cliente
-                </button>
-                <button 
-                    onClick={() => setShowClearConfirm(true)}
-                    className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                >
-                    <Trash2 className="w-3.5 h-3.5" /> Limpar
-                </button>
-             </div>
-        </div>
-        
-        {!selectedCustomer ? (
-            <div className="relative">
-                 <button 
-                    onClick={() => setShowCustomerSearch(!showCustomerSearch)}
-                    className="w-full p-3 border border-slate-300 dark:border-slate-600 border-dashed rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center gap-2 transition-colors"
-                 >
-                    <User className="w-5 h-5" /> Selecionar Cliente
-                 </button>
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-[#eaecf0] dark:border-slate-700">
+            <div className="p-6">
+              <h3 className="font-semibold text-base text-[#1a1d21] dark:text-white mb-1">Limpar carrinho?</h3>
+              <p className="text-sm text-[#667085] dark:text-slate-400">Todos os itens serão removidos. Esta ação não pode ser desfeita.</p>
             </div>
-        ) : (
-            <div className="relative">
-                <div className="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg">
-                    <div className="flex items-center gap-3">
-                        {selectedCustomer.id === '0' ? (
-                           <div className="bg-blue-200 dark:bg-blue-800 p-2 rounded-full">
-                              <Store className="w-4 h-4 text-blue-700 dark:text-blue-200" />
-                           </div>
-                        ) : (
-                           <div className="bg-slate-200 dark:bg-slate-700 p-2 rounded-full">
-                              <User className="w-4 h-4 text-slate-600 dark:text-slate-300" />
-                           </div>
-                        )}
-                        <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <p className="font-bold text-blue-900 dark:text-blue-100">{selectedCustomer.name}</p>
-                                {selectedCustomer.type === 'TEMPORARIO' && (
-                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-orange-200 text-orange-800">
-                                        Temporario
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-xs text-blue-700 dark:text-blue-300">{selectedCustomer.document}</p>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={() => setShowCustomerSearch(!showCustomerSearch)} 
-                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium px-2 py-1"
+            <div className="flex gap-2 px-6 pb-6">
+              <button onClick={() => setShowClearConfirm(false)} className="flex-1 py-2 text-sm font-medium text-[#344054] dark:text-slate-300 bg-white dark:bg-slate-700 border border-[#d0d5dd] dark:border-slate-600 rounded-lg hover:bg-[#f9fafb] dark:hover:bg-slate-600 transition-colors">Cancelar</button>
+              <button onClick={() => { onClear(); setShowClearConfirm(false); }} className="flex-1 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors">Limpar tudo</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProductSearch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm">
+          <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[#eaecf0] dark:border-slate-800 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
+            {/* Search Input Header */}
+            <div className="p-4 border-b border-[#eaecf0] dark:border-slate-800 flex items-center gap-3 bg-[#f9fafb] dark:bg-slate-800/50">
+              <Search className="w-5 h-5 text-[#98a2b3] shrink-0" />
+              <input
+                type="text"
+                placeholder="Buscar produto por nome ou código..."
+                value={productSearchTerm}
+                onChange={e => setProductSearchTerm(e.target.value)}
+                autoFocus
+                className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30"
+              />
+              <button 
+                onClick={() => { setShowProductSearch(false); setProductSearchTerm(''); }}
+                className="p-1.5 text-[#98a2b3] hover:text-[#667085] hover:bg-slate-100 dark:hover:bg-slate-850 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Product List */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {searchLoading ? (
+                <div className="flex items-center justify-center py-12 text-[#667085]">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#155eef] mr-2" />
+                  <span className="text-sm">Pesquisando catálogo...</span>
+                </div>
+              ) : searchResults.length === 0 ? (
+                <div className="text-center py-12 text-[#667085] text-sm">
+                  Nenhum produto encontrado para "{productSearchTerm}"
+                </div>
+              ) : (
+                searchResults.map((prod, index) => {
+                  const isInCart = cart.some(item => item.id === prod.id);
+                  const cartQty = cart.find(item => item.id === prod.id)?.quantity || 0;
+                  const isFocused = focusedIndex === index;
+                  return (
+                    <div 
+                      key={prod.id} 
+                      className={`flex flex-col gap-3 p-3 rounded-xl transition-colors border sm:flex-row sm:items-center sm:justify-between ${
+                        isFocused 
+                          ? 'bg-[#eff4ff] dark:bg-blue-900/20 border-[#155eef]' 
+                          : 'border-transparent hover:bg-[#f9fafb] dark:hover:bg-slate-800/60'
+                      }`}
                     >
-                        Trocar
-                    </button>
-                </div>
-
-                {showCustomerSearch && (
-                     <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl rounded-lg z-20 p-2 max-h-60 overflow-y-auto animate-in slide-in-from-top-2">
-                        <div className="sticky top-0 bg-white dark:bg-slate-800 p-2 border-b border-slate-100 dark:border-slate-700 flex gap-2">
-                            <input 
-                                type="text" 
-                                placeholder="Buscar cliente..." 
-                                autoFocus
-                                value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
-                                className="flex-1 p-2 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-slate-400 hover:text-slate-600">
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-                        {customers.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase())).map(c => (
-                            <button 
-                                key={c.id}
-                                onClick={() => { setSelectedCustomer(c); setShowCustomerSearch(false); }}
-                                className={`w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 text-sm dark:text-white flex items-center gap-2 ${c.id === '0' ? 'font-bold bg-slate-50 dark:bg-slate-700/50' : ''}`}
-                            >
-                                {c.id === '0' && <Store className="w-4 h-4 text-blue-500" />}
-                                <div>
-                                    <div className="font-medium">{c.name}</div>
-                                    <div className="text-xs text-slate-500">{c.document}</div>
-                                </div>
-                            </button>
-                        ))}
-                     </div>
-                 )}
-            </div>
-        )}
-      </div>
-
-      {/* Payment Plan Selection */}
-      <div className="p-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-2 mb-3">
-          <CreditCard className="w-5 h-5 text-blue-600" />
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white">Plano de Pagamento</h3>
-        </div>
-
-        {!selectedCustomer && (
-          <div className="text-sm text-slate-500">Selecione um cliente para ver os planos.</div>
-        )}
-
-        {planLoading && (
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Carregando planos...
-          </div>
-        )}
-
-        {!selectedCustomer ? null : !planLoading && planError && (
-          <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded">
-            {planError}{isBoleto ? '' : ' (opcional)'}
-          </div>
-        )}
-
-        {!selectedCustomer ? null : !planLoading && !planError && (
-          <div className="space-y-2">
-            <select
-              value={selectedPlan?.code || ''}
-              onChange={(e) => {
-                const plan = paymentPlans.find(p => p.code === e.target.value) || null;
-                setSelectedPlan(plan);
-              }}
-              className="w-full p-2 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-            >
-              {!isBoleto && <option value="">Sem plano (opcional)</option>}
-              {paymentPlans.map(plan => (
-                <option key={plan.code} value={plan.code} disabled={plan.minValue > 0 && total < plan.minValue}>
-                  {formatPlanLabel(plan)}
-                </option>
-              ))}
-            </select>
-            {selectedPlan && (
-              <div className="text-xs text-slate-500">
-                <div className="text-[11px] text-slate-600">
-                  Parcelas: {selectedPlan.installments} • Dias 1ª parcela: {selectedPlan.daysFirstInstallment ?? 0} • Dias entre parcelas: {selectedPlan.daysBetweenInstallments ?? 0} • Valor mínimo: {formatMoney(selectedPlan.minValue)}
-                </div>
-                {paymentSchedule.length > 0 && (
-                  <div className="mt-2 text-[11px] text-slate-600">
-                    <span className="font-semibold text-slate-700">Vencimentos:</span> {paymentSchedule.map(date => date.toLocaleDateString('pt-BR')).join(' • ')}
-                  </div>
-                )}
-                {selectedPlan.imageUrl && (
-                  <div className="mt-3 flex items-center gap-3">
-                    <img
-                      src={selectedPlan.imageUrl}
-                      alt={`Plano ${selectedPlan.description || selectedPlan.code}`}
-                      className="h-16 w-16 rounded-lg border border-slate-200 object-contain dark:border-slate-700"
-                    />
-                    <p className="text-[11px] text-slate-500">
-                      Imagem oficial do plano fornecida pela API.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-            {planValidationError && (
-              <div className="mt-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
-                {planValidationError}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Payment Method + Shipping */}
-      <div className="p-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 space-y-6">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <CreditCard className="w-5 h-5 text-blue-600" />
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white">Forma de Pagamento</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {paymentSelectOptions.map(option => {
-              const Icon = option.icon;
-              const active = paymentMethod === option.value;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => setPaymentMethod(option.value)}
-                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-                    active
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                  }`}
-                  type="button"
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Truck className="w-5 h-5 text-orange-600" />
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white">Tipo de Frete</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {shippingSelectOptions.map(option => {
-              const Icon = option.icon;
-              const active = shippingMethod === option.value;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => setShippingMethod(option.value)}
-                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-                    active
-                      ? 'bg-orange-600 text-white border-orange-600'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                  }`}
-                  type="button"
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {cart.map((item) => {
-            const isFractional = item.unit.toLowerCase() === 'cto';
-            const step = isFractional ? 0.01 : 1;
-            const referencePrice = Number(item.basePrice ?? item.price);
-            const hasDiscount = Number.isFinite(referencePrice) && referencePrice > 0 && item.price < referencePrice;
-            const discountAmount = hasDiscount ? referencePrice - item.price : 0;
-            const discountPercent = hasDiscount ? (discountAmount / referencePrice) * 100 : 0;
-
-            return (
-              <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-4 py-4 border-b border-slate-100 dark:border-slate-700 last:border-0">
-                 <div className="flex items-center gap-4 flex-1">
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-slate-800 dark:text-white text-sm break-words">{item.name}</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-                          <span className="font-mono bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-600 flex items-center gap-1">
-                             <Tag className="w-3 h-3" /> {item.id}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                            {prod.id}
                           </span>
-                          <span>•</span>
-                          <button
-                            onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
-                            className="underline decoration-dotted hover:decoration-solid"
-                            title="Editar preço"
-                          >
-                            R$ {item.price.toFixed(2)} / {item.unit}
-                          </button>
-                      </p>
-                      {hasDiscount && (
-                        <div className="mt-2 inline-flex max-w-full items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                          <div>
-                            <div className="font-semibold">Preço abaixo da tabela</div>
-                            <div>Desconto nominal: R$ {discountAmount.toFixed(2)} | Desconto percentual: {discountPercent.toFixed(2)}%</div>
-                          </div>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {prod.category}
+                          </span>
                         </div>
-                      )}
+                        <h4 className="text-sm font-semibold text-[#1a1d21] dark:text-white mt-1 whitespace-normal break-words">
+                          {prod.name}
+                        </h4>
+                        <p className="mt-1 text-xs leading-relaxed text-[#667085] dark:text-slate-400 line-clamp-3 sm:line-clamp-2">
+                          {prod.description || 'Sem descrição cadastrada.'}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-[#667085] dark:text-slate-400">
+                          <span>Estoque: <strong className={prod.stock <= 0 ? "text-red-500" : "text-emerald-500"}>{prod.stock} {prod.unit.toLowerCase()}</strong></span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-sm font-bold text-[#1a1d21] dark:text-white">
+                          R$ {prod.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        {onAddToCart && (
+                          <button
+                            onClick={() => handleSelectProduct(prod)}
+                            className={`p-2 rounded-lg transition-all active:scale-95 ${
+                              isInCart 
+                                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' 
+                                : 'bg-[#155eef] hover:bg-[#1349c5] text-white'
+                            }`}
+                            title={isInCart ? `Adicionado (${cartQty}x)` : 'Adicionar ao carrinho'}
+                          >
+                            {isInCart ? (
+                              <div className="flex items-center gap-1 text-xs font-semibold px-1">
+                                <Check className="w-3.5 h-3.5" /> {cartQty}x
+                              </div>
+                            ) : (
+                              <Plus className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                </div>
-                
-                {/* Quantity Controls */}
-                <div className="flex items-center justify-between sm:justify-end gap-3 mt-2 sm:mt-0">
-                    <div className="flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-md">
-                        <button 
-                            onClick={() => onUpdateQuantity(item.id, item.quantity - step)}
-                            className="p-2 text-slate-500 hover:text-orange-600 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-l-md transition-colors"
-                        >
-                            <Minus className="w-4 h-4" />
-                        </button>
-                        
-                        <button 
-                            onClick={() => setEditingItem({ id: item.id, name: item.name, quantity: item.quantity, unit: item.unit })}
-                            className="w-20 p-2 text-center text-sm font-bold text-slate-800 dark:text-white border-x border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors bg-slate-50 dark:bg-slate-900"
-                        >
-                            {item.quantity.toString().replace('.', ',')}
-                        </button>
-
-                         <button 
-                            onClick={() => onUpdateQuantity(item.id, item.quantity + step)}
-                            className="p-2 text-slate-500 hover:text-orange-600 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-r-md transition-colors"
-                        >
-                            <Plus className="w-4 h-4" />
-                        </button>
-                    </div>
-
-                    <button 
-                        onClick={() => onRemove(item.id)} 
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors ml-2"
-                        title="Remover Item"
-                    >
-                        <Trash2 className="w-5 h-5" />
-                    </button>
-                </div>
-              </div>
-            );
-        })}
-      </div>
-
-      <div className="p-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700">
-        {/* Observação do pedido */}
-        <div className="mb-4">
-          <label className="text-xs font-bold text-slate-500 uppercase">Observações</label>
-          <textarea
-            value={notes}
-            onChange={(e)=>setNotes(e.target.value)}
-            rows={3}
-            placeholder="Alguma orientação para expedição, pagamento, entrega..."
-            className="w-full p-2 mt-1 rounded border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-          />
-        </div>
-
-        <div className="flex justify-between items-center mb-6">
-          <span className="text-slate-600 dark:text-slate-400">Total</span>
-          <span className="text-2xl font-bold text-blue-900 dark:text-white">R$ {total.toFixed(2).replace('.', ',')}</span>
-        </div>
-        
-        <div className="flex flex-col gap-3">
-          <div className="flex gap-3">
-             <button
-                onClick={() => setShowClearConfirm(true)}
-                disabled={submitting}
-                className="flex-none px-4 py-4 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600 font-bold rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:text-red-400 dark:hover:border-red-800 transition-colors"
-                title="Limpar Carrinho"
-             >
-                <Trash2 className="w-5 h-5" />
-             </button>
-
-             <button
-               onClick={shareQuote}
-               className="flex-none px-4 py-4 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-200"
-               title="Compartilhar orçamento via WhatsApp"
-             >
-               <Share2 className="w-5 h-5" />
-             </button>
+                  );
+                })
+              )}
+            </div>
+            
+            {/* Keyboard shortcut footer hint */}
+            <div className="p-3 border-t border-[#eaecf0] dark:border-slate-800 bg-[#f9fafb] dark:bg-slate-800/30 text-center text-[11px] text-[#667085]">
+              Use as setas para navegar e clique no botão para adicionar
+            </div>
           </div>
+        </div>
+      )}
 
-          <div className="flex flex-col gap-3 md:flex-row">
+      {/* CARD PRINCIPAL */}
+      <div className="w-full max-w-[1440px] mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border border-[#eaecf0] dark:border-slate-700 overflow-hidden">
+
+        {/* ── HEADER ── */}
+        <div className="flex items-center justify-between px-7 py-[18px] border-b border-[#eaecf0] dark:border-slate-700">
+          <div>
+            <p className="text-xs text-[#98a2b3] dark:text-slate-500 mb-1 font-normal">
+              Vendas&nbsp;&nbsp;/&nbsp;&nbsp;<span className="text-[#475467] dark:text-slate-400 font-medium">Novo pedido</span>
+            </p>
+            <div className="flex items-center gap-2.5 mt-0.5">
+              <h1 className="text-[18px] font-semibold tracking-[-0.01em] text-[#1a1d21] dark:text-white leading-none">Pedido de venda</h1>
+              {lastOrderNumber ? (
+                <span className="bg-[#fef6ee] dark:bg-orange-900/30 text-[#b93815] dark:text-orange-400 text-[11px] font-medium px-2.5 py-[3px] rounded-full">
+                  Orçamento · #{lastOrderNumber}
+                </span>
+              ) : (
+                <span className="bg-[#f2f4f7] dark:bg-slate-800 text-[#667085] dark:text-slate-400 text-[11px] font-medium px-2.5 py-[3px] rounded-full">
+                  Novo
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <button
               onClick={handleSaveDraft}
               disabled={submitting || !selectedCustomer || planLoading}
-              className="flex-1 py-4 bg-white dark:bg-slate-800 text-slate-800 dark:text-white border border-blue-300 dark:border-blue-700 font-bold rounded-lg shadow-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all flex justify-center items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-[14px] py-2 text-[13px] font-medium text-[#344054] dark:text-slate-300 bg-white dark:bg-slate-800 border border-[#d0d5dd] dark:border-slate-600 rounded-lg hover:bg-[#f9fafb] dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span>Salvando...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-5 h-5" />
-                  <span>Salvar Rascunho</span>
-                </>
-              )}
+              {submitting ? <div className="w-3.5 h-3.5 border-2 border-[#667085] border-t-transparent rounded-full animate-spin" /> : null}
+              Salvar rascunho
             </button>
-
             <button
               onClick={handleSendToERP}
               disabled={submitting || !selectedCustomer || planLoading}
-              className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-md transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+              className="flex items-center gap-1.5 px-[14px] py-2 text-[13px] font-semibold text-white bg-[#155eef] hover:bg-[#1349c5] rounded-lg shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span>Enviando...</span>
-                </>
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
-                <>
-                  <ArrowRight className="w-5 h-5" />
-                  <span>Enviar para ERP</span>
-                </>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
               )}
+              Fechar pedido
             </button>
+          </div>
+        </div>
+
+        {/* ── BARRA DE BUSCA ── */}
+        <div 
+          onClick={() => setShowProductSearch(true)}
+          className="mx-7 mt-5 flex items-center gap-2.5 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-[10px] px-3.5 py-2.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors"
+        >
+          <Search className="w-4 h-4 text-[#98a2b3] flex-shrink-0" />
+          <span className="flex-1 text-[13px] text-[#98a2b3] dark:text-slate-500 select-none">Buscar produto por nome ou código...</span>
+          <span className="bg-white dark:bg-slate-700 border border-[#d0d5dd] dark:border-slate-600 rounded-[5px] px-1.5 py-[2px] text-[11px] text-[#667085] dark:text-slate-400 font-normal select-none">⌘K</span>
+        </div>
+
+        {/* ── GRID: Conteúdo + Sidebar ── */}
+        <div className="px-7 pt-5 pb-5 grid grid-cols-1 lg:grid-cols-[1fr_230px] gap-4 items-start">
+
+          {/* ── COLUNA ESQUERDA ── */}
+          <div>
+            {/* CLIENTE */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
+            {!selectedCustomer ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowCustomerSearch(!showCustomerSearch)}
+                  className="w-full flex items-center gap-3 text-[#667085] dark:text-slate-400 transition-colors text-sm"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-[#eaecf0] dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                    <User className="w-4 h-4 text-[#98a2b3]" />
+                  </div>
+                  <span className="text-[13px]">Consumidor Final <span className="text-xs text-[#98a2b3]">(F2 para trocar)</span></span>
+                </button>
+                {showCustomerSearch && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 shadow-xl rounded-xl z-20 overflow-hidden">
+                    <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
+                      <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
+                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30" />
+                      <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
+                    </div>
+                    <div className="max-h-52 overflow-y-auto p-1">
+                      {customers.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase())).map(c => (
+                        <button key={c.id} onClick={() => { setSelectedCustomer(c); setShowCustomerSearch(false); setSearchTerm(''); }}
+                          className="w-full text-left px-3 py-2 hover:bg-[#f9fafb] dark:hover:bg-slate-700 rounded-lg transition-colors">
+                          <div className="text-sm font-medium text-[#1a1d21] dark:text-white">{c.name}</div>
+                          <div className="text-xs text-[#667085] dark:text-slate-400">{c.document}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="relative">
+                <div className="flex items-center gap-3">
+                  <div className="w-[38px] h-[38px] rounded-[10px] bg-gradient-to-br from-[#155eef] to-[#7f56d9] flex items-center justify-center flex-shrink-0">
+                    <span className="text-white font-semibold text-[14px]">
+                      {selectedCustomer.name.slice(0,2).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[14px] font-semibold text-[#1a1d21] dark:text-white leading-tight truncate">{selectedCustomer.name}</p>
+                      {selectedCustomer.type === 'TEMPORARIO' && (
+                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 shrink-0">Temp.</span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-[#667085] dark:text-slate-400 mt-[2px] truncate">
+                      {selectedCustomer.document}
+                      {selectedCustomer.city ? <>&nbsp;·&nbsp;{selectedCustomer.city}/{selectedCustomer.state || 'CE'}</> : null}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowCustomerSearch(!showCustomerSearch)}
+                    className="ml-auto text-[12px] text-[#155eef] hover:text-[#1349c5] dark:text-blue-400 dark:hover:text-blue-300 font-medium transition-colors shrink-0"
+                  >
+                    Trocar
+                  </button>
+                </div>
+                {showCustomerSearch && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 shadow-xl rounded-xl z-20 overflow-hidden">
+                    <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
+                      <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
+                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30" />
+                      <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
+                    </div>
+                    <div className="max-h-52 overflow-y-auto p-1">
+                      {customers.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase())).map(c => (
+                        <button key={c.id} onClick={() => { setSelectedCustomer(c); setShowCustomerSearch(false); setSearchTerm(''); }}
+                          className="w-full text-left px-3 py-2 hover:bg-[#f9fafb] dark:hover:bg-slate-700 rounded-lg transition-colors">
+                          <div className="text-sm font-medium text-[#1a1d21] dark:text-white">{c.name}</div>
+                          <div className="text-xs text-[#667085] dark:text-slate-400">{c.document}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            </div>
+
+            {/* ITENS DO PEDIDO */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
+              <p className="flex items-center justify-between text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">
+                <span>Itens do pedido</span>
+                <span className="font-normal normal-case tracking-normal text-[#98a2b3] dark:text-slate-500">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</span>
+              </p>
+
+            <div className="overflow-x-auto mb-0">
+              <table className="w-full border-collapse mb-2">
+              <thead>
+                <tr>
+                  <td className="w-[38%] text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 pr-2">Produto</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Qtde.</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Und.</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Valor emb.</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Estoque</td>
+                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Total</td>
+                  <td className="pb-2 border-b border-[#eaecf0] dark:border-slate-700"></td>
+                </tr>
+              </thead>
+              <tbody>
+                {cart.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-[#667085] dark:text-slate-500 text-sm">
+                      Nenhum produto no pedido. Pressione <kbd className="bg-white dark:bg-slate-800 border border-[#d0d5dd] dark:border-slate-700 px-1.5 py-[2px] rounded-[5px] text-[11px] font-normal select-none">⌘K</kbd> ou clique na barra de busca para adicionar.
+                    </td>
+                  </tr>
+                ) :
+                  cart.map((item) => {
+                  const referencePrice = item.basePrice ?? item.price;
+                  const hasDiscount = referencePrice > 0 && item.price < referencePrice;
+                  const discountAmount = hasDiscount ? referencePrice - item.price : 0;
+                  const discountPercent = hasDiscount ? (discountAmount / referencePrice) * 100 : 0;
+                  const stockQty = item.stock ?? 0;
+                  const stockStatus = stockQty < 0 ? 'negative' : stockQty < item.quantity ? 'insufficient' : 'available';
+                  const stockBadgeClass = stockStatus === 'available'
+                    ? 'bg-[#ecfdf3] dark:bg-emerald-900/30 text-[#067647] dark:text-emerald-400'
+                    : stockStatus === 'insufficient'
+                      ? 'bg-[#fffaeb] dark:bg-amber-900/20 text-[#b54708] dark:text-amber-400'
+                      : 'bg-[#fef3f2] dark:bg-red-900/20 text-[#b42318] dark:text-red-400';
+                  const stockIcon = stockStatus === 'available' ? '🟢' : stockStatus === 'insufficient' ? '🟡' : '🔴';
+                  const step = (item.unit === 'un' || item.unit === 'pc' || item.unit === 'pç') ? 1 : 0.5;
+                  const rowTotal = item.price * item.quantity;
+                  return (
+                    <tr key={item.id} className="border-b border-[#f2f4f7] dark:border-slate-800 hover:bg-[#f9fafb] dark:hover:bg-slate-800/40 group transition-colors">
+                      {/* Produto */}
+                      <td className="py-[13px] pr-2 text-[13px] text-[#1a1d21] dark:text-white">
+                        <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[11px] font-medium px-[7px] py-[2px] rounded-[6px] mr-2">{item.id}</span>
+                        <button
+                          onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
+                          className="text-left hover:text-[#155eef] dark:hover:text-blue-400 transition-colors"
+                          title="Editar preço"
+                        >
+                          {item.name}
+                        </button>
+                        {hasDiscount && (
+                          <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            Desc. R$ {discountAmount.toFixed(2)} ({discountPercent.toFixed(1)}%)
+                          </span>
+                        )}
+                      </td>
+                      {/* Qtd */}
+                      <td className="py-[13px] pr-2 text-center">
+                        <button
+                          onClick={() => setEditingItem({ id: item.id, name: item.name, quantity: item.quantity, unit: item.unit })}
+                          data-qty-input
+                          className="border-b border-dashed border-[#d0d5dd] pb-px text-[13px] text-[#1a1d21] dark:text-white hover:border-[#155eef] hover:bg-[#eff4ff] dark:hover:bg-blue-900/20 focus:outline-none"
+                          title="Clique para editar a quantidade"
+                        >
+                          {item.quantity.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
+                        </button>
+                      </td>
+                      {/* Und. */}
+                      <td className="py-[11px] pr-2 text-center">
+                        <span className="inline-flex items-center justify-center min-w-8 rounded-md bg-[#f2f4f7] dark:bg-slate-800 px-2 py-[3px] text-[11px] font-medium text-[#475467] dark:text-slate-300">
+                          {item.unit}
+                        </span>
+                      </td>
+                      {/* Valor emb. */}
+                      <td className="py-[13px] pr-2 text-right text-[13px]">
+                        <button
+                          onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
+                          className="inline-flex items-center justify-end gap-1 text-[#1a1d21] dark:text-white font-medium hover:text-[#155eef] dark:hover:text-blue-400 transition-colors w-full"
+                          title="Editar valor ou aplicar desconto"
+                        >
+                          {item.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <svg className="h-[13px] w-[13px] text-[#98a2b3]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                        </button>
+                      </td>
+                      {/* Estoque */}
+                      <td className="py-[13px] pr-2 text-center">
+                        <span className="inline-flex items-center justify-center gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[12px] font-medium tabular-nums ${stockBadgeClass}`}
+                            title={stockStatus === 'available' ? 'Estoque disponível' : stockStatus === 'insufficient' ? 'Estoque insuficiente' : 'Estoque negativo'}
+                          >
+                            <span aria-hidden="true">{stockIcon}</span>
+                            {stockQty}
+                          </span>
+                          <Search className="h-[13px] w-[13px] text-[#98a2b3]" />
+                        </span>
+                      </td>
+                      {/* Total */}
+                      <td className="py-[11px] pr-2 text-right text-[13px] font-semibold text-[#1a1d21] dark:text-white">
+                        {rowTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      {/* Remover */}
+                      <td className="py-[11px] text-right">
+                        <button onClick={() => onRemove(item.id)}
+                          className="text-[#98a2b3] hover:text-[#667085] dark:hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-all"
+                          title="Remover">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {/* Adicionar item */}
+            <div 
+              onClick={() => setShowProductSearch(true)}
+              className="flex items-center gap-2 px-[10px] py-[10px] border border-dashed border-[#d0d5dd] dark:border-slate-600 rounded-[10px] text-[#667085] dark:text-slate-500 text-[13px] mt-[14px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            >
+              <Plus className="w-[15px] h-[15px]" />
+              <span>Adicionar item · pressione</span>
+              <span className="bg-white dark:bg-slate-700 border border-[#d0d5dd] dark:border-slate-600 rounded-[5px] px-1.5 py-[2px] text-[11px] text-[#667085] dark:text-slate-400 mx-0.5">⌘K</span>
+              <span>para buscar</span>
+            </div>
+            </div>
+            </div>
+
+            {/* Observações */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-0">
+              <label className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em]">Observações</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                placeholder="Orientações para expedição, pagamento, entrega..."
+                className="w-full mt-2 px-3 py-2 rounded-[8px] border border-[#eaecf0] dark:border-slate-700 bg-[#f9fafb] dark:bg-slate-800 text-[13px] text-[#1a1d21] dark:text-white placeholder:text-[#98a2b3] focus:outline-none focus:ring-2 focus:ring-[#155eef] focus:border-transparent resize-none transition-all"
+              />
+            </div>
+          </div>
+
+          {/* ── SIDEBAR DIREITA ── */}
+          <div>
+
+            {/* LIMITE DE CRÉDITO */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
+            <p className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">Limite de crédito</p>
+            <div>
+              {!selectedCustomer || selectedCustomer.id === '0' || selectedCustomer.id === 'consumidor-final' ? (
+                <p className="text-[12px] text-[#98a2b3] dark:text-slate-500 text-center py-1">
+                  Selecione um cliente para consultar o limite.
+                </p>
+              ) : (
+                <div className="rounded-lg border border-dashed border-[#d0d5dd] dark:border-slate-700 bg-[#f9fafb] dark:bg-slate-800/50 px-3 py-3 text-[12px] text-[#667085] dark:text-slate-400">
+                  Limite de crédito indisponível para este cliente. Integração de crédito pendente no frontend.
+                </div>
+              )}
+            </div>
+
+            </div>
+
+            {/* PRAZO & TRANSPORTE */}
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-0">
+            <p className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">Prazo &amp; transporte</p>
+
+            {/* Condição de Pagamento */}
+            <div className="mb-3.5">
+              <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Condição de pagamento</p>
+              <div className="relative">
+                <select
+                  value={paymentMethod}
+                  onChange={e => setPaymentMethod(e.target.value)}
+                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                >
+                  {paymentSelectOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98a2b3" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Planos Boleto */}
+            {isBoleto && (
+              <div className="mb-3.5">
+                <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Plano boleto</p>
+                {planLoading && <div className="flex items-center gap-2 text-xs text-[#667085] py-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Buscando...</div>}
+                {planError && !planLoading && <div className="text-xs text-red-600 dark:text-red-400 py-1">{planError}</div>}
+                {!planLoading && !planError && paymentPlans.length > 0 && (
+                  <select
+                    value={selectedPlan?.code || ''}
+                    onChange={e => setSelectedPlan(paymentPlans.find(p => p.code === e.target.value) || null)}
+                    className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                  >
+                    {paymentPlans.map(p => <option key={p.code} value={p.code}>{p.description}</option>)}
+                  </select>
+                )}
+                {planValidationError && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{planValidationError}</p>
+                )}
+              </div>
+            )}
+
+            {/* Vencimento */}
+            <div className="mb-3.5">
+              <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Vencimento</p>
+              <div className="text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg">
+                {selectedPlan?.daysFirstInstallment
+                  ? new Date(Date.now() + selectedPlan.daysFirstInstallment * 86400000).toLocaleDateString('pt-BR')
+                  : 'Dia'
+                }
+              </div>
+            </div>
+
+            {/* Transportadora */}
+            <div className="mb-3.5">
+              <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Transportadora</p>
+              <div className="relative">
+                <select
+                  value={carrier}
+                  onChange={e => setCarrier(e.target.value)}
+                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                >
+                  {['Retirada em Loja', 'Expresso Log', 'Rede Cargo', 'Direct Transportes'].map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98a2b3" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Frete */}
+            <div className="mb-3.5">
+              <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Frete</p>
+              <div className="relative">
+                <select
+                  value={shippingMethod}
+                  onChange={e => setShippingMethod(e.target.value)}
+                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                >
+                  {shippingSelectOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98a2b3" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+              </div>
+            </div>
+
+            </div>
+          </div>
+        </div>
+
+        {/* ── FOOTER ── */}
+        <div className="flex items-center justify-between px-7 py-4 bg-[#f9fafb] dark:bg-slate-900 border-t border-[#eaecf0] dark:border-slate-700 select-none">
+          <span className="text-[12px] text-[#667085] dark:text-slate-500">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</span>
+          
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-[#667085] dark:text-slate-400">Total do pedido</span>
+            <span className="text-[20px] font-bold text-[#1a1d21] dark:text-white tracking-[-0.02em]">
+              R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
           </div>
         </div>
       </div>

@@ -247,7 +247,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                             required
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white"
+                            className="app-input block w-full pl-10 pr-3 py-3"
                             placeholder="Seu nome"
                         />
                     </div>
@@ -264,7 +264,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                             required
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white"
+                            className="app-input block w-full pl-10 pr-3 py-3"
                             placeholder="seu@email.com"
                         />
                     </div>
@@ -281,7 +281,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white"
+                            className="app-input block w-full pl-10 pr-3 py-3"
                             placeholder="********"
                         />
                     </div>
@@ -332,7 +332,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                             required
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white"
+                            className="app-input block w-full pl-10 pr-3 py-3"
                             placeholder="admin"
                         />
                     </div>
@@ -358,7 +358,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-slate-50 text-slate-900 transition-all outline-none dark:bg-slate-900 dark:border-slate-600 dark:text-white"
+                            className="app-input block w-full pl-10 pr-3 py-3"
                             placeholder="********"
                         />
                     </div>

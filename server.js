@@ -256,12 +256,14 @@ const buildRemoteAuthHeaders = (backendUrl, extraHeaders = {}) => {
 const requireRemoteBackendContext = (req, res) => {
   const backendUrl = getRequestedBackendUrl(req);
   if (!backendUrl) {
+    if (res.headersSent) return null;
     res.status(400).json({ message: 'Configuração de loja inválida. Backend do ERP não identificado.' });
     return null;
   }
   const hintedAppToken = getHeaderValue(req.headers['x-app-token']);
   const integrationToken = resolveIntegrationTokenForBackend(backendUrl) || hintedAppToken;
   if (!integrationToken) {
+    if (res.headersSent) return null;
     res.status(400).json({ message: 'Token de integração inválido ou não configurado para esta loja.' });
     return null;
   }
@@ -799,7 +801,8 @@ app.get('/api/integration/validate', async (req, res) => {
       });
   } catch (e) {
       console.error('[AUTH_PROXY] Falha ao validar integração remota:', e.message);
-      return res.status(503).json({ message: 'API do ERP indisponível' });
+      if (res.headersSent) return;
+    return res.status(503).json({ message: 'API do ERP indisponível' });
   }
 });
 
@@ -1916,20 +1919,20 @@ const renderReceiptPDF = (doc, receipt, store) => {
   });
 
   const summaryX = marginLeft + notesWidth + gap;
-  drawBox(summaryX, lowerTop, sideCardWidth, notesHeight, { fill: '#0f172a', stroke: '#0f172a', radius: 12 });
-  doc.fillColor('#cbd5e1').font('Helvetica-Bold').fontSize(7.6).text('RESUMO FINANCEIRO', summaryX + 14, lowerTop + 14, { width: sideCardWidth - 28 });
+  drawBox(summaryX, lowerTop, sideCardWidth, notesHeight, { fill: '#f8fafc', stroke: '#cbd5e1', radius: 12 });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.6).text('RESUMO FINANCEIRO', summaryX + 14, lowerTop + 14, { width: sideCardWidth - 28 });
   const summaryLabelWidth = 82;
   const summaryValueX = summaryX + 14 + summaryLabelWidth;
   const summaryValueWidth = sideCardWidth - 28 - summaryLabelWidth;
-  doc.fillColor('#cbd5e1').font('Helvetica').fontSize(8.3).text('Itens', summaryX + 14, lowerTop + 34, { width: summaryLabelWidth });
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.8).text(String(items.length), summaryValueX, lowerTop + 34, { width: summaryValueWidth, align: 'right' });
-  doc.fillColor('#cbd5e1').font('Helvetica').fontSize(8.3).text('Pagamento', summaryX + 14, lowerTop + 54, { width: summaryLabelWidth });
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.8).text(paymentMethodLabel, summaryValueX, lowerTop + 54, { width: summaryValueWidth, align: 'right' });
+  doc.fillColor('#475569').font('Helvetica').fontSize(8.3).text('Itens', summaryX + 14, lowerTop + 34, { width: summaryLabelWidth });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8.8).text(String(items.length), summaryValueX, lowerTop + 34, { width: summaryValueWidth, align: 'right' });
+  doc.fillColor('#475569').font('Helvetica').fontSize(8.3).text('Pagamento', summaryX + 14, lowerTop + 54, { width: summaryLabelWidth });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8.8).text(paymentMethodLabel, summaryValueX, lowerTop + 54, { width: summaryValueWidth, align: 'right' });
   doc.save();
-  doc.moveTo(summaryX + 14, lowerTop + 76).lineTo(summaryX + sideCardWidth - 14, lowerTop + 76).strokeColor('#334155').lineWidth(1).stroke();
+  doc.moveTo(summaryX + 14, lowerTop + 76).lineTo(summaryX + sideCardWidth - 14, lowerTop + 76).strokeColor('#cbd5e1').lineWidth(1).stroke();
   doc.restore();
-  doc.fillColor('#cbd5e1').font('Helvetica-Bold').fontSize(7.8).text('TOTAL GERAL', summaryX + 14, lowerTop + 84, { width: sideCardWidth - 28 });
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(12.5).text(formatMoney(total), summaryX + 14, lowerTop + 98, {
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.8).text('TOTAL GERAL', summaryX + 14, lowerTop + 84, { width: sideCardWidth - 28 });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12.5).text(formatMoney(total), summaryX + 14, lowerTop + 98, {
     width: sideCardWidth - 28,
     align: 'right'
   });
@@ -2282,7 +2285,11 @@ app.post('/api/ai/image', verifyToken, async (req, res) => {
   }
 });
 
+const LOCAL_API_PATHS = ['/api/recibo/pdf/public', '/api/recibo/pdf', '/api/catalogo-produtos/pdf', '/api/store/public'];
+
 app.use('/api', async (req, res, next) => {
+  if (LOCAL_API_PATHS.some(p => req.path.startsWith(p))) return next();
+  if (res.headersSent) return next();
   try {
     const context = requireRemoteBackendContext(req, res);
     if (!context) return;
@@ -2313,6 +2320,7 @@ app.use('/api', async (req, res, next) => {
     return res.status(response.status).send(text);
   } catch (error) {
     console.error('[ERP_PROXY] Falha no proxy genérico:', error.message);
+    if (res.headersSent) return;
     return res.status(503).json({ message: 'API do ERP indisponível' });
   }
 });

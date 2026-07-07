@@ -199,7 +199,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
               onChange={(e) => setConfig({ ...config, backendUrl: e.target.value })}
               disabled={true}
               placeholder={backendUrlLocked ? lockedBackendUrl : "https://apiforce.edsondosparafusos.app.br"}
-              className="flex-1 p-3 border rounded-md dark:bg-slate-900 dark:text-white dark:border-slate-700"
+              className="app-input flex-1 p-3"
             />
             <button
                 onClick={handleTestConnection}
@@ -233,7 +233,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
                    value={maskedToken}
                    readOnly
                    disabled
-                   className="w-full p-3 pr-10 border rounded-md dark:bg-slate-900 dark:text-white dark:border-slate-700"
+                   className="app-input w-full p-3 pr-10"
                  />
                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
                     mascarado

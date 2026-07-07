@@ -140,7 +140,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState('');
-  const [productSearch, setProductSearch] = useState('');
+  const [productSearch, setProductSearch] = useState(() => localStorage.getItem('PRODUCT_SEARCH_CSP') || '');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('pix');
@@ -591,7 +591,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     value={customerSearch}
                     onChange={(event) => setCustomerSearch(event.target.value)}
                     placeholder="Nome, código, CPF/CNPJ ou telefone"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30"
+                    className="app-input w-full py-2.5 pl-9 pr-4 text-sm"
                   />
                 </label>
               </div>
@@ -662,9 +662,9 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                   <input
                     ref={productSearchRef}
                     value={productSearch}
-                    onChange={(event) => setProductSearch(event.target.value)}
+                    onChange={(event) => { const v = event.target.value; setProductSearch(v); localStorage.setItem('PRODUCT_SEARCH_CSP', v); }}
                     placeholder="Código, descrição, PLU, referência ou código de barras"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30"
+                    className="app-input w-full py-2.5 pl-9 pr-4 text-sm"
                   />
                 </label>
               </div>
@@ -800,7 +800,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                           <input
                             value={item.quantity}
                             onChange={(event) => updateQuantity(item.id, Number(event.target.value || 0))}
-                            className="w-12 border-x border-slate-200 bg-slate-50 px-1 py-2 text-center text-sm font-bold outline-none"
+                            className="w-12 border-x border-slate-300 bg-[#F8FAFC] px-1 py-2 text-center text-sm font-bold outline-none text-[#0F172A]"
                           />
                           <button type="button" onClick={() => updateQuantity(item.id, item.quantity + 1)} className="px-2.5 py-2 text-slate-500 hover:bg-slate-100 transition-colors">
                             <Plus className="h-3.5 w-3.5" />
@@ -820,7 +820,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                             value={item.price}
                             onChange={(event) => updatePrice(item.id, Number(event.target.value || 0))}
                             disabled={!canEditSales}
-                            className={`w-full rounded-xl border px-2.5 py-1.5 text-sm outline-none transition ${canEditSales ? 'border-slate-300 bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100' : 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'}`}
+                            className={`app-input w-full px-2.5 py-1.5 text-sm ${canEditSales ? '' : 'opacity-60 cursor-not-allowed'}`}
                           />
                           {hasDiscount ? (
                             <div className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-600">
@@ -871,7 +871,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     <select
                       value={paymentMethod}
                       onChange={(event) => setPaymentMethod(event.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition"
+                      className="app-input w-full px-2.5 py-2 text-xs font-medium"
                     >
                       {PAYMENT_METHODS.map((option) => (
                         <option key={option.value} value={option.value}>{option.icon} {option.label}</option>
@@ -883,7 +883,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     <select
                       value={shippingMethod}
                       onChange={(event) => setShippingMethod(event.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition"
+                      className="app-input w-full px-2.5 py-2 text-xs font-medium"
                     >
                       {SHIPPING_METHODS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -899,7 +899,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                       value={selectedPlanCode}
                       onChange={(event) => setSelectedPlanCode(event.target.value)}
                       disabled={planLoading}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium outline-none focus:border-blue-400 disabled:bg-slate-100 transition"
+                      className="app-input w-full px-2.5 py-2 text-xs font-medium"
                     >
                       <option value="">Selecione</option>
                       {paymentPlans.map((plan) => (
@@ -921,7 +921,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     onChange={(event) => setNotes(event.target.value)}
                     rows={2}
                     placeholder="Alguma observação para este pedido?"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition resize-none"
+                    className="app-input w-full px-2.5 py-2 text-xs resize-none"
                   />
                 </div>
               </div>

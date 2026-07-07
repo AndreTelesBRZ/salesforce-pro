@@ -296,7 +296,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [shippingMethod, setShippingMethod] = useState('sem_frete');
   const [carrier, setCarrier] = useState('Retirada em Loja');
   const [showProductSearch, setShowProductSearch] = useState(false);
-  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [productSearchTerm, setProductSearchTerm] = useState(() => localStorage.getItem('PRODUCT_SEARCH_CART') || '');
   const [searchResults, setSearchResults] = useState<Product[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -977,12 +977,12 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 type="text"
                 placeholder="Buscar produto por nome ou código..."
                 value={productSearchTerm}
-                onChange={e => setProductSearchTerm(e.target.value)}
+                onChange={e => { const v = e.target.value; setProductSearchTerm(v); localStorage.setItem('PRODUCT_SEARCH_CART', v); }}
                 autoFocus
-                className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30"
+                className="app-input flex-1 px-3 py-2 text-sm"
               />
               <button 
-                onClick={() => { setShowProductSearch(false); setProductSearchTerm(''); }}
+                onClick={() => setShowProductSearch(false)}
                 className="p-1.5 text-[#98a2b3] hover:text-[#667085] hover:bg-slate-100 dark:hover:bg-slate-850 rounded-full transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -1150,7 +1150,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                     <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
                       <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
-                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30" />
+                        className="app-input flex-1 px-3 py-2 text-sm" />
                       <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
                     </div>
                     <div className="max-h-52 overflow-y-auto p-1">
@@ -1197,7 +1197,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                     <div className="p-2 border-b border-[#f2f4f7] dark:border-slate-700 flex gap-2">
                       <input type="text" placeholder="Buscar cliente..." autoFocus value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Escape') { setShowCustomerSearch(false); setSearchTerm(''); } }}
-                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:bg-[#F3F4F6] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:bg-slate-900 dark:focus:ring-blue-900/30" />
+                        className="app-input flex-1 px-3 py-2 text-sm" />
                       <button onClick={() => setShowCustomerSearch(false)} className="p-2 text-[#98a2b3] hover:text-[#667085]"><X className="w-4 h-4" /></button>
                     </div>
                     <div className="max-h-52 overflow-y-auto p-1">
@@ -1394,7 +1394,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <select
                   value={paymentMethod}
                   onChange={e => setPaymentMethod(e.target.value)}
-                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                  className="app-input w-full text-[13px] font-medium px-[10px] py-[7px] appearance-none cursor-pointer"
                 >
                   {paymentSelectOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1416,7 +1416,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   <select
                     value={selectedPlan?.code || ''}
                     onChange={e => setSelectedPlan(paymentPlans.find(p => p.code === e.target.value) || null)}
-                    className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                    className="app-input w-full text-[13px] font-medium px-[10px] py-[7px] appearance-none cursor-pointer"
                   >
                     {paymentPlans.map(p => <option key={p.code} value={p.code}>{p.description}</option>)}
                   </select>
@@ -1445,7 +1445,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <select
                   value={carrier}
                   onChange={e => setCarrier(e.target.value)}
-                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                  className="app-input w-full text-[13px] font-medium px-[10px] py-[7px] appearance-none cursor-pointer"
                 >
                   {['Retirada em Loja', 'Expresso Log', 'Rede Cargo', 'Direct Transportes'].map(opt => (
                     <option key={opt} value={opt}>{opt}</option>
@@ -1464,7 +1464,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <select
                   value={shippingMethod}
                   onChange={e => setShippingMethod(e.target.value)}
-                  className="w-full text-[13px] font-medium text-[#1a1d21] dark:text-white px-[10px] py-[7px] bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155eef] appearance-none cursor-pointer"
+                  className="app-input w-full text-[13px] font-medium px-[10px] py-[7px] appearance-none cursor-pointer"
                 >
                   {shippingSelectOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
