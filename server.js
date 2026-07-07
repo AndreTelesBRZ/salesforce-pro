@@ -778,6 +778,47 @@ app.get('/health', async (req, res) => {
     }
 });
 
+
+app.get('/api/config/resolve', (req, res) => {
+  const host = getRequestHost(req);
+  const isEdson = matchesDomain(host, 'edsondosparafusos.app.br');
+  const isLlfix = matchesDomain(host, 'llfix.app.br');
+
+  if (!isEdson && !isLlfix) {
+    const label = host || '(desconhecido)';
+    return res.status(200).json({
+      tenant: null,
+      hostname: host,
+      domain: '',
+      storeCode: '',
+      storeName: '',
+      backendUrl: '',
+      tokenConfigured: false,
+      mapped: false,
+      error: 'Domínio não configurado: ' + label + '.'
+    });
+  }
+
+  const tenant = isEdson ? 'EDSON' : 'LLFIX';
+  const domain = isEdson ? 'edsondosparafusos.app.br' : 'llfix.app.br';
+  const storeCode = isEdson ? '000001' : '000003';
+  const storeName = isEdson ? 'EDSON DOS PARAFUSOS' : 'LL FIX DISTRIBUIDORA - EI';
+  const backendUrl = isEdson ? 'https://apiforce.edsondosparafusos.app.br' : 'https://apiforce.llfix.app.br';
+  const remoteToken = isEdson ? APP_INTEGRATION_TOKEN_EDSON : isLlfix ? APP_INTEGRATION_TOKEN_LLFIX : APP_INTEGRATION_TOKEN;
+  const tokenConfigured = !!(remoteToken && remoteToken.trim().length > 0);
+
+  return res.status(200).json({
+    tenant,
+    hostname: host,
+    domain,
+    storeCode,
+    storeName,
+    backendUrl,
+    tokenConfigured,
+    mapped: true,
+  });
+});
+
 app.get('/api/integration/validate', async (req, res) => {
   try {
       const context = requireRemoteBackendContext(req, res);
@@ -2285,7 +2326,7 @@ app.post('/api/ai/image', verifyToken, async (req, res) => {
   }
 });
 
-const LOCAL_API_PATHS = ['/api/recibo/pdf/public', '/api/recibo/pdf', '/api/catalogo-produtos/pdf', '/api/store/public'];
+const LOCAL_API_PATHS = ['/api/config/resolve', '/api/recibo/pdf/public', '/api/recibo/pdf', '/api/catalogo-produtos/pdf', '/api/store/public'];
 
 app.use('/api', async (req, res, next) => {
   if (LOCAL_API_PATHS.some(p => req.path.startsWith(p))) return next();

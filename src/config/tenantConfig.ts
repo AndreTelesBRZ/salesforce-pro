@@ -203,6 +203,76 @@ export const getTenantDiagnostics = (hostname?: string): {
   };
 };
 
+
+export interface ServerDiagnostics {
+  domainMapped: boolean;
+  backendConfigured: boolean;
+  tokenConfigured: boolean;
+  tenant: string | null;
+  storeCode: string;
+  storeName: string;
+  backendUrl: string;
+  error?: string;
+}
+
+let serverDiagCache: ServerDiagnostics | null = null;
+let serverDiagPromise: Promise<ServerDiagnostics> | null = null;
+
+export async function fetchServerDiagnostics(): Promise<ServerDiagnostics> {
+  if (serverDiagPromise) return serverDiagPromise;
+  
+  serverDiagPromise = (async () => {
+    try {
+      const response = await fetch('/api/config/resolve');
+      if (response.ok) {
+        const data = await response.json();
+        serverDiagCache = {
+          domainMapped: data.mapped,
+          backendConfigured: data.mapped && !!data.backendUrl,
+          tokenConfigured: data.tokenConfigured,
+          tenant: data.tenant,
+          storeCode: data.storeCode,
+          storeName: data.storeName,
+          backendUrl: data.backendUrl,
+        };
+        if (!data.mapped) {
+          serverDiagCache.error = data.error || 'Domínio não configurado.';
+        } else if (!data.tokenConfigured) {
+          serverDiagCache.error = 'Token de integração não configurado no servidor para este domínio.';
+        }
+        return serverDiagCache;
+      }
+    } catch {
+      // fallback below
+    }
+    
+    // Fallback to local diagnostics
+    const local = getTenantDiagnostics();
+    serverDiagCache = {
+      domainMapped: local.domainMapped,
+      backendConfigured: local.backendConfigured,
+      tokenConfigured: local.tokenConfigured,
+      tenant: local.tenant.mapped ? local.tenant.tenant : null,
+      storeCode: local.tenant.mapped ? local.tenant.storeCode : '',
+      storeName: local.tenant.mapped ? local.tenant.storeName : '',
+      backendUrl: local.tenant.mapped ? local.tenant.backendUrl : '',
+      error: local.error || undefined,
+    };
+    return serverDiagCache;
+  })();
+  
+  return serverDiagPromise;
+}
+
+export function getCachedServerDiagnostics(): ServerDiagnostics | null {
+  return serverDiagCache;
+}
+
+export function clearServerDiagCache(): void {
+  serverDiagCache = null;
+  serverDiagPromise = null;
+}
+
 // Development debug helpers: expose functions on `window` so we can inspect
 // runtime env values and the resolved tenant from the browser console.
 // Note: no debug helpers are left in the final code.

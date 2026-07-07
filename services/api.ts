@@ -795,7 +795,7 @@ class ApiService {
 
   async loadTenantStoreInfo(forceRefresh: boolean = false): Promise<Record<string, any> | null> {
       const diagnostics = this.getTenantDiagnostics();
-      if (!diagnostics.domainMapped || !diagnostics.backendConfigured || !diagnostics.tokenConfigured) {
+      if (!diagnostics.domainMapped) {
           return null;
       }
 
@@ -804,12 +804,22 @@ class ApiService {
           if (cached) return cached;
       }
 
-      const endpoint = '/api/integration/validate';
-      const targetUrl = `${diagnostics.tenant.backendUrl}${endpoint}`;
-      const response = await fetch(targetUrl, {
+      const response = await fetch('/api/integration/validate', {
           method: 'GET',
-          headers: this.getTechnicalAuthHeaders(),
+          headers: {
+              'Content-Type': 'application/json',
+              ...this.getTenantHeaders(),
+          },
       });
+
+      if (response.status === 400) {
+          let detail = 'Configuração de loja inválida. Verifique se o token de integração está configurado no servidor.';
+          try {
+              const payload = await response.clone().json();
+              detail = payload?.message || detail;
+          } catch {}
+          throw new Error(detail);
+      }
 
       if (!response.ok) {
           let detail = `HTTP ${response.status}`;
@@ -820,7 +830,7 @@ class ApiService {
           throw new Error(detail);
       }
 
-      const jsonCheck = await this.ensureJsonResponse(response, endpoint);
+      const jsonCheck = await this.ensureJsonResponse(response, '/api/integration/validate');
       if (!jsonCheck.ok) {
           throw new Error(jsonCheck.message || 'Resposta inválida da API.');
       }

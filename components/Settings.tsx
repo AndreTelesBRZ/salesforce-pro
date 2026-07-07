@@ -37,6 +37,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const resolvedBackendUrl = backendUrlLocked ? lockedBackendUrl : config.backendUrl;
   const isLocalDev = isLocalDevHostForCurrent();
   const [storeInfo, setStoreInfo] = useState<any | null>(null);
+  const [serverDiag, setServerDiag] = useState<{ tokenConfigured: boolean; error?: string } | null>(null);
   const detectedStoreLabel = connectionProfile?.lojaCodigo || storeInfo?.store_code || storeInfo?.codigo || '';
   const domainMapped = tenantDiagnostics.domainMapped;
   const tenantLabel = tenantDiagnostics.tenant.mapped ? `${tenantDiagnostics.tenant.label} (${tenantDiagnostics.tenant.storeCode})` : 'Não configurado';
@@ -208,7 +209,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             >
                 {testStatus === 'testing' ? <Loader2 className="w-5 h-5 animate-spin" /> : 
                  testStatus === 'success' ? <CheckCircle2 className="w-5 h-5 text-green-500" /> :
-                 testStatus === 'error' ? <XCircle className="w-5 h-5 text-red-500" /> :
+                 testStatus === 'error' ? <XCircle className="w-5 h-5 'text-red-500'" /> :
                  <Wifi className="w-5 h-5" />}
             </button>
           </div>
@@ -254,6 +255,11 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             <p>Loja resolvida: <span className="font-medium">{tenantLabel}</span></p>
             {tenantDiagnostics.tenant.mapped && (
               <p>Variável usada: <span className="font-medium">{tenantDiagnostics.tenant.tokenEnvVar}</span></p>
+            )}
+            {serverDiag && (
+              <p>Token no servidor: <span className={`font-medium ${serverDiag.tokenConfigured ? 'text-green-600' : 'text-red-500'}`}>
+                {serverDiag.tokenConfigured ? 'Configurado' : 'Ausente'}
+              </span></p>
             )}
           </div>
         </div>
@@ -355,7 +361,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
 
         <div className="space-y-2 pt-4 border-t border-slate-200 dark:border-slate-700">
             {onLogout && (
-            <button onClick={onLogout} className="w-full flex justify-center items-center gap-2 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-slate-900 rounded-md transition-colors">
+            <button onClick={onLogout} className="w-full flex justify-center items-center gap-2 py-3 'text-red-500' hover:bg-red-50 dark:hover:bg-slate-900 rounded-md transition-colors">
                 <LogOut className="w-5 h-5" /> Sair da Conta
             </button>
             )}
