@@ -524,7 +524,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
 
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-6 py-3">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-2 sm:gap-4 px-3 sm:px-6 py-2 sm:py-3">
           <div className="flex items-center gap-4 min-w-0">
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 shadow-md">
               <Store className="h-5 w-5 text-white" />
@@ -573,7 +573,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1600px] px-4 py-5 md:px-6">
+      <main className="mx-auto max-w-[1600px] px-2 sm:px-4 py-3 sm:py-5 md:px-6">
         {loading ? (
           <div className="flex h-[70vh] items-center justify-center">
             <div className="flex flex-col items-center gap-4 rounded-3xl bg-white/90 px-10 py-10 shadow-xl backdrop-blur">
@@ -588,11 +588,11 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
             </div>
           </div>
         ) : (
-          <div className="grid gap-5 xl:grid-cols-[1.1fr_1.4fr_1fr]">
+          <div className="grid gap-3 sm:gap-5 xl:grid-cols-[1.1fr_1.4fr_1fr]">
 
             {/* ── COLUNA 1: CLIENTES ── */}
-            <section className="section-card flex flex-col rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-4">
+            <section className="section-card flex flex-col rounded-xl sm:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 sm:px-5 py-3 sm:py-4">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 shadow-md">
                   <User className="h-4 w-4 text-white" />
                 </div>
@@ -612,12 +612,12 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
 
               <div className="p-4">
                 <label className="relative block">
-                  <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <Search className="pointer-events-none absolute left-2.5 sm:left-3 top-2.5 sm:top-3 h-3.5 sm:h-4 w-3.5 sm:w-4 text-slate-400" />
                   <input
                     value={customerSearch}
                     onChange={(event) => setCustomerSearch(event.target.value)}
                     placeholder="Nome, código, CPF/CNPJ ou telefone"
-                    className="app-input w-full py-2.5 pl-9 pr-4 text-sm"
+                    className="app-input w-full py-2.5 sm:py-2.5 pl-8 sm:pl-9 pr-3 sm:pr-4 text-xs sm:text-sm"
                   />
                 </label>
               </div>
@@ -631,7 +631,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                       key={customer.id}
                       type="button"
                       onClick={() => setSelectedCustomer(customer)}
-                      className={`w-full rounded-2xl border px-4 py-3 text-left transition-all duration-150 ${
+                      className={`w-full rounded-2xl border px-3 sm:px-4 py-3 sm:py-3 text-left transition-all duration-150 ${
                         active
                           ? 'border-blue-400 bg-blue-50 shadow-sm ring-1 ring-blue-200'
                           : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'
@@ -671,8 +671,8 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
             </section>
 
             {/* ── COLUNA 2: PRODUTOS ── */}
-            <section className="section-card flex flex-col rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-5 py-4">
+            <section className="section-card flex flex-col rounded-xl sm:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-3 sm:px-5 py-3 sm:py-4">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 shadow-md">
                   <Store className="h-4 w-4 text-white" />
                 </div>
@@ -715,7 +715,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     return (
                       <div
                         key={product.id}
-                        className={`grid grid-cols-1 gap-2 border-b border-slate-50 px-4 py-2.5 text-sm transition-colors md:grid-cols-[1.1fr_2fr_0.7fr_0.7fr_1fr_80px] ${
+                        className={`grid grid-cols-1 gap-2 border-b border-slate-50 px-3 sm:px-4 py-3 sm:py-2.5 text-sm transition-colors md:grid-cols-[1.1fr_2fr_0.7fr_0.7fr_1fr_80px] ${
                           isJustAdded ? 'bg-emerald-50' : inCart ? 'bg-blue-50/60' : 'hover:bg-slate-50/80'
                         }`}
                       >
@@ -741,7 +741,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                           <button
                             type="button"
                             onClick={() => addProductToCart(product)}
-                            className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all ${
+                            className={`inline-flex items-center gap-1 rounded-xl px-3 py-2.5 sm:px-2.5 sm:py-1.5 text-xs sm:text-[11px] font-semibold transition-all ${
                               isJustAdded
                                 ? 'product-added bg-emerald-500 text-white scale-95'
                                 : inCart
@@ -838,9 +838,9 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
 
 
             {/* ── COLUNA 3: CARRINHO E FINALIZAÇÃO ── */}
-            <section className="section-card flex flex-col rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+            <section className="section-card flex flex-col rounded-xl sm:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
               {/* Cart header */}
-              <div className="flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-orange-50 to-amber-50 px-5 py-4">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-orange-50 to-amber-50 px-3 sm:px-5 py-3 sm:py-4">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 shadow-md">
                   <ShoppingCart className="h-4 w-4 text-white" />
                 </div>
@@ -869,7 +869,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                   const discountValue = Math.max((item.basePrice ?? item.price) - item.price, 0) * item.quantity;
                   const hasDiscount = discountValue > 0;
                   return (
-                    <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div key={item.id} className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-2.5 sm:p-3 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="font-semibold text-slate-900 text-sm truncate">{item.name}</div>
@@ -1024,7 +1024,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
               </div>
 
               {/* Total box */}
-              <div className="mx-4 mb-3 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 px-4 py-4 text-white shadow-lg">
+              <div className="mx-4 mb-3 rounded-xl sm:rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 px-3 sm:px-4 py-3 sm:py-4 text-white shadow-lg">
                 {cartDiscount > 0 && (
                   <>
                     <div className="flex items-center justify-between text-xs text-slate-400">
@@ -1053,7 +1053,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                   type="button"
                   onClick={handleFinalizeSale}
                   disabled={submitting || cart.length === 0 || !!stockViolation}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/30 hover:from-emerald-600 hover:to-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98]"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3.5 sm:py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/30 hover:from-emerald-600 hover:to-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98]"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
                   Gerar pré-venda

@@ -974,8 +974,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       )}
 
       {showProductSearch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm">
-          <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[#eaecf0] dark:border-slate-800 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/55 backdrop-blur-sm">
+          <div className="w-full sm:max-w-xl bg-white dark:bg-slate-900 rounded-none sm:rounded-2xl shadow-2xl sm:border border-[#eaecf0] dark:border-slate-800 overflow-hidden flex flex-col h-full sm:max-h-[80vh] animate-in fade-in sm:zoom-in duration-200">
             {/* Search Input Header */}
             <div className="p-4 border-b border-[#eaecf0] dark:border-slate-800 flex items-center gap-3 bg-[#f9fafb] dark:bg-slate-800/50">
               <Search className="w-5 h-5 text-[#98a2b3] shrink-0" />
@@ -1099,10 +1099,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       )}
 
       {/* CARD PRINCIPAL */}
-      <div className="w-full max-w-[1440px] mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border border-[#eaecf0] dark:border-slate-700 overflow-hidden">
+      <div className="w-full max-w-[1440px] mx-auto bg-white dark:bg-slate-900 rounded-none sm:rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border-0 sm:border border-[#eaecf0] dark:border-slate-700 overflow-hidden">
 
         {/* ── HEADER ── */}
-        <div className="flex items-center justify-between px-7 py-[18px] border-b border-[#eaecf0] dark:border-slate-700">
+        <div className="flex items-center justify-between px-4 sm:px-7 py-3 sm:py-[18px] border-b border-[#eaecf0] dark:border-slate-700">
           <div>
             <p className="text-xs text-[#98a2b3] dark:text-slate-500 mb-1 font-normal">
               Vendas&nbsp;&nbsp;/&nbsp;&nbsp;<span className="text-[#475467] dark:text-slate-400 font-medium">Novo pedido</span>
@@ -1147,7 +1147,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         {/* ── BARRA DE BUSCA ── */}
         <div 
           onClick={() => setShowProductSearch(true)}
-          className="mx-7 mt-5 flex items-center gap-2.5 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-[10px] px-3.5 py-2.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors"
+          className="mx-4 sm:mx-7 mt-4 sm:mt-5 flex items-center gap-2.5 bg-[#f9fafb] dark:bg-slate-800 border border-[#eaecf0] dark:border-slate-700 rounded-[10px] px-3.5 py-2.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors"
         >
           <Search className="w-4 h-4 text-[#98a2b3] flex-shrink-0" />
           <span className="flex-1 text-[13px] text-[#98a2b3] dark:text-slate-500 select-none">Buscar produto por nome ou código...</span>
@@ -1155,12 +1155,12 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         </div>
 
         {/* ── GRID: Conteúdo + Sidebar ── */}
-        <div className="px-7 pt-5 pb-5 grid grid-cols-1 lg:grid-cols-[1fr_230px] gap-4 items-start">
+        <div className="px-4 sm:px-7 pt-4 sm:pt-5 pb-5 grid grid-cols-1 lg:grid-cols-[1fr_230px] gap-4 items-start">
 
           {/* ── COLUNA ESQUERDA ── */}
           <div>
             {/* CLIENTE */}
-            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-3 sm:p-4 mb-3 sm:mb-4">
             {!selectedCustomer ? (
               <div className="relative">
                 <button
@@ -1244,7 +1244,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             </div>
 
             {/* ITENS DO PEDIDO */}
-            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-3 sm:p-4 mb-3 sm:mb-4">
               <p className="flex items-center justify-between text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">
                 <span>Itens do pedido</span>
                 <span className="font-normal normal-case tracking-normal text-[#98a2b3] dark:text-slate-500">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</span>
@@ -1256,9 +1256,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                 <tr>
                   <td className="w-[38%] text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 pr-2">Produto</td>
                   <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Qtde.</td>
-                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Und.</td>
-                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Valor emb.</td>
-                  <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Estoque</td>
+                  <td className="hidden lg:table-cell text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Und.</td>
+                  <td className="hidden lg:table-cell text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Valor emb.</td>
+                  <td className="hidden lg:table-cell text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Estoque</td>
                   <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Total</td>
                   <td className="pb-2 border-b border-[#eaecf0] dark:border-slate-700"></td>
                 </tr>
@@ -1317,13 +1317,13 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                         </button>
                       </td>
                       {/* Und. */}
-                      <td className="py-[11px] pr-2 text-center">
+                      <td className="hidden lg:table-cell py-[11px] pr-2 text-center">
                         <span className="inline-flex items-center justify-center min-w-8 rounded-md bg-[#f2f4f7] dark:bg-slate-800 px-2 py-[3px] text-[11px] font-medium text-[#475467] dark:text-slate-300">
                           {item.unit}
                         </span>
                       </td>
                       {/* Valor emb. */}
-                      <td className="py-[13px] pr-2 text-right text-[13px]">
+                      <td className="hidden lg:table-cell py-[13px] pr-2 text-right text-[13px]">
                         <button
                           onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
                           className="inline-flex items-center justify-end gap-1 text-[#1a1d21] dark:text-white font-medium hover:text-[#155eef] dark:hover:text-blue-400 transition-colors w-full"
@@ -1334,7 +1334,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                         </button>
                       </td>
                       {/* Estoque */}
-                      <td className="py-[13px] pr-2 text-center">
+                      <td className="hidden lg:table-cell py-[13px] pr-2 text-center">
                         <span className="inline-flex items-center justify-center gap-1">
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[12px] font-medium tabular-nums ${stockBadgeClass}`}
@@ -1353,7 +1353,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                       {/* Remover */}
                       <td className="py-[11px] text-right">
                         <button onClick={() => onRemove(item.id)}
-                          className="text-[#98a2b3] hover:text-[#667085] dark:hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-all"
+                          className="text-[#98a2b3] hover:text-[#667085] dark:hover:text-slate-300 transition-all p-2"
                           title="Remover">
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -1367,7 +1367,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             {/* Adicionar item */}
             <div 
               onClick={() => setShowProductSearch(true)}
-              className="flex items-center gap-2 px-[10px] py-[10px] border border-dashed border-[#d0d5dd] dark:border-slate-600 rounded-[10px] text-[#667085] dark:text-slate-500 text-[13px] mt-[14px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-[10px] py-3 sm:py-[10px] border border-dashed border-[#d0d5dd] dark:border-slate-600 rounded-[10px] text-[#667085] dark:text-slate-500 text-[13px] mt-[14px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             >
               <Plus className="w-[15px] h-[15px]" />
               <span>Adicionar item · pressione</span>
@@ -1394,7 +1394,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
           <div>
 
             {/* LIMITE DE CRÉDITO */}
-            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 mb-4">
+            <div className="rounded-xl border border-[#eaecf0] dark:border-slate-700 bg-white dark:bg-slate-900 p-3 sm:p-4 mb-3 sm:mb-4">
             <p className="text-[12px] font-semibold text-[#667085] dark:text-slate-500 uppercase tracking-[0.03em] mb-3">Limite de crédito</p>
             <div>
               {!selectedCustomer || selectedCustomer.id === '0' || selectedCustomer.id === 'consumidor-final' ? (
@@ -1505,7 +1505,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         </div>
 
         {/* ── FOOTER ── */}
-        <div className="flex items-center justify-between px-7 py-4 bg-[#f9fafb] dark:bg-slate-900 border-t border-[#eaecf0] dark:border-slate-700 select-none">
+        <div className="flex items-center justify-between px-4 sm:px-7 py-3 sm:py-4 bg-[#f9fafb] dark:bg-slate-900 border-t border-[#eaecf0] dark:border-slate-700 select-none">
           <span className="text-[12px] text-[#667085] dark:text-slate-500">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</span>
           
           <div className="flex items-center gap-2">

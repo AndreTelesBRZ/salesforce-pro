@@ -285,7 +285,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
       
       {/* Modal de Adicionar Produto */}
       {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
               <div className="bg-white dark:bg-slate-800 rounded-xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95">
                   <div className="bg-blue-900 p-4 flex justify-between items-center">
                       <h3 className="text-white font-bold flex items-center gap-2">
@@ -386,7 +386,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
         if (!qtyProduct) return null;
         const QUICK_QTYS = [1, 2, 3, 5, 10, 25, 50, 100];
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowQuantityFor(null)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowQuantityFor(null)}>
             <div 
               className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-150"
               onClick={e => e.stopPropagation()}
@@ -660,7 +660,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                      <div className="flex items-end justify-between mt-auto">
                         <div>
                             <span className="block text-xs text-slate-500">Preço Unitário</span>
-                            <span className="text-xl font-bold text-blue-800 dark:text-blue-400">R$ {product.price.toFixed(2)}</span>
+                            <span className="text-base sm:text-xl font-bold text-blue-800 dark:text-blue-400">R$ {product.price.toFixed(2)}</span>
                         </div>
                         <button 
                             onClick={() => handleToggleCart(product)}
