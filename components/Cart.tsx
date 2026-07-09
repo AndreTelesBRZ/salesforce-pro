@@ -67,7 +67,7 @@ interface CartProps {
   onClear: () => void;
   draftToEdit?: OrderDraft | null;
   onClearDraft?: () => void;
-  onAddToCart?: (product: Product) => void;
+  onAddToCart?: (product: Product, qty?: number) => void;
   storeInfo?: Record<string, any> | null;
 }
 
@@ -850,12 +850,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       }, 80);
   };
 
-  const handleSelectProduct = (product: Product) => {
+  const handleSelectProduct = (product: Product, qty?: number) => {
       if (!onAddToCart) return;
-      onAddToCart(product);
+      onAddToCart(product, qty);
       setShowProductSearch(false);
       setProductSearchTerm('');
       focusLastCartQuantity();
+  };
+
+  const handleAddWithQuantity = (product: Product, qty: number) => {
+      if (!onAddToCart) return;
+      onAddToCart(product, qty);
+      setProductSearchTerm('');
   };
 
   const confirmClearCart = () => {
@@ -1005,58 +1011,79 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   const isInCart = cart.some(item => item.id === prod.id);
                   const cartQty = cart.find(item => item.id === prod.id)?.quantity || 0;
                   const isFocused = focusedIndex === index;
+                  const QUICK_QTYS = [1, 2, 3, 5, 10];
                   return (
                     <div 
                       key={prod.id} 
-                      className={`flex flex-col gap-3 p-3 rounded-xl transition-colors border sm:flex-row sm:items-center sm:justify-between ${
+                      className={`flex flex-col gap-2 p-3 rounded-xl transition-colors border ${
                         isFocused 
                           ? 'bg-[#eff4ff] dark:bg-blue-900/20 border-[#155eef]' 
                           : 'border-transparent hover:bg-[#f9fafb] dark:hover:bg-slate-800/60'
                       }`}
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">
-                            {prod.id}
-                          </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
-                            {prod.category}
-                          </span>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                              {prod.id}
+                            </span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
+                              {prod.category}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-semibold text-[#1a1d21] dark:text-white mt-1 whitespace-normal break-words">
+                            {prod.name}
+                          </h4>
+                          <p className="mt-1 text-xs leading-relaxed text-[#667085] dark:text-slate-400 line-clamp-2">
+                            {prod.description || 'Sem descricao cadastrada.'}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-[#667085] dark:text-slate-400">
+                            <span>Estoque: <strong className={prod.stock <= 0 ? "text-red-500" : "text-emerald-500"}>{prod.stock} {prod.unit.toLowerCase()}</strong></span>
+                          </div>
                         </div>
-                        <h4 className="text-sm font-semibold text-[#1a1d21] dark:text-white mt-1 whitespace-normal break-words">
-                          {prod.name}
-                        </h4>
-                        <p className="mt-1 text-xs leading-relaxed text-[#667085] dark:text-slate-400 line-clamp-3 sm:line-clamp-2">
-                          {prod.description || 'Sem descrição cadastrada.'}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-[#667085] dark:text-slate-400">
-                          <span>Estoque: <strong className={prod.stock <= 0 ? "text-red-500" : "text-emerald-500"}>{prod.stock} {prod.unit.toLowerCase()}</strong></span>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          <span className="text-sm font-bold text-[#1a1d21] dark:text-white whitespace-nowrap">
+                            R$ {prod.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
+                          {onAddToCart && (
+                            <button
+                              onClick={() => handleSelectProduct(prod)}
+                              className={`p-2 rounded-lg transition-all active:scale-95 ${
+                                isInCart 
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' 
+                                  : 'bg-[#155eef] hover:bg-[#1349c5] text-white'
+                              }`}
+                              title={isInCart ? `Adicionado (${cartQty}x)` : 'Adicionar ao carrinho'}
+                            >
+                              {isInCart ? (
+                                <div className="flex items-center gap-1 text-xs font-semibold px-1">
+                                  <Check className="w-3.5 h-3.5" /> {cartQty}x
+                                </div>
+                              ) : (
+                                <Plus className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-sm font-bold text-[#1a1d21] dark:text-white">
-                          R$ {prod.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                        {onAddToCart && (
-                          <button
-                            onClick={() => handleSelectProduct(prod)}
-                            className={`p-2 rounded-lg transition-all active:scale-95 ${
-                              isInCart 
-                                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' 
-                                : 'bg-[#155eef] hover:bg-[#1349c5] text-white'
-                            }`}
-                            title={isInCart ? `Adicionado (${cartQty}x)` : 'Adicionar ao carrinho'}
-                          >
-                            {isInCart ? (
-                              <div className="flex items-center gap-1 text-xs font-semibold px-1">
-                                <Check className="w-3.5 h-3.5" /> {cartQty}x
-                              </div>
-                            ) : (
-                              <Plus className="w-4 h-4" />
-                            )}
-                          </button>
-                        )}
-                      </div>
+                      {onAddToCart && (
+                        <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                          <span className="text-[10px] text-slate-400 mr-1">Qtd:</span>
+                          {QUICK_QTYS.map(q => (
+                            <button
+                              key={q}
+                              onClick={() => handleAddWithQuantity(prod, q)}
+                              className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-all active:scale-95 ${
+                                isInCart && cart.find(i => i.id === prod.id)?.quantity === q
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                              }`}
+                            >
+                              +{q}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })

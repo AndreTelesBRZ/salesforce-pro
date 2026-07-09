@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Product, CartItem } from '../types';
 import { apiService } from '../services/api';
 import { geminiService } from '../services/geminiService';
-import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2, RefreshCcw } from 'lucide-react';
+import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2, RefreshCcw, ArrowUpDown, ChevronDown, Minus } from 'lucide-react';
 
 // TODO: substituir por campo "estoque_minimo" vindo da API quando o backend estiver pronto
 const ESTOQUE_BAIXO_LIMITE = 3;
@@ -21,7 +21,7 @@ function getStockBadgeBg(stock: number): string {
 }
 
 interface ProductListProps {
-  onAddToCart: (product: Product) => void;
+  onAddToCart: (product: Product, qty?: number) => void;
   onRemoveFromCart: (id: string) => void;
   onToggleCart: (product: Product) => void;
   cart: CartItem[];
@@ -53,6 +53,10 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
   const [imageLoadingId, setImageLoadingId] = useState<string | null>(null);
   const [salesPitches, setSalesPitches] = useState<Record<string, string>>({});
   const [exportingCatalog, setExportingCatalog] = useState(false);
+  const [sortBy, setSortBy] = useState<'name' | 'price-asc' | 'price-desc' | 'stock-asc' | 'stock-desc'>('name');
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const [showQuantityFor, setShowQuantityFor] = useState<string | null>(null);
+  const [quantityValue, setQuantityValue] = useState(1);
 
   const observer = useRef<IntersectionObserver | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -84,7 +88,21 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
   };
 
   const handleToggleCart = (product: Product) => {
-    onToggleCart(product);
+    const inCart = cart.some(item => item.id === product.id);
+    if (inCart) {
+      onRemoveFromCart(product.id);
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+      return;
+    }
+    setShowQuantityFor(product.id);
+    setQuantityValue(1);
+  };
+
+  const handleAddWithQuantity = (product: Product, qty: number) => {
+    if (qty <= 0) return;
+    onAddToCart(product, qty);
+    setShowQuantityFor(null);
+    setQuantityValue(1);
     setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
@@ -213,6 +231,18 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
     const cats = new Set(products.map(p => p.category));
     return ['Todas', ...Array.from(cats)];
   }, [products]);
+
+  const sortedProducts = useMemo(() => {
+    const list = [...products];
+    switch (sortBy) {
+      case 'name': return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      case 'price-asc': return list.sort((a, b) => a.price - b.price);
+      case 'price-desc': return list.sort((a, b) => b.price - a.price);
+      case 'stock-asc': return list.sort((a, b) => (a.stock ?? 0) - (b.stock ?? 0));
+      case 'stock-desc': return list.sort((a, b) => (b.stock ?? 0) - (a.stock ?? 0));
+      default: return list;
+    }
+  }, [products, sortBy]);
 
   const getCartItem = (productId: string) => {
     return cart.find(i => i.id === productId);
@@ -350,6 +380,76 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
           </div>
       )}
 
+      {/* Seletor Rapido de Quantidade */}
+      {showQuantityFor && (() => {
+        const qtyProduct = products.find(p => p.id === showQuantityFor);
+        if (!qtyProduct) return null;
+        const QUICK_QTYS = [1, 2, 3, 5, 10, 25, 50, 100];
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowQuantityFor(null)}>
+            <div 
+              className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-150"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-slate-100 dark:border-slate-700">
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">{qtyProduct.id}</span>
+                      <span className="text-xs text-slate-400">{qtyProduct.category}</span>
+                    </div>
+                    <h3 className="font-semibold text-slate-900 dark:text-white text-sm leading-tight">{qtyProduct.name}</h3>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-lg font-bold text-blue-700 dark:text-blue-400">R$ {qtyProduct.price.toFixed(2)}</span>
+                      <span className="text-xs text-slate-400">/{qtyProduct.unit}</span>
+                      <span className="text-xs text-slate-400">Est: {qtyProduct.stock}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowQuantityFor(null)} className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quantidade</p>
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  {QUICK_QTYS.map(q => (
+                    <button
+                      key={q}
+                      onClick={() => handleAddWithQuantity(qtyProduct, q)}
+                      className={`py-2.5 rounded-lg text-sm font-bold transition-all active:scale-95 border ${quantityValue === q ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-slate-50 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600'}`}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type="number"
+                      min="1"
+                      step={qtyProduct.unit.toLowerCase() === 'cto' ? '0.01' : '1'}
+                      value={quantityValue}
+                      onChange={e => setQuantityValue(Math.max(1, Number(e.target.value) || 1))}
+                      className="app-input w-full px-3 py-2.5 text-center text-lg font-bold"
+                      autoFocus
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{qtyProduct.unit}</span>
+                  </div>
+                  <button
+                    onClick={() => handleAddWithQuantity(qtyProduct, quantityValue)}
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition-colors active:scale-95 flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Adicionar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Cabeçalho de Controles */}
       <div className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-950 pt-4 pb-2 px-4 space-y-3">
         <div className="flex gap-2 items-center">
@@ -407,6 +507,40 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
 
         {/* Filtros e Alternância de Visualização */}
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar items-center">
+          <div className="relative">
+            <button 
+               onClick={() => setShowSortMenu(!showSortMenu)}
+               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">
+                {sortBy === 'name' ? 'Nome' : sortBy === 'price-asc' ? 'Preço ↑' : sortBy === 'price-desc' ? 'Preço ↓' : sortBy === 'stock-asc' ? 'Estoque ↑' : 'Estoque ↓'}
+              </span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
+            {showSortMenu && (
+              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-20 py-1 min-w-[160px]">
+                {[
+                  { value: 'name', label: 'Nome A-Z' },
+                  { value: 'price-asc', label: 'Preço: menor primeiro' },
+                  { value: 'price-desc', label: 'Preço: maior primeiro' },
+                  { value: 'stock-asc', label: 'Estoque: menor primeiro' },
+                  { value: 'stock-desc', label: 'Estoque: maior primeiro' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setSortBy(opt.value as any); setShowSortMenu(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                      sortBy === opt.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button 
              onClick={() => setShowFilters(!showFilters)}
              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap border transition-colors ${showFilters ? 'bg-orange-100 border-orange-200 text-orange-700 dark:bg-orange-900/40 dark:border-orange-800 dark:text-orange-300' : 'bg-white border-slate-300 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'}`}
@@ -459,7 +593,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
 
       {/* Lista de Produtos */}
       <div className={`px-4 pt-2 ${showImages ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'space-y-2'}`}>
-        {products.map((product, index) => {
+        {sortedProducts.map((product, index) => {
               const isLastElement = index === products.length - 1;
               const cartItem = getCartItem(product.id);
               const isInCart = !!cartItem;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, LogOut, Minus, Package, Plus, RotateCcw, Save, Search, ShoppingCart, Store, Trash2, User, Wallet, XCircle, Tag, TrendingDown } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, LogOut, Minus, Package, Plus, RotateCcw, Save, Search, ShoppingCart, Store, Trash2, User, Wallet, X, XCircle, Tag, TrendingDown } from 'lucide-react';
 import { apiService } from '../services/api';
 import { buildBudgetNumber } from '../src/utils/documentIdentity';
 import { dbService } from '../services/db';
@@ -153,6 +153,9 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
+  const [showQuantityFor, setShowQuantityFor] = useState<string | null>(null);
+  const [quantityValue, setQuantityValue] = useState(1);
+  const productSearchRef2 = useRef<HTMLInputElement>(null);
   const productSearchRef = useRef<HTMLInputElement>(null);
 
   const canEditSales = Boolean(permissions?.can_edit_sales);
@@ -243,21 +246,44 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
   }, [selectedCustomer?.id, isBoleto, cartTotal]);
 
   const addProductToCart = (product: Product) => {
-    setFeedback(null);
-    setLastAddedId(product.id);
-    setTimeout(() => setLastAddedId(null), 1200);
-    setCart((current) => {
-      const existing = current.find((item) => item.id === product.id);
-      const increment = product.unit.toLowerCase() === 'cto' ? 0.01 : 1;
-      if (existing) {
+    const inCart = cart.some(item => item.id === product.id);
+    if (inCart) {
+      setFeedback(null);
+      setLastAddedId(product.id);
+      setTimeout(() => setLastAddedId(null), 1200);
+      setCart((current) => {
+        const existing = current.find((item) => item.id === product.id);
+        const increment = 1;
         return current.map((item) =>
           item.id === product.id
             ? { ...item, quantity: Number((item.quantity + increment).toFixed(2)) }
             : item
         );
+      });
+    } else {
+      setShowQuantityFor(product.id);
+      setQuantityValue(1);
+    }
+  };
+
+  const handleAddWithQuantity = (product: Product, qty: number) => {
+    if (qty <= 0) return;
+    setFeedback(null);
+    setLastAddedId(product.id);
+    setTimeout(() => setLastAddedId(null), 1200);
+    setCart((current) => {
+      const existing = current.find((item) => item.id === product.id);
+      if (existing) {
+        return current.map((item) =>
+          item.id === product.id
+            ? { ...item, quantity: Number((item.quantity + qty).toFixed(2)) }
+            : item
+        );
       }
-      return [...current, { ...product, quantity: increment === 0.01 ? 1 : 1, basePrice: product.price }];
+      return [...current, { ...product, quantity: qty, basePrice: product.price }];
     });
+    setShowQuantityFor(null);
+    setQuantityValue(1);
   };
 
   const updateQuantity = (productId: string, quantity: number) => {
@@ -739,6 +765,77 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                 </div>
               </div>
             </section>
+
+            {/* QUANTITY SELECTOR POPUP */}
+            {showQuantityFor && (() => {
+              const qtyProduct = products.find(p => p.id === showQuantityFor);
+              if (!qtyProduct) return null;
+              const QUICK_QTYS = [1, 2, 3, 5, 10, 25, 50, 100];
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowQuantityFor(null)}>
+                  <div 
+                    className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-150"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <div className="p-4 border-b border-slate-100 dark:border-slate-700">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">{qtyProduct.id}</span>
+                            <span className="text-xs text-slate-400">{qtyProduct.category}</span>
+                          </div>
+                          <h3 className="font-semibold text-slate-900 dark:text-white text-sm leading-tight">{qtyProduct.name}</h3>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-lg font-bold text-blue-700 dark:text-blue-400">R$ {qtyProduct.price.toFixed(2)}</span>
+                            <span className="text-xs text-slate-400">/{qtyProduct.unit}</span>
+                            <span className="text-xs text-slate-400">Est: {qtyProduct.stock}</span>
+                          </div>
+                        </div>
+                        <button onClick={() => setShowQuantityFor(null)} className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quantidade</p>
+                      <div className="grid grid-cols-4 gap-2 mb-3">
+                        {QUICK_QTYS.map(q => (
+                          <button
+                            key={q}
+                            onClick={() => handleAddWithQuantity(qtyProduct, q)}
+                            className={`py-2.5 rounded-lg text-sm font-bold transition-all active:scale-95 border ${quantityValue === q ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-slate-50 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600'}`}
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 relative">
+                          <input
+                            type="number"
+                            min="1"
+                            step={qtyProduct.unit.toLowerCase() === 'cto' ? '0.01' : '1'}
+                            value={quantityValue}
+                            onChange={e => setQuantityValue(Math.max(1, Number(e.target.value) || 1))}
+                            className="app-input w-full px-3 py-2.5 text-center text-lg font-bold"
+                            autoFocus
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{qtyProduct.unit}</span>
+                        </div>
+                        <button
+                          onClick={() => handleAddWithQuantity(qtyProduct, quantityValue)}
+                          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition-colors active:scale-95 flex items-center gap-2"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Adicionar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
 
             {/* ── COLUNA 3: CARRINHO E FINALIZAÇÃO ── */}
             <section className="section-card flex flex-col rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">

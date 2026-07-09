@@ -326,20 +326,18 @@ export default function App() {
     refreshStoreInfo();
   }, [isConfigLoaded, isAuthenticated]);
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, qty?: number) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
+      const increment = qty ?? 1;
       if (existing) {
         const isFractional = product.unit.toLowerCase() === 'cto';
-        const increment = isFractional ? 0.01 : 1;
-        const newQty = existing.quantity + increment;
-        const finalQty = isFractional ? Math.round(newQty * 100) / 100 : newQty;
-
+        const newQty = isFractional ? Math.round((existing.quantity + increment) * 100) / 100 : existing.quantity + increment;
         return prev.map((item) =>
-          item.id === product.id ? { ...item, quantity: finalQty } : item
+          item.id === product.id ? { ...item, quantity: newQty } : item
         );
       }
-      return [...prev, { ...product, quantity: product.unit.toLowerCase() === 'cto' ? 1.00 : 1, basePrice: product.price }];
+      return [...prev, { ...product, quantity: increment, basePrice: product.price }];
     });
   };
 
