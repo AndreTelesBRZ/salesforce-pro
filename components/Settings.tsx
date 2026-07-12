@@ -104,7 +104,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     setValidationEndpoint(result.endpointUsed || '');
     setConnectionProfile(result.profile || null);
 
-    if (!result.success || !result.valid) {
+    if (!result.success) {
       setTestStatus('error');
       setTestErrorMsg(
         result.message || 'Não foi possível validar a conexão com o servidor. Verifique o endereço da API, o token de integração e tente novamente.'

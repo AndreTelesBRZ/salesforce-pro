@@ -1,13 +1,16 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
-import { Trash2, Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Delete, Check, CloudOff, Tag, Share2, CreditCard, Loader2, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
+import { Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Check, CloudOff, CreditCard, Loader2, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
 import { apiService } from '../services/api';
-import { buildBudgetNumber } from '../src/utils/documentIdentity';
 import { dbService } from '../services/db';
 import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
-import { DraftStatus, OrderDraft, OrderDraftItem } from '../src/types/orderDraft';
+import { DraftStatus, OrderDraft } from '../src/types/orderDraft';
 import { useEnums } from '../contexts/EnumContext';
+import { NumericKeypadModal } from '../src/components/NumericKeypadModal';
+import { createOrderUUID, buildDraftPayload, buildOrderFromDraft } from '../src/utils/orderUtils';
+import { formatMoney } from '../src/utils/format';
+import { WALK_IN_CUSTOMER } from '../src/constants/sales';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -71,208 +74,7 @@ interface CartProps {
   storeInfo?: Record<string, any> | null;
 }
 
-const createOrderUUID = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `order-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
-
-// --- KEYPAD COMPONENT ---
-interface NumericKeypadModalProps {
-  title: string;
-  initialValue: number;
-  itemName: string;
-  unit: string;
-  referenceValue?: number;
-  onConfirm: (val: number) => void;
-  onClose: () => void;
-}
-
-const NumericKeypadModal: React.FC<NumericKeypadModalProps> = ({ title, initialValue, itemName, unit, referenceValue, onConfirm, onClose }) => {
-  // Converte para string com vírgula para edição
-  const [displayValue, setDisplayValue] = useState(initialValue.toString().replace('.', ','));
-  const [hasTyped, setHasTyped] = useState(false); // Novo estado: sabe se o usuário começou a digitar
-  const normalizedValue = displayValue.replace(',', '.');
-  const previewValue = Number.parseFloat(normalizedValue);
-  const hasReferenceDiscount = typeof referenceValue === 'number' && Number.isFinite(referenceValue) && referenceValue > 0 && Number.isFinite(previewValue) && previewValue < referenceValue;
-  const discountAmount = hasReferenceDiscount ? referenceValue - previewValue : 0;
-  const discountPercent = hasReferenceDiscount ? (discountAmount / referenceValue) * 100 : 0;
-
-  const handleNumber = (num: string) => {
-    setDisplayValue(prev => {
-      // Se for a primeira tecla digitada, substitui o valor inicial (comportamento de ATM)
-      if (!hasTyped) {
-          setHasTyped(true);
-          if (num === ',') return '0,';
-          return num;
-      }
-      
-      // Se for 0 apenas e digitar outro numero, substitui
-      if (prev === '0' && num !== ',') {
-          return num;
-      }
-      // Evita múltiplas vírgulas
-      if (num === ',' && prev.includes(',')) return prev;
-      
-      // Limite de caracteres para segurança
-      if (prev.length > 8) return prev;
-      
-      return prev + num;
-    });
-  };
-
-  const handleBackspace = () => {
-    setHasTyped(true); // Considera como interação
-    setDisplayValue(prev => {
-      if (prev.length <= 1) return '0';
-      return prev.slice(0, -1);
-    });
-  };
-
-  const handleClear = () => {
-    setHasTyped(true);
-    setDisplayValue('0');
-  };
-  
-  const handleRemoveItem = () => {
-      // Confirmação com 0 remove o item na lógica do pai
-      onConfirm(0);
-  };
-
-  const handleConfirm = () => {
-    // Converte de volta para float (pt-BR 1,5 -> 1.5)
-    const normalized = displayValue.replace(',', '.');
-    const val = parseFloat(normalized);
-    
-    // Aceita 0 para permitir remoção
-    if (!isNaN(val)) {
-      onConfirm(val);
-    } else {
-      onClose();
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-xs bg-white dark:bg-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-          <div>
-             <h3 className="font-bold text-lg">{title}</h3>
-             <p className="text-xs text-slate-400 truncate max-w-[200px]">{itemName}</p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-white/80 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        {/* Display */}
-        <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-          <div className="flex items-center bg-white dark:bg-slate-800 border-2 border-orange-500 rounded-lg overflow-hidden h-16 shadow-inner relative">
-            <div className="flex-1 text-right text-3xl font-bold text-slate-800 dark:text-white px-4 tracking-wider z-10">
-               {displayValue} <span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>
-            </div>
-            {!hasTyped && (
-                <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-700 px-1 rounded opacity-70">
-                    Digite para substituir
-                </div>
-            )}
-            <button 
-                onClick={handleBackspace}
-                className="h-full px-4 bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors border-l border-slate-200 dark:border-slate-600 z-20"
-            >
-                <Delete className="w-6 h-6" />
-            </button>
-          </div>
-          {hasReferenceDiscount && (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <div className="flex items-center gap-2 font-semibold">
-                <AlertTriangle className="h-4 w-4" />
-                <span>Preço abaixo da tabela</span>
-              </div>
-              <div className="mt-1">
-                Desconto nominal: R$ {discountAmount.toFixed(2)} | Desconto percentual: {discountPercent.toFixed(2)}%
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Keypad Grid */}
-        <div className="p-2 grid grid-cols-3 gap-2 bg-slate-100 dark:bg-slate-950">
-           {[7, 8, 9, 4, 5, 6, 1, 2, 3].map(num => (
-             <button
-                key={num}
-                onClick={() => handleNumber(num.toString())}
-                className="h-16 rounded-lg bg-white dark:bg-slate-800 shadow-sm border-b-2 border-slate-200 dark:border-slate-700 text-2xl font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all"
-             >
-                {num}
-             </button>
-           ))}
-           
-           {/* Linha Final */}
-           <button
-              onClick={() => handleNumber(',')}
-              className="h-16 rounded-lg bg-slate-200 dark:bg-slate-900 text-2xl font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-800 active:scale-95 transition-all"
-           >
-              ,
-           </button>
-           <button
-              onClick={() => handleNumber('0')}
-              className="h-16 rounded-lg bg-white dark:bg-slate-800 shadow-sm border-b-2 border-slate-200 dark:border-slate-700 text-2xl font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all"
-           >
-              0
-           </button>
-           
-           {/* Botão C (Clear) melhorado para Zerar */}
-           <button
-              onClick={handleClear}
-              className="h-16 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 shadow-sm border-b-2 border-red-200 dark:border-red-800 text-xl font-bold flex items-center justify-center hover:bg-red-200 active:scale-95 transition-all"
-              title="Zerar"
-           >
-              C
-           </button>
-        </div>
-        
-        {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-0 border-t border-slate-200 dark:border-slate-800">
-             <button 
-                onClick={handleRemoveItem}
-                className="py-4 text-sm font-bold text-red-500 bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center justify-center gap-2 transition-colors border-r border-slate-200 dark:border-slate-800"
-            >
-                <Trash2 className="w-4 h-4" />
-                REMOVER ITEM
-            </button>
-            <button 
-                onClick={handleConfirm}
-                className="py-4 text-sm font-bold text-white bg-green-600 hover:bg-green-700 flex items-center justify-center gap-2 transition-colors"
-            >
-                <Check className="w-5 h-5" />
-                CONFIRMAR
-            </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const DEFAULT_COUNTER_CUSTOMER: Customer = {
-  id: '0',
-  name: 'Consumidor Final',
-  fantasyName: '',
-  document: '',
-  type: 'NORMAL',
-  address: '',
-  addressNumber: '',
-  neighborhood: '',
-  city: '',
-  state: '',
-  zipCode: '',
-  phone: '',
-  email: '',
-  origin: 'BALCAO',
-  sellerId: '',
-};
+const DEFAULT_COUNTER_CUSTOMER: Customer = { ...WALK_IN_CUSTOMER, fantasyName: '', origin: 'BALCAO' };
 
 export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePrice, onRemove, onClear, draftToEdit, onClearDraft, onAddToCart, storeInfo }) => {
   const [submitting, setSubmitting] = useState(false);
@@ -368,10 +170,6 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     }
     const suffix = `${plan.installments || 1}x`;
     return `${base} (${suffix})`;
-  };
-  const formatMoney = (value?: number) => {
-    const numeric = Number(value || 0);
-    return `R$ ${numeric.toFixed(2)}`;
   };
   const buildPaymentSchedule = (plan: PaymentPlan) => {
     const daysFirst = Number(plan.daysFirstInstallment || 0);
@@ -660,104 +458,23 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     return dbService.generateNextOrderId();
   };
 
-  const buildDraftItem = (item: CartItem): OrderDraftItem => ({
-    codigo_produto: item.id,
-    quantidade: item.quantity,
-    valor_unitario: item.price,
-    nome_produto: item.name,
-    descricao: item.description || '',
-    unidade: item.unit,
-    base_price: item.basePrice ?? item.price,
-    category: item.category,
-    stock: item.stock,
-    sectionCode: item.sectionCode,
-    groupCode: item.groupCode,
-    subgroupCode: item.subgroupCode,
-  });
-
-  const buildDraftPayload = async (status: DraftStatus): Promise<OrderDraft> => {
-    const now = new Date().toISOString();
-    const draftId = currentDraft?.id || createOrderUUID();
+  const buildLocalDraftPayload = async (status: DraftStatus): Promise<OrderDraft> => {
     const displayId = await ensureDisplayId();
-    const numeroOrcamento = buildBudgetNumber({
-      store: storeInfo,
+    const draft = await buildDraftPayload({
+      cart, total, selectedCustomer, storeInfo,
       sellerCode: apiService.getSellerId() || apiService.getUsername(),
-      issuedAt: currentDraft?.data_criacao || now,
-      existingNumber: null,
+      currentDraft, notes, paymentMethod, shippingMethod,
+      selectedPlan, status, carrier,
     });
-    return {
-    id: draftId,
-    cliente_id: selectedCustomer?.id || '0',
-    cliente_nome: selectedCustomer?.name,
-    cliente_documento: selectedCustomer?.document,
-    cliente_tipo: selectedCustomer?.type,
-      itens: cart.map(buildDraftItem),
-      total,
-      data_criacao: currentDraft?.data_criacao || now,
-      updated_at: now,
-      status,
-      retry_count: currentDraft?.retry_count ?? 0,
-      error_message: undefined,
-      display_id: displayId,
-      numero_orcamento: numeroOrcamento,
-      notes,
-      carrier,
-      payment_method: paymentMethod,
-      payment_method_id: paymentMethod,
-      shipping_method: shippingMethod,
-      shipping_method_id: shippingMethod,
-      payment_plan_code: selectedPlan?.code,
-      payment_plan_description: selectedPlan?.description,
-      payment_installments: selectedPlan?.installments,
-      payment_first_installment_days: selectedPlan?.daysFirstInstallment,
-      payment_days_between: selectedPlan?.daysBetweenInstallments,
-      payment_min_value: selectedPlan?.minValue,
-    };
+    return { ...draft, display_id: displayId };
   };
 
-  const buildOrderFromDraft = (draft: OrderDraft): Order => {
-    const customer = selectedCustomer;
-    const sellerId = customer?.sellerId || apiService.getSellerId() || undefined;
-    const sellerName = customer?.sellerName || apiService.getUsername() || undefined;
-    const items = draft.itens.map((item) => ({
-      id: item.codigo_produto,
-      name: item.nome_produto || item.codigo_produto,
-      description: item.descricao || '',
-      price: item.valor_unitario,
-      basePrice: item.base_price ?? item.valor_unitario,
-      category: item.category || '',
-      stock: 0,
-      unit: item.unidade || 'un',
-      quantity: item.quantidade,
-    }));
-
-    return {
-      id: draft.id,
-      displayId: draft.display_id,
-      numero_orcamento: draft.numero_orcamento,
-      numero_pedido: draft.numero_pedido,
-      items,
-      total: draft.total,
-      customerId: draft.cliente_id,
-      customerName: customer?.name || draft.cliente_nome,
-      customerDoc: customer?.document || draft.cliente_documento,
-      customerType: customer?.type || draft.cliente_tipo,
-      paymentPlanCode: draft.payment_plan_code,
-      paymentPlanDescription: draft.payment_plan_description,
-      paymentInstallments: draft.payment_installments,
-      paymentFirstInstallmentDays: draft.payment_first_installment_days,
-      paymentDaysBetween: draft.payment_days_between,
-      paymentMinValue: draft.payment_min_value,
-      paymentMethod: draft.payment_method,
-      paymentMethodId: draft.payment_method_id,
-      shippingMethod: draft.shipping_method,
-      shippingMethodId: draft.shipping_method_id,
-      notes: draft.notes,
-      sellerId,
-      sellerName,
-      status: 'pending',
-      createdAt: draft.data_criacao,
-    };
+  const buildLocalOrderFromDraft = (draft: OrderDraft): Order => {
+    return buildOrderFromDraft(draft, {
+      selectedCustomer,
+      sellerId: selectedCustomer?.sellerId || apiService.getSellerId() || undefined,
+      sellerName: selectedCustomer?.sellerName || apiService.getUsername() || undefined,
+    });
   };
 
   const scheduleSuccessReset = () => {
@@ -772,7 +489,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     if (!validateOrderForm()) return;
     setSubmitting(true);
     try {
-      const draft = await buildDraftPayload('DRAFT');
+      const draft = await buildLocalDraftPayload('DRAFT');
       await (currentDraft ? updateDraft(draft) : saveDraft(draft));
       setLastOrderNumber(draft.numero_orcamento || String(draft.display_id ?? ''));
       setSuccess(true);
@@ -792,9 +509,9 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     setSubmitting(true);
     let draft: OrderDraft | null = null;
     try {
-      draft = await buildDraftPayload('SYNCING');
+      draft = await buildLocalDraftPayload('SYNCING');
       await (currentDraft ? updateDraft(draft) : saveDraft(draft));
-      const order = buildOrderFromDraft(draft);
+      const order = buildLocalOrderFromDraft(draft);
       const result = await apiService.submitOrder(order);
       if (!result.success) {
         throw new Error(result.message || 'Erro ao enviar pedido');
@@ -1288,6 +1005,18 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   const rowTotal = item.price * item.quantity;
                   return (
                     <tr key={item.id} className="border-b border-[#f2f4f7] dark:border-slate-800 hover:bg-[#f9fafb] dark:hover:bg-slate-800/40 group transition-colors">
+                      {/* Thumb */}
+                      <td className="py-[13px] pr-2 w-10">
+                        <div className="w-9 h-9 rounded-lg overflow-hidden bg-[#f2f4f7] dark:bg-slate-800">
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; }} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-[#d0d5dd] dark:text-slate-600">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                            </div>
+                          )}
+                        </div>
+                      </td>
                       {/* Produto */}
                       <td className="py-[13px] pr-2 text-[13px] text-[#1a1d21] dark:text-white">
                         <span className="bg-[#eff4ff] dark:bg-blue-900/30 text-[#155eef] dark:text-blue-400 text-[11px] font-medium px-[7px] py-[2px] rounded-[6px] mr-2">{item.id}</span>

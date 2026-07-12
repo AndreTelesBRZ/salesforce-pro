@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, LogOut, Minus, Package, Plus, RotateCcw, Save, Search, ShoppingCart, Store, Trash2, User, Wallet, X, XCircle, Tag, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Loader2, LogOut, Minus, Package, Plus, RotateCcw, Save, Search, ShoppingCart, Store, Tag, Trash2, User, Wallet, X, XCircle, TrendingDown } from 'lucide-react';
 import { apiService } from '../services/api';
-import { buildBudgetNumber } from '../src/utils/documentIdentity';
 import { dbService } from '../services/db';
 import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
 import { DraftStatus, OrderDraft } from '../src/types/orderDraft';
 import { CartItem, Customer, Order, PaymentPlan, Product, UserPermissions } from '../types';
+import { Toast } from '../src/components/Toast';
+import { createOrderUUID, buildDraftPayload, buildOrderFromDraft } from '../src/utils/orderUtils';
+import { formatMoney, normalizeText } from '../src/utils/format';
+import { productMatchesSearch, customerMatchesSearch, getInitials } from '../src/utils/search';
+import { WALK_IN_CUSTOMER_ID, PAYMENT_METHODS, SHIPPING_METHODS, getCategoryColor } from '../src/constants/sales';
 
 interface CounterSalePageProps {
   currentUser: string;
@@ -15,118 +19,6 @@ interface CounterSalePageProps {
   onBackToApp: () => void;
   onLogout: () => void;
 }
-
-const WALK_IN_CUSTOMER_ID = '0';
-
-const PAYMENT_METHODS = [
-  { value: 'pix', label: 'PIX', icon: '⚡' },
-  { value: 'dinheiro', label: 'Dinheiro', icon: '💵' },
-  { value: 'cartao', label: 'Cartão', icon: '💳' },
-  { value: 'boleto', label: 'Boleto', icon: '📄' },
-];
-
-const SHIPPING_METHODS = [
-  { value: 'retirada', label: 'Retirada na loja', icon: '🏪' },
-  { value: 'entrega_propria', label: 'Entrega própria', icon: '🚗' },
-  { value: 'transportadora', label: 'Transportadora', icon: '🚚' },
-  { value: 'sem_frete', label: 'Sem frete', icon: '—' },
-];
-
-const CATEGORY_COLORS: Record<string, string> = {
-  default: 'bg-slate-100 text-slate-600',
-  a: 'bg-blue-100 text-blue-700',
-  b: 'bg-violet-100 text-violet-700',
-  c: 'bg-emerald-100 text-emerald-700',
-  d: 'bg-orange-100 text-orange-700',
-  e: 'bg-rose-100 text-rose-700',
-};
-
-const getCategoryColor = (category?: string): string => {
-  if (!category) return CATEGORY_COLORS.default;
-  const key = category.trim().charAt(0).toLowerCase();
-  return CATEGORY_COLORS[key] || CATEGORY_COLORS.default;
-};
-
-const createOrderUUID = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `order-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
-
-const normalizeText = (value: string | number | undefined | null): string => String(value ?? '').toLowerCase().trim();
-
-const formatMoney = (value: number): string =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
-
-const productMatchesSearch = (product: Product, rawSearch: string): boolean => {
-  const terms = normalizeText(rawSearch).split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return true;
-  const haystack = [
-    product.id,
-    product.code,
-    product.plu,
-    product.reference,
-    product.barcode,
-    product.name,
-    product.description,
-    product.category,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return terms.every((term) => haystack.includes(term));
-};
-
-const customerMatchesSearch = (customer: Customer, rawSearch: string): boolean => {
-  const terms = normalizeText(rawSearch).split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return true;
-  const haystack = [
-    customer.id,
-    customer.name,
-    customer.fantasyName,
-    customer.document,
-    customer.phone,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return terms.every((term) => haystack.includes(term));
-};
-
-const getInitials = (name: string): string => {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-};
-
-// Toast notification component
-interface ToastProps {
-  type: 'success' | 'error' | 'info';
-  text: string;
-  onClose: () => void;
-}
-
-const Toast: React.FC<ToastProps> = ({ type, text, onClose }) => {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 5000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  const config = {
-    success: { icon: <CheckCircle2 className="h-5 w-5" />, bg: 'bg-emerald-600', text: 'text-white' },
-    error: { icon: <XCircle className="h-5 w-5" />, bg: 'bg-rose-600', text: 'text-white' },
-    info: { icon: <CheckCircle2 className="h-5 w-5" />, bg: 'bg-blue-600', text: 'text-white' },
-  }[type];
-
-  return (
-    <div
-      className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl px-5 py-4 shadow-2xl ${config.bg} ${config.text}`}
-      style={{ animation: 'slideUp 0.3s ease-out', maxWidth: 380 }}
-    >
-      {config.icon}
-      <span className="text-sm font-medium">{text}</span>
-      <button onClick={onClose} className="ml-2 rounded-lg p-1 opacity-70 hover:opacity-100">
-        <XCircle className="h-4 w-4" />
-      </button>
-    </div>
-  );
-};
 
 export const CounterSalePage: React.FC<CounterSalePageProps> = ({
   currentUser,
@@ -335,92 +227,25 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
 
   const ensureDisplayId = async (): Promise<number> => dbService.generateNextOrderId();
 
-  const buildDraftPayload = async (status: DraftStatus): Promise<OrderDraft> => ({
-    id: currentDraftId || createOrderUUID(),
-    cliente_id: selectedCustomer?.id || WALK_IN_CUSTOMER_ID,
-    cliente_nome: selectedCustomer?.name,
-    cliente_documento: selectedCustomer?.document,
-    cliente_tipo: selectedCustomer?.type || 'NORMAL',
-    itens: cart.map((item) => ({
-      codigo_produto: item.id,
-      quantidade: item.quantity,
-      valor_unitario: item.price,
-      nome_produto: item.name,
-      descricao: item.description,
-      unidade: item.unit,
-      base_price: item.basePrice ?? item.price,
-      category: item.category,
-      stock: item.stock,
-      sectionCode: item.sectionCode,
-      groupCode: item.groupCode,
-      subgroupCode: item.subgroupCode,
-    })),
-    total: cartTotal,
-    data_criacao: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    status,
-    retry_count: 0,
-    display_id: await ensureDisplayId(),
-    numero_orcamento: buildBudgetNumber({
-      store: storeInfo,
+  const buildLocalDraftPayload = async (status: DraftStatus): Promise<OrderDraft> => {
+    const displayId = await ensureDisplayId();
+    const draft = await buildDraftPayload({
+      cart, total: cartTotal, selectedCustomer, storeInfo,
       sellerCode: sellerCode || currentUser,
-      issuedAt: new Date().toISOString(),
-      existingNumber: null,
-    }),
-    notes,
-    payment_method: paymentMethod,
-    payment_method_id: paymentMethod,
-    shipping_method: shippingMethod,
-    shipping_method_id: shippingMethod,
-    payment_plan_code: selectedPlan?.code,
-    payment_plan_description: selectedPlan?.description,
-    payment_installments: selectedPlan?.installments,
-    payment_first_installment_days: selectedPlan?.daysFirstInstallment,
-    payment_days_between: selectedPlan?.daysBetweenInstallments,
-    payment_min_value: selectedPlan?.minValue,
-  });
+      currentDraft: currentDraftId ? { id: currentDraftId } as OrderDraft : null,
+      notes, paymentMethod, shippingMethod,
+      selectedPlan, status,
+    });
+    return { ...draft, id: currentDraftId || draft.id, display_id: displayId };
+  };
 
-  const buildOrderFromDraft = (draft: OrderDraft): Order => ({
-    id: draft.id,
-    displayId: draft.display_id,
-    numero_orcamento: draft.numero_orcamento,
-    numero_pedido: draft.numero_pedido,
-    customerId: draft.cliente_id,
-    customerName: draft.cliente_nome,
-    customerDoc: draft.cliente_documento,
-    customerType: draft.cliente_tipo,
-    paymentPlanCode: draft.payment_plan_code,
-    paymentPlanDescription: draft.payment_plan_description,
-    paymentInstallments: draft.payment_installments,
-    paymentFirstInstallmentDays: draft.payment_first_installment_days,
-    paymentDaysBetween: draft.payment_days_between,
-    paymentMinValue: draft.payment_min_value,
-    items: draft.itens.map((item) => ({
-      id: item.codigo_produto,
-      name: item.nome_produto || item.codigo_produto,
-      description: item.descricao || '',
-      price: item.valor_unitario,
-      basePrice: item.base_price ?? item.valor_unitario,
-      category: item.category || '',
-      stock: Number(item.stock || 0),
-      unit: item.unidade || 'un',
-      quantity: item.quantidade,
-      sectionCode: item.sectionCode,
-      groupCode: item.groupCode,
-      subgroupCode: item.subgroupCode,
-    })),
-    total: draft.total,
-    notes: draft.notes,
-    sellerId: apiService.getSellerId() || undefined,
-    sellerName: currentUser || apiService.getUsername() || undefined,
-    paymentMethod: draft.payment_method,
-    paymentMethodId: draft.payment_method_id,
-    shippingMethod: draft.shipping_method,
-    shippingMethodId: draft.shipping_method_id,
-    status: 'pending',
-    businessStatus: 'pre_venda',
-    createdAt: draft.data_criacao,
-  });
+  const buildLocalOrderFromDraft = (draft: OrderDraft): Order => {
+    const base = buildOrderFromDraft(draft, {
+      sellerId: apiService.getSellerId() || undefined,
+      sellerName: currentUser || apiService.getUsername() || undefined,
+    });
+    return { ...base, businessStatus: 'pre_venda' };
+  };
 
   const handleSaveDraft = async () => {
     const validationError = validateSale();
@@ -431,7 +256,7 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
 
     setSubmitting(true);
     try {
-      const draft = await buildDraftPayload('DRAFT');
+      const draft = await buildLocalDraftPayload('DRAFT');
       if (currentDraftId) {
         await updateDraft(draft);
       } else {
@@ -456,14 +281,14 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
     setSubmitting(true);
     let draft: OrderDraft | null = null;
     try {
-      draft = await buildDraftPayload('SYNCING');
+      draft = await buildLocalDraftPayload('SYNCING');
       if (currentDraftId) {
         await updateDraft(draft);
       } else {
         await saveDraft(draft);
       }
       setCurrentDraftId(draft.id);
-      const order = buildOrderFromDraft(draft);
+      const order = buildLocalOrderFromDraft(draft);
       const result = await apiService.submitOrder(order);
       if (!result.success) {
         throw new Error(result.message || 'Erro ao gerar pré-venda.');
@@ -715,10 +540,19 @@ export const CounterSalePage: React.FC<CounterSalePageProps> = ({
                     return (
                       <div
                         key={product.id}
-                        className={`grid grid-cols-1 gap-2 border-b border-slate-50 px-3 sm:px-4 py-3 sm:py-2.5 text-sm transition-colors md:grid-cols-[1.1fr_2fr_0.7fr_0.7fr_1fr_80px] ${
+                        className={`grid grid-cols-1 gap-2 border-b border-slate-50 px-3 sm:px-4 py-3 sm:py-2.5 text-sm transition-colors md:grid-cols-[40px_1.1fr_2fr_0.7fr_0.7fr_1fr_80px] ${
                           isJustAdded ? 'bg-emerald-50' : inCart ? 'bg-blue-50/60' : 'hover:bg-slate-50/80'
                         }`}
                       >
+                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0 self-center">
+                          {product.imageUrl ? (
+                            <img src={product.imageUrl} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; }} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                            </div>
+                          )}
+                        </div>
                         <div>
                           <div className="font-semibold text-slate-800 text-sm md:text-xs">{product.id}</div>
                           <div className="text-[11px] text-slate-500 md:text-[10px]">{product.reference || product.barcode || product.plu || ''}</div>

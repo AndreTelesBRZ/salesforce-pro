@@ -384,3 +384,33 @@ const FRACTIONAL_UNITS = new Set(['cto', 'kg']);
 export const isFractionalUnit = (unit?: string): boolean => {
   return FRACTIONAL_UNITS.has(String(unit || '').trim().toLowerCase());
 };
+
+export interface ProdutoImagem {
+  id: number;
+  produto: number;
+  url: string;
+  ordem: number;
+  criado_em: string;
+  is_capa?: boolean;
+}
+
+export interface ProdutoImagemGaleria {
+  produto_codigo: string;
+  produto_id: number;
+  imagens: ProdutoImagem[];
+}
+
+export interface CategoriaImagem {
+  id: number;
+  tenant: string;
+  secao: string;
+  grupo: string;
+  subgrupo: string;
+  url: string;
+  criado_em: string;
+}
+
+export interface ImagemResolvida {
+  url: string;
+  origem: 'produto' | 'categoria' | 'placeholder';
+}

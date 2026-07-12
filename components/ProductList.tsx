@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Product, CartItem } from '../types';
 import { apiService } from '../services/api';
 import { geminiService } from '../services/geminiService';
-import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2, RefreshCcw, ArrowUpDown, ChevronDown, Minus } from 'lucide-react';
+import { ShoppingCart, Sparkles, Loader2, Search, Filter, X, List, Grid, WifiOff, Box, Check, ImagePlus, Package, Plus, Save, Share2, RefreshCcw, ArrowUpDown, ChevronDown, Minus, Image as ImageIcon } from 'lucide-react';
 
 // TODO: substituir por campo "estoque_minimo" vindo da API quando o backend estiver pronto
 const ESTOQUE_BAIXO_LIMITE = 3;
@@ -25,9 +25,11 @@ interface ProductListProps {
   onRemoveFromCart: (id: string) => void;
   onToggleCart: (product: Product) => void;
   cart: CartItem[];
+  onOpenGallery?: (productId: string, productName?: string) => void;
+  onCategoryImages?: () => void;
 }
 
-export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveFromCart, onToggleCart, cart }) => {
+export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveFromCart, onToggleCart, cart, onOpenGallery, onCategoryImages }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -558,6 +560,16 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
             {showImages ? 'Lista' : 'Cartões'}
           </button>
 
+          {onCategoryImages && (
+            <button
+              onClick={onCategoryImages}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+            >
+              <ImageIcon className="w-4 h-4" />
+              Categorias
+            </button>
+          )}
+
           {categories.slice(0, 3).map(cat => (
              <button
                key={cat}
@@ -616,11 +628,13 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                           src={product.imageUrl} 
                           alt={product.name}
                           className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display='none'; }}
                         />
                     ) : (
                         <Package className="w-16 h-16 text-slate-300 dark:text-slate-600" />
                     )}
                     
+                    {(
                     <button
                         onClick={(e) => generateImage(product, e)}
                         disabled={imageLoadingId === product.id}
@@ -628,6 +642,7 @@ export const ProductList: React.FC<ProductListProps> = ({ onAddToCart, onRemoveF
                     >
                         {imageLoadingId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
                     </button>
+                    )}
 
                     <span className={`absolute bottom-2 right-2 ${getStockBadgeBg(product.stock)} text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm`}>
                       Est: {product.stock}

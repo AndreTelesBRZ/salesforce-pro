@@ -7,6 +7,7 @@ import { Dashboard } from './components/Dashboard';
 import { CustomerList } from './components/CustomerList';
 import { SalesHistoryPage } from './components/SalesHistoryPage';
 import { OrderHistory } from './components/OrderHistory';
+import ProductImageGallery from "./components/ProductImageGallery";
 import { SyncData } from './components/SyncData';
 import { ReportsPage } from './components/ReportsPage';
 import { DraftsPage } from './src/pages/DraftsPage';
@@ -22,7 +23,7 @@ import { ArrowLeft, LogOut, User, Menu, Loader2, Store, ShoppingCart, FileText, 
 import { SyncIndicator } from './components/SyncIndicator';
 import { backgroundSync } from './services/backgroundSync';
 
-type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts';
+type View = 'dashboard' | 'products' | 'reports' | 'sales-history' | 'cart' | 'orders' | 'settings' | 'customers' | 'sync' | 'send' | 'drafts' | 'product-gallery' | 'category-images';
 
 const navMenuItems: { view: View; label: string; icon: React.ComponentType<{ className?: string }>; }[] = [
   { view: 'dashboard', label: 'Início', icon: Store },
@@ -76,6 +77,7 @@ export default function App() {
   const [storeInfo, setStoreInfo] = useState<any | undefined>(undefined);
   const [salesHistoryCustomer, setSalesHistoryCustomer] = useState<Customer | null>(null);
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
+  const [galleryProduct, setGalleryProduct] = useState<{ id: string; name?: string } | null>(null);
   const [routeMode, setRouteMode] = useState<RouteMode>(resolveRouteMode());
 
   const canAccessView = (view: View, profile: UserSessionProfile | null): boolean => {
@@ -490,6 +492,8 @@ export default function App() {
       case 'settings': return 'Ajustes';
       case 'sync': return 'Sincronizar Dados';
       case 'send': return 'Envio Pendente';
+      case 'product-gallery': return 'Galeria de Imagens';
+      case 'category-images': return 'Imagens por Categoria';
       default: return 'SalesForce';
     }
   };
@@ -586,7 +590,17 @@ export default function App() {
               />
             )}
             {currentView === 'products' && canAccessView('products', userProfile) && (
-              <ProductList onAddToCart={addToCart} onRemoveFromCart={removeFromCart} onToggleCart={toggleCartProduct} cart={cart} />
+              <ProductList
+                onAddToCart={addToCart}
+                onRemoveFromCart={removeFromCart}
+                onToggleCart={toggleCartProduct}
+                cart={cart}
+                onOpenGallery={(id, name) => {
+                  setGalleryProduct({ id, name });
+                  setCurrentView('product-gallery');
+                }}
+                onCategoryImages={() => setCurrentView('category-images')}
+              />
             )}
             {currentView === 'reports' && canAccessView('reports', userProfile) && (
               <ReportsPage storeInfo={storeInfo} />
@@ -653,6 +667,21 @@ export default function App() {
             )}
             {currentView === 'sync' && canAccessView('sync', userProfile) && (
               <SyncData onBack={() => setCurrentView('dashboard')} />
+            )}
+            {currentView === 'product-gallery' && galleryProduct && (
+              <ProductImageGallery
+                productId={galleryProduct.id}
+                productName={galleryProduct.name}
+                onBack={() => {
+                  setGalleryProduct(null);
+                  setCurrentView('products');
+                }}
+              />
+            )}
+            {currentView === 'category-images' && (
+              <CategoryImageManager
+                onBack={() => setCurrentView('dashboard')}
+              />
             )}
           </div>
         </main>
