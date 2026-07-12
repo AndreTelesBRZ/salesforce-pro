@@ -1032,7 +1032,9 @@ class ApiService {
               })
           );
           for (const r of results) {
-              resolved.push(r.status === 'fulfilled' ? r.value : r.status === 'rejected' ? r.value : r.value);
+              if (r.status === 'fulfilled') {
+                  resolved.push(r.value);
+              }
           }
       }
       return resolved;

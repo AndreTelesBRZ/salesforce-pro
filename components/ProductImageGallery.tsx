@@ -114,10 +114,7 @@ const ProductImageGallery: React.FC<ProductImageGalleryProps> = ({
     sorted[targetIdx].ordem = temp;
 
     try {
-      await apiService.reordenarImagens([
-        { id: sorted[idx].id, ordem: sorted[idx].ordem },
-        { id: sorted[targetIdx].id, ordem: sorted[targetIdx].ordem },
-      ]);
+      await apiService.reordenarImagens(img.id, direction);
       await loadGaleria();
     } catch (e: any) {
       setError(e.message || 'Erro ao reordenar');

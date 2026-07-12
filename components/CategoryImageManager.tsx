@@ -33,11 +33,7 @@ const CategoryImageManager: React.FC<CategoryImageManagerProps> = ({ onBack }) =
     setLoading(true);
     setError('');
     try {
-      const params: any = {};
-      if (secaoFilter) params.secao = secaoFilter;
-      if (grupoFilter) params.grupo = grupoFilter;
-      if (subgrupoFilter) params.subgrupo = subgrupoFilter;
-      const data = await apiService.getCategoriaImagens(params);
+      const data = await apiService.getCategoriaImagens(secaoFilter, grupoFilter, subgrupoFilter);
       setImagens(data);
     } catch (e: any) {
       setError(e.message || 'Erro ao carregar imagens');

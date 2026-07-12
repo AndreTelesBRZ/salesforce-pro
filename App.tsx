@@ -8,6 +8,7 @@ import { CustomerList } from './components/CustomerList';
 import { SalesHistoryPage } from './components/SalesHistoryPage';
 import { OrderHistory } from './components/OrderHistory';
 import ProductImageGallery from "./components/ProductImageGallery";
+import CategoryImageManager from './components/CategoryImageManager';
 import { SyncData } from './components/SyncData';
 import { ReportsPage } from './components/ReportsPage';
 import { DraftsPage } from './src/pages/DraftsPage';
@@ -127,7 +128,7 @@ export default function App() {
 
         apiService.fetchProfile().then(profile => {
           if (profile) {
-            setUserProfile(profile);
+            setUserProfile((currentProfile) => currentProfile ? { ...currentProfile, ...profile } : null);
             setCurrentUser(profile.name);
             if (profile.seller_id) setSellerCode(profile.seller_id);
           }
