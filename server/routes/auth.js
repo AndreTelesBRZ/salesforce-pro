@@ -23,7 +23,7 @@ export function createAuthRoutes(ctx) {
     try {
       const backendUrl = resolveBackendUrlForRequest(req);
       if (!backendUrl) {
-        return res.status(400).json({ message: Configuracao de loja invalida. Backend do ERP nao identificado. });
+        return res.status(400).json({ message: "Configuracao de loja invalida. Backend do ERP nao identificado." });
       }
 
       const remoteLogin = await callRemoteJson({
