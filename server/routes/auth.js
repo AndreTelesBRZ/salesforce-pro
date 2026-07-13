@@ -5,6 +5,7 @@ import {
   extractRemoteMessage,
   resolveAuthenticatedUserPayload,
   extractProfileUser,
+  resolveBackendUrlForRequest,
 } from '../config.js';
 
 export function createAuthRoutes(ctx) {
