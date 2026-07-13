@@ -2893,8 +2893,11 @@ class ApiService {
               try { return JSON.parse(cached); } catch {}
           }
       }
+      const endpoint = this.isAuthenticated() ? '/api/store' : '/api/store/public';
       try {
-          const res = await this.fetchWithAuth('/api/store');
+          const res = this.isAuthenticated()
+              ? await this.fetchWithAuth(endpoint)
+              : await this.fetchAppLocal(endpoint);
           if (res.ok) {
               const data = await res.json();
               localStorage.setItem(cacheKey, JSON.stringify(data));
