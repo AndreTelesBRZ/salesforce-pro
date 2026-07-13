@@ -21,11 +21,13 @@ export function createAuthRoutes(ctx) {
     const { username, password } = req.body;
 
     try {
-      const context = requireRemoteBackendContext(req, res);
-      if (!context) return;
+      const backendUrl = resolveBackendUrlForRequest(req);
+      if (!backendUrl) {
+        return res.status(400).json({ message: Configuracao de loja invalida. Backend do ERP nao identificado. });
+      }
 
       const remoteLogin = await callRemoteJson({
-        backendUrl: context.backendUrl,
+        backendUrl,
         paths: ['/auth/login', '/api/login'],
         method: 'POST',
         body: { username, password },
@@ -46,7 +48,7 @@ export function createAuthRoutes(ctx) {
       }
 
       const authenticatedUser = await resolveAuthenticatedUserPayload(
-        context.backendUrl,
+        backendUrl,
         accessToken,
         remoteLogin.data?.user || remoteLogin.data,
       );

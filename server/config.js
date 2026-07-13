@@ -85,6 +85,10 @@ export const getRequestedBackendUrl = (req) => {
   return '';
 };
 
+export const resolveBackendUrlForRequest = (req) => {
+  return getRequestedBackendUrl(req) || ;
+};
+
 export const resolveStoreIdFromHost = (host) => {
   if (matchesDomain(host, LLFIX_DOMAIN)) return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
   if (matchesDomain(host, EDSON_DOMAIN)) return STORE_DOMAIN_MAP[EDSON_DOMAIN];

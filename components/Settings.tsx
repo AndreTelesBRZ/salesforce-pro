@@ -41,7 +41,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
   const detectedStoreLabel = connectionProfile?.lojaCodigo || storeInfo?.store_code || storeInfo?.codigo || '';
   const domainMapped = tenantDiagnostics.domainMapped;
   const tenantLabel = tenantDiagnostics.tenant.mapped ? `${tenantDiagnostics.tenant.label} (${tenantDiagnostics.tenant.storeCode})` : 'Não configurado';
-  const displayedToken = tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken;
+  const displayedToken = tenantDiagnostics.tenant.mapped ? '' : config.apiToken;
   const maskedToken = maskToken(displayedToken) || 'Nao configurado';
 
   // Auto-teste
@@ -93,7 +93,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
       return;
     }
     const configToSave = backendUrlLocked
-      ? { ...config, backendUrl: lockedBackendUrl, apiToken: tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken }
+      ? { ...config, backendUrl: lockedBackendUrl, apiToken: tenantDiagnostics.tenant.mapped ? '' : config.apiToken }
       : config;
 
     setTestStatus('testing');
@@ -154,7 +154,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
     setConnectionProfile(null);
     
     const configToTest = backendUrlLocked
-      ? { ...config, backendUrl: lockedBackendUrl, apiToken: tenantDiagnostics.tenant.mapped ? tenantDiagnostics.tenant.token : config.apiToken }
+      ? { ...config, backendUrl: lockedBackendUrl, apiToken: tenantDiagnostics.tenant.mapped ? '' : config.apiToken }
       : config;
     
     const result = await apiService.testConnection(configToTest.backendUrl);
@@ -254,7 +254,7 @@ export const Settings: React.FC<SettingsProps> = ({ onClose, onLogout, onThemeCh
             <p>Host atual: <span className="font-medium">{typeof window !== 'undefined' ? window.location.hostname : 'N/A'}</span></p>
             <p>Loja resolvida: <span className="font-medium">{tenantLabel}</span></p>
             {tenantDiagnostics.tenant.mapped && (
-              <p>Variável usada: <span className="font-medium">{tenantDiagnostics.tenant.tokenEnvVar}</span></p>
+              <p>Token de integracao: <span className="font-medium">Removido (proxy local)</span></p>
             )}
             {serverDiag && (
               <p>Token no servidor: <span className={`font-medium ${serverDiag.tokenConfigured ? 'text-green-600' : 'text-red-500'}`}>

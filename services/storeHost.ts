@@ -31,9 +31,8 @@ export const isAllowedRemoteBackendUrl = (value?: string): boolean => {
   return ALLOWED_REMOTE_BACKEND_URLS.includes(normalized);
 };
 
-export const resolveIntegrationTokenFromHost = (hostname?: string): string => {
-  const tenant = getTenantConfig(hostname);
-  return tenant.mapped ? tenant.token : '';
+export const resolveIntegrationTokenFromHost = (_hostname?: string): string => {
+  return "";
 };
 
 export const isLlfixHostForCurrent = (): boolean => {
@@ -57,8 +56,7 @@ export const getBackendUrlForCurrentHost = (): string => {
 };
 
 export const getIntegrationTokenForCurrentHost = (): string => {
-  if (typeof window === 'undefined') return '';
-  return resolveIntegrationTokenFromHost(window.location.hostname);
+  return "";
 };
 
 export const isBackendUrlLockedForCurrent = (): boolean => {

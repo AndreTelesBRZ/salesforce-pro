@@ -13,10 +13,6 @@ const FRETE_MODALIDADE = {
   SEM_FRETE: 'sem_frete'
 } as const;
 
-const FALLBACK_BACKEND_URL = 'https://apiforce.llfix.app.br';
-const FALLBACK_REMOTE_API_USERNAME = 'apiadmin';
-const FALLBACK_REMOTE_API_PASSWORD = 'TroqueEstaSenha!';
-
 const normalizeString = (value?: string): string => {
   return (value || '').toString().trim().toLowerCase();
 };
@@ -202,7 +198,7 @@ class ApiService {
   }
 
   private getDefaultUsername(): string {
-      return this.resolveAppToken() ? 'Terminal Vinculado' : 'Vendedor';
+      return 'Vendedor';
   }
 
   private isPlaceholderUsername(value?: string | null): boolean {
@@ -242,26 +238,11 @@ class ApiService {
       return null;
   }
 
-  private getIntegrationTokenFromEnv(): string | null {
-      const token = getIntegrationTokenForCurrentHost();
-      return token && token.trim() ? token.trim() : null;
-  }
 
-  private resolveAppToken(): string | null {
-      const envToken = this.getIntegrationTokenFromEnv();
-      if (envToken) return envToken;
-      const configToken = typeof this.config.apiToken === 'string' ? this.config.apiToken.trim() : '';
-      return configToken || null;
-  }
+
+
 
   private resolveBearerToken(): string | null {
-      const configuredToken = this.resolveAppToken();
-      if (configuredToken && isBearerLikeToken(configuredToken)) {
-          const normalizedConfigured = stripBearerPrefix(configuredToken);
-          if (normalizedConfigured) {
-              return normalizedConfigured;
-          }
-      }
       const liveToken = stripBearerPrefix(this.token);
       if (liveToken && isLikelyJwt(liveToken)) {
           return liveToken;
@@ -269,108 +250,17 @@ class ApiService {
       return null;
   }
 
-  private resolveIntegrationAppToken(): string | null {
-      const token = this.resolveAppToken();
-      if (!token || isBearerLikeToken(token)) {
-          return null;
-      }
-      return token;
-  }
 
-  private applyIntegrationTokenFromEnv(): void {
-      const envToken = this.getIntegrationTokenFromEnv();
-      if (!envToken) return;
-      this.config.apiToken = envToken;
-  }
 
-  private getRemoteApiCredentials(): { username: string; password: string } {
-      let username = FALLBACK_REMOTE_API_USERNAME;
-      let password = FALLBACK_REMOTE_API_PASSWORD;
 
-      try {
-          const env = (import.meta as any)?.env || {};
-          if (typeof env.VITE_API_USERNAME === 'string' && env.VITE_API_USERNAME.trim()) {
-              username = env.VITE_API_USERNAME.trim();
-          }
-          if (typeof env.VITE_API_PASSWORD === 'string' && env.VITE_API_PASSWORD.trim()) {
-              password = env.VITE_API_PASSWORD.trim();
-          }
-      } catch {}
 
-      return { username, password };
-  }
 
-  private hasJwtToken(): boolean {
-      return isLikelyJwt(this.token);
-  }
 
-  private async requestRemoteJwt(baseUrl: string): Promise<string | null> {
-      const normalizedBaseUrl = (baseUrl || '').trim();
-      if (!normalizedBaseUrl) return null;
 
-      const { username, password } = this.getRemoteApiCredentials();
-      const loginEndpoints = ['/auth/login', '/api/login'];
-      const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          ...this.getTenantHeaders(),
-      };
-      const storeCode = this.getStoredStoreCode();
-      if (storeCode) {
-          headers['X-Loja-Codigo'] = storeCode;
-      }
-      const appToken = this.resolveIntegrationAppToken();
-      if (appToken) {
-          headers['X-App-Token'] = appToken;
-      }
 
-      for (const endpoint of loginEndpoints) {
-          try {
-              const response = await fetch(`${normalizedBaseUrl}${endpoint}`, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify({ username, password }),
-              });
-              if (!response.ok) continue;
 
-              const contentType = response.headers.get('content-type') || '';
-              if (!contentType.includes('application/json')) continue;
 
-              const data = await response.json();
-              const accessToken =
-                  data?.token?.access_token ||
-                  data?.access_token ||
-                  data?.token ||
-                  '';
 
-              if (isLikelyJwt(accessToken)) {
-                  this.applyIdentityFromToken(accessToken);
-                  return accessToken;
-              }
-          } catch {}
-      }
-
-      return null;
-  }
-
-  private async ensureRemoteJwt(forceRefresh: boolean = false): Promise<string | null> {
-      const bearerToken = this.resolveBearerToken();
-      if (!forceRefresh && bearerToken) {
-          if (!this.token || this.token !== bearerToken) {
-              this.token = bearerToken;
-          }
-          return bearerToken;
-      }
-      if (!this.resolveIntegrationAppToken()) {
-          return this.hasJwtToken() ? this.token : null;
-      }
-
-      const jwt = await this.requestRemoteJwt(this.getBaseUrl());
-      if (!jwt) return null;
-
-      this.token = jwt;
-      localStorage.setItem('authToken', jwt);
-      return jwt;
-  }
 
   constructor() {
     // Configuração padrão: URL vazia significa "Usar o mesmo endereço do site" (Relativo)
@@ -397,8 +287,6 @@ class ApiService {
       } catch(e) {}
     }
 
-    this.applyIntegrationTokenFromEnv();
-    
     this.token = localStorage.getItem('authToken');
     // PRE-POPULA nome/código a partir do token salvo (melhora experiência offline)
     if (this.token) {
@@ -463,7 +351,6 @@ class ApiService {
               await dbService.saveSettings(this.config);
           }
           localStorage.setItem('appConfig', JSON.stringify(this.config));
-          this.applyIntegrationTokenFromEnv();
       } catch (e: any) {
           this.addLog(`Erro init config: ${e.message}`, 'error');
       } finally {
@@ -507,9 +394,9 @@ class ApiService {
 
   isAuthenticated(): boolean {
     if (this.config.useMockData) return true;
-    const hasToken = !!this.resolveAppToken();
+    const hasJwt = isLikelyJwt(this.token);
     const hasUser = !!localStorage.getItem('username');
-    return hasToken && hasUser;
+    return hasJwt && hasUser;
   }
 
   // Busca dados atualizados do perfil no servidor
@@ -667,36 +554,6 @@ class ApiService {
            localStorage.removeItem('authToken');
       }
 
-      // 3. Fallback: Login via Token de Configuração (Modo Terminal)
-      const appToken = this.resolveAppToken();
-      if (appToken) {
-          const jwt = await this.ensureRemoteJwt();
-          const result = await this.testConnection(this.config.backendUrl);
-          
-          // CRÍTICO: Se tiver sucesso OU se estiver offline (mas não rejeitado), liberamos o acesso.
-          // Isso garante que o app abra mesmo sem internet se já foi configurado.
-          if ((result.success || !result.authRejected) && jwt) {
-              this.token = jwt;
-              localStorage.setItem('authToken', this.token);
-
-              // Sempre tenta buscar perfil e loja (mesmo offline tentamos decode)
-              this.applyIdentityFromToken(this.token);
-              const identity = await this.requireResolvedUserIdentity();
-              await this.ensureStoreFromERP();
-
-              if (!identity) {
-                  this.logout();
-                  this.addLog('Sessão rejeitada: nome e código do vendedor são obrigatórios.', 'error');
-                  return false;
-              }
-
-              this.addLog(result.success ? `Sessão validada via Token: ${identity.name} [${identity.seller_id}]` : `Sessão offline com Token: ${identity.name} [${identity.seller_id}]`, result.success ? 'success' : 'warning');
-              return true;
-          } else {
-              this.addLog('Token de Integração rejeitado pelo servidor (401).', 'error');
-          }
-      }
-
       this.addLog('Nenhuma sessão válida encontrada.', 'warning');
       return false;
   }
@@ -704,39 +561,10 @@ class ApiService {
   /**
    * Tenta forçar o login usando o token de configuração
    */
-  async loginViaSettingsToken(): Promise<{ success: boolean; message?: string }> {
-      const appToken = this.resolveAppToken();
-      if (!appToken) {
-          return { success: false, message: 'Configure o Token primeiro.' };
-      }
 
-      const jwt = await this.ensureRemoteJwt(true);
-      if (!jwt) {
-          return { success: false, message: 'Falha ao obter sessão JWT do backend remoto.' };
-      }
-
-      const result = await this.testConnection(this.config.backendUrl);
-      
-      if (result.success) {
-          this.token = jwt;
-          localStorage.setItem('authToken', this.token);
-
-          this.applyIdentityFromToken(this.token);
-          const identity = await this.requireResolvedUserIdentity();
-          if (!identity) {
-              this.logout();
-              return { success: false, message: 'Não foi possível identificar nome e código do vendedor vinculado.' };
-          }
-          
-          this.addLog(`Login forçado: ${identity.name} [${identity.seller_id}]`, 'success');
-          return { success: true };
-      } else {
-          return { success: false, message: result.message || 'O token salvo nas configurações foi rejeitado pelo servidor.' };
-      }
-  }
 
   getAppToken(): string | null {
-      return this.resolveAppToken();
+      return null;
   }
 
   getUsername(): string {
@@ -840,12 +668,7 @@ class ApiService {
   }
 
   private getBaseUrl(): string {
-      const hostBackend = getBackendUrlForCurrentHost();
-      if (hostBackend) return this.normalizeBackendUrl(hostBackend);
-      if (this.config.backendUrl && this.config.backendUrl.trim() !== '') {
-          return this.normalizeBackendUrl(this.config.backendUrl);
-      }
-      return this.normalizeBackendUrl(FALLBACK_BACKEND_URL);
+      return '';
   }
 
   private getLocalAppBaseUrl(): string {
@@ -1051,10 +874,6 @@ class ApiService {
     if (storeCode) {
         headers['X-Loja-Codigo'] = storeCode;
     }
-    const appToken = this.resolveIntegrationAppToken();
-    if (appToken) {
-        headers['X-App-Token'] = appToken;
-    }
     const bearerToken = this.resolveBearerToken();
     if (bearerToken) {
         headers['Authorization'] = `Bearer ${bearerToken}`;
@@ -1136,13 +955,8 @@ class ApiService {
   }
 
   async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
-      await this.ensureRemoteJwt();
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const baseUrl = this.getBaseUrl();
-      if (!baseUrl) {
-          throw new Error('Backend não configurado. Defina VITE_BACKEND_URL.');
-      }
-      const targetUrl = `${baseUrl}${cleanEndpoint}`;
+      const targetUrl = cleanEndpoint;
       const resolvedHeaders = { ...this.getAuthHeaders(), ...(options.headers || {}) } as Record<string, string>;
 
       const doFetch = async (url: string) => {

@@ -35,7 +35,7 @@ export async function resolveTenantConfig(): Promise<ResolvedTenantConfig> {
       storeCode: tenant.storeCode,
       storeName: tenant.storeName,
       backendUrl: tenant.backendUrl,
-      tokenConfigured: !!tenant.token,
+      tokenConfigured: false,
       mapped: true,
     };
   } else {
