@@ -86,7 +86,7 @@ export const getRequestedBackendUrl = (req) => {
 };
 
 export const resolveBackendUrlForRequest = (req) => {
-  return getRequestedBackendUrl(req) || ;
+  return getRequestedBackendUrl(req) || LLFIX_BACKEND_URL;
 };
 
 export const resolveStoreIdFromHost = (host) => {
