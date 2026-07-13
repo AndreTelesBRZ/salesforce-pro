@@ -151,7 +151,7 @@ export const getTenantConfig = (hostname?: string): TenantResolution => {
     label: matchedTenant.label,
     storeName: matchedTenant.storeName,
     tokenEnvVar: matchedTenant.tokenEnvVar,
-    token: readEnv(matchedTenant.tokenEnvVar),
+    token: readEnv(matchedTenant.tokenEnvVar) || browserToken || "", 
     backendUrl: matchedTenant.backendUrl,
     mapped: true,
   };
