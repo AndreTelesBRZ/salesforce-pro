@@ -1,2 +1,1 @@
-window.__ALLOW_LOCAL_EDSON = true;
-window.__EDSON_TOKEN = "Ei-nMODXRD2HbGP4n7k_7Fj1cyMzwQvepSh4vIzzkT2rxrjcSDZIp49n2r49LcNNVgUQOJTOtbpj0LBDldC7g";
+window.__ALLOW_LOCAL_EDSON = false;
