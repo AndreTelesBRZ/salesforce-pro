@@ -2005,7 +2005,7 @@ class ApiService {
   async syncFullCatalog(onProgress: (current: number, total: number | null) => void): Promise<{ success: boolean, count: number, message?: string }> {
     try {
         // CORREÇÃO: limit=-1 garante que o backend envie todos os produtos sem paginação
-        const response = await this.fetchWithAuth(this.buildProductsEndpoint({ limit: -1, includeSeller: true }));
+        const response = await this.fetchWithAuth("/api/produtos?loja=" + encodeURIComponent(getStoreCodeForApi()));
         
         if (!response.ok) throw new Error(`Erro ${response.status}`);
         const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
@@ -2093,7 +2093,7 @@ class ApiService {
             return [WALK_IN_CUSTOMER, ...demoClients];
          }
 
-         const view = await this.fetchClientSyncView('recent');
+         const view = await this.fetchClientSyncView('all');
          const list = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
          const mapped = list
              .filter((item: any) => item?.type !== 'TEMPORARIO')
@@ -2759,7 +2759,7 @@ class ApiService {
 
   async syncCustomers(onProgress: (c: number) => void): Promise<{ success: boolean, count: number, message?: string }> {
      try {
-        const view = await this.fetchClientSyncView('recent');
+        const view = await this.fetchClientSyncView('all');
         const rawList = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
         
         await dbService.clearCustomers();
