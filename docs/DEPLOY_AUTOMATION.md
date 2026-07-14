@@ -45,7 +45,7 @@ Instale e configure:
 
 No manager do Swarm, mantenha um arquivo de ambiente fora do repositorio, por exemplo:
 
-`/opt/stacks/salesforce-pro/.env.stack`
+`/root/apps/salesforce-pro/.env.stack`
 
 Exemplo de conteudo:
 
