@@ -1,53 +1,27 @@
 
 import express from 'express';
+import sqlite3 from 'sqlite3';
+import pg from 'pg';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
+import { OAuth2Client } from 'google-auth-library';
+import { GoogleGenAI } from '@google/genai';
+import PDFDocument from 'pdfkit';
+import nodemailer from 'nodemailer';
 
-import { db, isPostgres, initDb } from './server/db.js';
-import {
-  MASTER_KEY,
-  APP_INTEGRATION_TOKEN,
-  APP_INTEGRATION_TOKEN_EDSON,
-  APP_INTEGRATION_TOKEN_LLFIX,
-  getRequestHost,
-  matchesDomain,
-  requireRemoteBackendContext,
-  callRemoteJson,
-  extractRemoteMessage,
-  fetchRemoteProfile,
-  extractProfileUser,
-  extractProfileStoreCode,
-  validateProfileAgainstBackend,
-  resolveAuthenticatedUserPayload,
-  getHeaderValue,
-  parseAuthHeader,
-  isIntegrationTokenForRequest,
-  resolveIntegrationTokensForHost,
-  buildRemoteAuthHeaders,
-  getMailerForRequest,
-  mailer,
-  MAILER_FROM,
-  genAI,
-  GEMINI_API_KEY,
-} from './server/config.js';
-
-import { createAuthRoutes } from './server/routes/auth.js';
-import { createProductRoutes } from './server/routes/products.js';
-import { createCustomerRoutes } from './server/routes/customers.js';
-import { createOrderRoutes } from './server/routes/orders.js';
-import { createStoreRoutes } from './server/routes/store.js';
-import { createAIRoutes } from './server/routes/ai.js';
-import { createPDFRoutes } from './server/routes/pdf.js';
-import { createMiscRoutes, createERPProxy } from './server/routes/misc.js';
-
+// Configuração Básica
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8080; 
+const SECRET_KEY = process.env.SECRET_KEY || 'super-secret-key-change-this-in-production';
+// Master Key para acesso facilitado (Bypass de JWT)
+const MASTER_KEY = process.env.MASTER_KEY || 'salesforce-pro-token';
+const APP_INTEGRATION_TOKEN = process.env.APP_INTEGRATION_TOKEN || process.env.VITE_APP_INTEGRATION_TOKEN || '';
+const APP_INTEGRATION_TOKEN_EDSON = process.env.APP_INTEGRATION_TOKEN_EDSON || process.env.VITE_APP_INTEGRATION_TOKEN_EDSON || '';
+const APP_INTEGRATION_TOKEN_LLFIX = process.env.APP_INTEGRATION_TOKEN_LLFIX || process.env.VITE_APP_INTEGRATION_TOKEN_LLFIX || '';
 
-<<<<<<< HEAD
-=======
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
 const DB_PATH = process.env.DB_PATH || './database.sqlite';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
@@ -84,7 +58,7 @@ const STORE_DOMAIN_MAP = {
 const EDSON_BACKEND_URL = 'https://apiforce.edsondosparafusos.app.br';
 const LLFIX_BACKEND_URL = 'https://apiforce.llfix.app.br';
 const SUPPORTED_REMOTE_BACKENDS = [EDSON_BACKEND_URL, LLFIX_BACKEND_URL];
-const DEV_TENANT = (process.env.TENANT || '').toUpperCase().trim();
+const DEV_TENANT = (process.env.TENANT || "").toUpperCase().trim();
 
 const normalizeHost = (value) => {
   const raw = String(value || '').split(',')[0].trim().toLowerCase();
@@ -118,14 +92,16 @@ const getRequestedBackendUrl = (req) => {
   const host = getRequestHost(req);
   if (matchesDomain(host, LLFIX_DOMAIN)) return LLFIX_BACKEND_URL;
   if (matchesDomain(host, EDSON_DOMAIN)) return EDSON_BACKEND_URL;
+  if (DEV_TENANT === "EDSON") return EDSON_BACKEND_URL;
+  if (DEV_TENANT === "LLFIX") return LLFIX_BACKEND_URL;
   return '';
 };
 
 const resolveStoreIdFromHost = (host) => {
   if (matchesDomain(host, LLFIX_DOMAIN)) return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
   if (matchesDomain(host, EDSON_DOMAIN)) return STORE_DOMAIN_MAP[EDSON_DOMAIN];
-  if (DEV_TENANT === EDSON) return 1;
-  if (DEV_TENANT === LLFIX) return 3;
+  if (DEV_TENANT === "EDSON") return 1;
+  if (DEV_TENANT === "LLFIX") return 3;
   return DEFAULT_STORE_ID;
 };
 const formatStoreCode = (value) => String(value || DEFAULT_STORE_ID).trim().padStart(6, '0');
@@ -140,9 +116,8 @@ const resolveIntegrationTokensForHost = (host) => {
     tokens.push(APP_INTEGRATION_TOKEN_EDSON);
   }
   if (tokens.length === 0 && DEV_TENANT) {
-    if (DEV_TENANT === EDSON && APP_INTEGRATION_TOKEN_EDSON) tokens.push(APP_INTEGRATION_TOKEN_EDSON);
-    if (DEV_TENANT === LLFIX && APP_INTEGRATION_TOKEN_LLFIX) tokens.push(APP_INTEGRATION_TOKEN_LLFIX);
-    if (tokens.length === 0 && APP_INTEGRATION_TOKEN) tokens.push(APP_INTEGRATION_TOKEN);
+    if (DEV_TENANT === "EDSON" && APP_INTEGRATION_TOKEN_EDSON) tokens.push(APP_INTEGRATION_TOKEN_EDSON);
+    if (DEV_TENANT === "LLFIX" && APP_INTEGRATION_TOKEN_LLFIX) tokens.push(APP_INTEGRATION_TOKEN_LLFIX);
   }
   return tokens;
 };
@@ -412,17 +387,15 @@ const resolveAuthenticatedUserPayload = async (backendUrl, accessToken, fallback
 };
 
 // Middleware
->>>>>>> ffd1865 (Reversão build)
 app.use(cors());
 app.use(bodyParser.json());
 
+// Middleware de Log
 app.use((req, res, next) => {
     console.log(`[SERVER] ${req.method} ${req.url}`);
     next();
 });
 
-<<<<<<< HEAD
-=======
 // --- CAMADA DE ABSTRAÇÃO DE BANCO DE DADOS (SQLite ou PostgreSQL) ---
 const isPostgres = !!process.env.DATABASE_URL;
 
@@ -831,7 +804,7 @@ app.get('/api/config/resolve', (req, res) => {
       backendUrl: '',
       tokenConfigured: false,
       mapped: false,
-      error: 'Dominio nao configurado: ' + label + '.'
+      error: 'Domínio não configurado: ' + label + '.'
     });
   }
 
@@ -839,8 +812,8 @@ app.get('/api/config/resolve', (req, res) => {
   const domain = isEdson ? 'edsondosparafusos.app.br' : isLlfix ? 'llfix.app.br' : (DEV_TENANT === 'EDSON' ? 'edsondosparafusos.app.br' : 'llfix.app.br');
   const storeCode = isEdson ? '000001' : isLlfix ? '000003' : (DEV_TENANT === 'EDSON' ? '000001' : '000003');
   const storeName = isEdson ? 'EDSON DOS PARAFUSOS' : isLlfix ? 'LL FIX DISTRIBUIDORA - EI' : (DEV_TENANT === 'EDSON' ? 'EDSON DOS PARAFUSOS' : 'LL FIX DISTRIBUIDORA - EI');
-  const backendUrl = isEdson ? EDSON_BACKEND_URL : isLlfix ? LLFIX_BACKEND_URL : (DEV_TENANT === 'EDSON' ? EDSON_BACKEND_URL : LLFIX_BACKEND_URL);
-  const remoteToken = isEdson ? APP_INTEGRATION_TOKEN_EDSON : isLlfix ? APP_INTEGRATION_TOKEN_LLFIX : APP_INTEGRATION_TOKEN;
+  const backendUrl = isEdson ? 'https://apiforce.edsondosparafusos.app.br' : isLlfix ? 'https://apiforce.llfix.app.br' : (DEV_TENANT === 'EDSON' ? 'https://apiforce.edsondosparafusos.app.br' : 'https://apiforce.llfix.app.br');
+  const remoteToken = isEdson ? APP_INTEGRATION_TOKEN_EDSON : isLlfix ? APP_INTEGRATION_TOKEN_LLFIX : (DEV_TENANT === 'EDSON' ? APP_INTEGRATION_TOKEN_EDSON : APP_INTEGRATION_TOKEN_LLFIX);
   const tokenConfigured = !!(remoteToken && remoteToken.trim().length > 0);
 
   return res.status(200).json({
@@ -1071,7 +1044,24 @@ const isIntegrationTokenForRequest = (req, token) => {
 };
 
 // Middleware de Verificação de Token
->>>>>>> ffd1865 (Reversão build)
+const enrichRemoteUserPermissions = (user) => {
+  if (!user) return user;
+  if (user.is_active === undefined) user.is_active = true;
+  if (user.can_view_all_companies === undefined) user.can_view_all_companies = true;
+  if (!user.empresas_permitidas || user.empresas_permitidas.length === 0) {
+    user.empresas_permitidas = [{ codigo: user.vendor_code || user.seller_id || '000002', nome: 'Empresa Padrão' }];
+  }
+  if (user.can_view_products === undefined) user.can_view_products = true;
+  if (user.can_view_clients === undefined) user.can_view_clients = true;
+  if (user.can_view_sales === undefined) user.can_view_sales = true;
+  if (user.can_create_sales === undefined) user.can_create_sales = true;
+  if (user.can_edit_sales === undefined) user.can_edit_sales = true;
+  if (user.can_delete_sales === undefined) user.can_delete_sales = true;
+  if (user.can_view_purchases === undefined) user.can_view_purchases = true;
+  if (user.can_view_financial === undefined) user.can_view_financial = true;
+  return user;
+};
+
 const verifyToken = async (req, res, next) => {
   const authInfo = parseAuthHeader(req.headers['authorization']);
   const appToken = getHeaderValue(req.headers['x-app-token']);
@@ -1112,6 +1102,7 @@ const verifyToken = async (req, res, next) => {
           return res.status(403).json({ message: storeValidation.message });
       }
       const remoteUser = extractProfileUser(profileResponse.data);
+      enrichRemoteUserPermissions(remoteUser);
       req.remoteUser = remoteUser;
       req.userId = remoteUser.id || remoteUser.vendor_code || remoteUser.username || null;
       req.jwtPayload = remoteUser;
@@ -1122,38 +1113,1363 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-const ctx = {
-  db,
-  isPostgres,
-  verifyToken,
-  mailer,
-  MAILER_FROM,
-  genAI,
-  GEMINI_API_KEY,
-  requireRemoteBackendContext,
-  callRemoteJson,
-  extractRemoteMessage,
-  fetchRemoteProfile,
-  extractProfileUser,
-  getHeaderValue,
-  buildRemoteAuthHeaders,
-  getRequestHost,
-  matchesDomain,
-  APP_INTEGRATION_TOKEN_EDSON,
-  APP_INTEGRATION_TOKEN_LLFIX,
-  APP_INTEGRATION_TOKEN,
+const buildStoreCatalogEntry = (storeId, row = {}) => {
+    const code = formatStoreCode(storeId);
+    return {
+        id: storeId,
+        codigo: code,
+        lojcod: code,
+        LOJCOD: code,
+        nome: row.trade_name || row.legal_name || '',
+        nome_fantasia: row.trade_name || '',
+        razao_social: row.legal_name || '',
+        cnpj_cpf: row.document || '',
+        email: row.email || '',
+        telefone: row.phone || '',
+        logradouro: row.street || '',
+        numero: row.number || '',
+        bairro: row.neighborhood || '',
+        cidade: row.city || '',
+        estado: row.state || '',
+        cep: row.zip || '',
+        complemento: row.complement || '',
+        trade_name: row.trade_name || '',
+        legal_name: row.legal_name || '',
+        document: row.document || '',
+        phone: row.phone || '',
+        street: row.street || '',
+        neighborhood: row.neighborhood || '',
+        city: row.city || '',
+        state: row.state || '',
+        zip: row.zip || '',
+        updated_at: row.updated_at || null
+    };
 };
 
-app.use(createMiscRoutes(ctx));
-app.use(createAuthRoutes(ctx));
-app.use(createProductRoutes(ctx));
-app.use(createCustomerRoutes(ctx));
-app.use(createOrderRoutes(ctx));
-app.use(createStoreRoutes(ctx));
-app.use(createAIRoutes(ctx));
-app.use(createPDFRoutes(ctx));
-app.use('/api', createERPProxy(ctx));
+// --- ROTAS DA API ---
 
+// Identificar Usuário Atual (Me)
+app.get('/api/me', verifyToken, async (req, res) => {
+    try {
+        if (!req.remoteUser) {
+            return res.status(401).json({ message: 'Perfil remoto não carregado.' });
+        }
+        return res.json({ user: {
+            ...req.remoteUser,
+            is_active: req.remoteUser.is_active !== false,
+            can_view_all_companies: req.remoteUser.can_view_all_companies !== false,
+            empresas_permitidas: req.remoteUser.empresas_permitidas || [{ codigo: req.remoteUser.vendor_code || req.remoteUser.seller_id || '000002', nome: 'Empresa Padrão' }],
+            can_view_products: req.remoteUser.can_view_products !== false,
+            can_view_clients: req.remoteUser.can_view_clients !== false,
+            can_view_sales: req.remoteUser.can_view_sales !== false,
+            can_create_sales: req.remoteUser.can_create_sales !== false,
+            can_edit_sales: req.remoteUser.can_edit_sales !== false,
+            can_delete_sales: req.remoteUser.can_delete_sales !== false,
+            permissions: req.remoteUser.permissions || {}
+        }});
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/auth/me', verifyToken, async (req, res) => {
+    try {
+        if (!req.remoteUser) {
+            return res.status(401).json({ message: 'Perfil remoto não carregado.' });
+        }
+        return res.json({ user: {
+            ...req.remoteUser,
+            is_active: req.remoteUser.is_active !== false,
+            can_view_all_companies: req.remoteUser.can_view_all_companies !== false,
+            empresas_permitidas: req.remoteUser.empresas_permitidas || [{ codigo: req.remoteUser.vendor_code || req.remoteUser.seller_id || '000002', nome: 'Empresa Padrão' }],
+            can_view_products: req.remoteUser.can_view_products !== false,
+            can_view_clients: req.remoteUser.can_view_clients !== false,
+            can_view_sales: req.remoteUser.can_view_sales !== false,
+            can_create_sales: req.remoteUser.can_create_sales !== false,
+            can_edit_sales: req.remoteUser.can_edit_sales !== false,
+            can_delete_sales: req.remoteUser.can_delete_sales !== false,
+            permissions: req.remoteUser.permissions || {}
+        }});
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
+// Listar Produtos
+app.get('/api/products', verifyToken, async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_view_products', 'Usuário sem permissão para visualizar produtos.')) return;
+  // LÓGICA DE LIMITE ROBUSTA (atualizada):
+  // Se limit não for enviado, NÃO aplicamos paginação (retorna tudo — útil para sync).
+  // Se limit for enviado e > 0, aplicamos paginação normal.
+  let limit = -1;
+  if (req.query.limit !== undefined) {
+      const parsed = parseInt(req.query.limit);
+      if (!isNaN(parsed)) limit = parsed;
+  }
+  const page = parseInt(req.query.page) || 1;
+  const offset = limit > 0 ? (page - 1) * limit : 0;
+
+  try {
+      const storeId = getStoreIdForProducts(req);
+      let query = "SELECT * FROM products WHERE (store_id = ? OR store_id IS NULL) ORDER BY name";
+      let params = [storeId];
+
+      // Apenas adiciona paginação se limit for positivo.
+      // Se limit for -1 ou 0, retorna tudo.
+      if (limit > 0) {
+          query += " LIMIT ? OFFSET ?";
+          params.push(limit, offset);
+      } else {
+          console.log('[SERVER] Retornando produtos sem limites (Sync)');
+      }
+
+      const rows = await db.query(query, params);
+      const mapped = rows.map(p => ({
+         codigo: p.plu, 
+         id: p.plu,
+         plu: p.plu,
+         descricao_completa: p.description, 
+         nome: p.name,
+         preco: p.price,
+         estoque: p.stock,
+         estoque_disponivel: p.stock, // Simula campo da API real
+         unidade: p.unit,
+         categoria: p.category,
+         imagem_url: p.image_url
+      }));
+      res.json(mapped);
+  } catch (e) {
+      res.status(500).json({ error: e.message });
+  }
+});
+
+// Listar Produtos (compatibilidade LLFIX /api/produtos-sync)
+app.get('/api/produtos-sync', verifyToken, async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_view_products', 'Usuário sem permissão para visualizar produtos.')) return;
+  // Reaproveita a mesma logica de /api/products (ignora loja)
+  let limit = -1;
+  if (req.query.limit !== undefined) {
+      const parsed = parseInt(req.query.limit);
+      if (!isNaN(parsed)) limit = parsed;
+  }
+  const page = parseInt(req.query.page) || 1;
+  const offset = limit > 0 ? (page - 1) * limit : 0;
+
+  try {
+      const storeId = getStoreIdForProducts(req);
+      let query = "SELECT * FROM products WHERE (store_id = ? OR store_id IS NULL) ORDER BY name";
+      let params = [storeId];
+
+      if (limit > 0) {
+          query += " LIMIT ? OFFSET ?";
+          params.push(limit, offset);
+      } else {
+          console.log('[SERVER] Retornando produtos sem limites (Sync)');
+      }
+
+      const rows = await db.query(query, params);
+      const mapped = rows.map(p => ({
+         codigo: p.plu, 
+         id: p.plu,
+         plu: p.plu,
+         descricao_completa: p.description, 
+         nome: p.name,
+         preco: p.price,
+         estoque: p.stock,
+         estoque_disponivel: p.stock,
+         unidade: p.unit,
+         categoria: p.category,
+         imagem_url: p.image_url
+      }));
+      res.json(mapped);
+  } catch (e) {
+      res.status(500).json({ error: e.message });
+  }
+});
+
+// Adicionar Produto (Novo)
+app.post('/api/products', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_products', 'Usuário sem permissão para gerenciar produtos.')) return;
+    const { codigo, nome, descricao_completa, preco, estoque, categoria, unidade, imagem_url } = req.body;
+    
+    if (!codigo || !nome || !preco) {
+        return res.status(400).json({ message: 'Campos obrigatórios: codigo, nome, preco.' });
+    }
+
+    try {
+        const storeId = getStoreIdForProducts(req);
+        await db.run(
+            `INSERT INTO products (plu, name, description, price, stock, category, unit, image_url, store_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [codigo, nome, descricao_completa || '', preco, estoque || 0, categoria || 'Geral', unidade || 'UN', imagem_url || '', storeId]
+        );
+        res.status(201).json({ success: true, message: 'Produto cadastrado.' });
+    } catch (e) {
+        if (e.message.includes('UNIQUE')) {
+            return res.status(400).json({ message: 'Código de produto já existe.' });
+        }
+        res.status(500).json({ message: e.message });
+    }
+});
+
+// Listar Clientes
+app.get('/api/clientes', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para visualizar clientes.')) return;
+    // LÓGICA DE LIMITE ROBUSTA (atualizada): sem parâmetro -> sem limite (sync completo).
+    // Se limit > 0, aplica paginação.
+    let limit = -1; 
+    if (req.query.limit !== undefined) {
+        const parsed = parseInt(req.query.limit);
+        if (!isNaN(parsed)) limit = parsed;
+    }
+
+    try {
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        let query = "SELECT * FROM customers";
+        const params = [];
+
+        const where = ["(status IS NULL OR status != 'TEMPORARIO')"];
+        if (sellerId && !privileged) {
+            where.push("seller_id = ?");
+            params.push(sellerId);
+        }
+        if (where.length > 0) query += ` WHERE ${where.join(' AND ')}`;
+        
+        query += " ORDER BY name";
+
+        // Aplica limite se for positivo
+        if (limit > 0) {
+             query += " LIMIT ?";
+             params.push(limit);
+        } else {
+             console.log(`[SERVER] Retornando TODOS os clientes (Limit: ${limit})`);
+        }
+
+        const rows = await db.query(query, params);
+        const mapped = rows.map(c => ({
+            ...mapCustomerPayload(c),
+            ultima_venda_data: new Date().toISOString().split('T')[0],
+            ultima_venda_valor: 150.00
+        }));
+        res.json(mapped);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Buscar Cliente por CNPJ
+app.get('/api/clientes/cnpj/:cnpj', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para visualizar clientes.')) return;
+    const raw = req.params.cnpj || '';
+    if (!isValidCnpj(raw)) {
+        return res.status(400).json({ message: 'CNPJ inválido.' });
+    }
+
+    const normalized = normalizeDocument(raw);
+    try {
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        let query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = ?"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ?";
+        const params = [normalized];
+        if (sellerId && !privileged) {
+            query += " AND seller_id = ?";
+            params.push(sellerId);
+        }
+        query += " LIMIT 1";
+        const row = await db.get(query, params);
+        if (!row) return res.status(404).json({ message: 'Cliente não encontrado.' });
+        return res.json(mapCustomerPayload(row));
+    } catch (e) {
+        return res.status(500).json({ message: e.message });
+    }
+});
+
+// Consulta SEFAZ (proxy interno)
+app.get('/api/externo/sefaz/cnpj/:cnpj', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para consultar clientes.')) return;
+    const raw = req.params.cnpj || '';
+    if (!isValidCnpj(raw)) {
+        return res.status(400).json({ message: 'CNPJ inválido.' });
+    }
+    if (process.env.SEFAZ_DISABLED === 'true') {
+        return res.status(503).json({ message: 'SEFAZ indisponível.' });
+    }
+    const payload = buildSefazMock(raw);
+    return res.json(payload);
+});
+
+// Criar Cliente Temporário
+app.post('/api/clientes/temp', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_clients', 'Usuário sem permissão para cadastrar clientes.')) return;
+    const {
+        cnpj,
+        razao_social,
+        nome_fantasia,
+        endereco,
+        uf,
+        municipio,
+        vendedor_id
+    } = req.body || {};
+
+    if (!isValidCnpj(cnpj)) {
+        return res.status(400).json({ message: 'CNPJ inválido.' });
+    }
+    if (!razao_social || !endereco || !uf || !municipio) {
+        return res.status(400).json({ message: 'Dados insuficientes para cadastro temporário.' });
+    }
+
+    const normalized = normalizeDocument(cnpj);
+    try {
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        const effectiveSellerId = privileged ? (vendedor_id || sellerId) : sellerId;
+
+        let query = isPostgres
+            ? "SELECT * FROM customers WHERE regexp_replace(document, '[^0-9]', '', 'g') = ?"
+            : "SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(document, '.', ''), '-', ''), '/', ''), ' ', '') = ?";
+        const params = [normalized];
+        if (effectiveSellerId) {
+            query += " AND seller_id = ?";
+            params.push(effectiveSellerId);
+        }
+        query += " LIMIT 1";
+        const existing = await db.get(query, params);
+        if (existing) {
+            return res.json(mapCustomerPayload(existing));
+        }
+
+        const insert = isPostgres
+            ? "INSERT INTO customers (name, fantasy_name, document, address, city, state, status, origin, seller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
+            : "INSERT INTO customers (name, fantasy_name, document, address, city, state, status, origin, seller_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        const result = await db.run(insert, [
+            razao_social,
+            nome_fantasia || razao_social,
+            normalized,
+            endereco,
+            municipio,
+            uf,
+            'TEMPORARIO',
+            'SEFAZ',
+            effectiveSellerId || null
+        ]);
+
+        const newId = result.lastID;
+        const row = await db.get("SELECT * FROM customers WHERE id = ?", [newId]);
+
+        // Garante plano padrão para temporário
+        if (row) {
+            const link = await db.get(
+                "SELECT id FROM customer_payment_plans WHERE customer_id = ? LIMIT 1",
+                [String(row.id)]
+            );
+            if (!link) {
+                await db.run(
+                    "INSERT INTO customer_payment_plans (customer_id, plan_code) VALUES (?, ?)",
+                    [String(row.id), "01"]
+                );
+            }
+        }
+
+        return res.status(201).json(mapCustomerPayload(row));
+    } catch (e) {
+        return res.status(500).json({ message: e.message });
+    }
+});
+
+// Planos de Pagamento por Cliente
+app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req, res) => {
+    if (!ensureRemotePermission(req, res, 'can_view_sales', 'Usuário sem permissão para consultar condições de venda.')) return;
+    const { cliente_codigo } = req.params;
+    if (!cliente_codigo) return res.status(400).json({ message: 'Cliente obrigatório.' });
+
+    try {
+        const sellerId = await resolveSellerIdForRequest(req);
+        const privileged = isPrivilegedUser(req.userId);
+        if (!sellerId && !privileged) {
+            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+        }
+
+        const customerQuery = privileged
+            ? "SELECT id, status FROM customers WHERE id = ?"
+            : "SELECT id, status FROM customers WHERE id = ? AND seller_id = ?";
+        const customerParams = privileged
+            ? [String(cliente_codigo)]
+            : [String(cliente_codigo), sellerId];
+        const customer = await db.get(customerQuery, customerParams);
+        if (!customer) return res.status(404).json({ message: 'Cliente não encontrado.' });
+
+        const plans = await db.query(
+            `SELECT p.code as plano_codigo, p.description as plano_descricao,
+                    p.installments as parcelas, p.days_between_installments as dias_entre_parcelas,
+                    p.min_value as valor_minimo
+             FROM customer_payment_plans cpp
+             JOIN payment_plans p ON p.code = cpp.plan_code
+             WHERE cpp.customer_id = ?`,
+            [String(cliente_codigo)]
+        );
+
+        if (plans.length === 0 && customer.status === 'TEMPORARIO') {
+            const fallback = await db.get(
+                "SELECT code as plano_codigo, description as plano_descricao, installments as parcelas, days_between_installments as dias_entre_parcelas, min_value as valor_minimo FROM payment_plans WHERE code = ?",
+                ["01"]
+            );
+            if (fallback) return res.json([fallback]);
+        }
+
+        return res.json(plans);
+    } catch (e) {
+        return res.status(500).json({ message: e.message });
+    }
+});
+
+const handleSaveOrder = async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_create_sales', 'Usuário sem permissão para criar pedidos.')) return;
+  const {
+      cliente_id,
+      total,
+      data_criacao,
+      itens,
+      observacao,
+      vendedor_id,
+      vendedor_nome,
+      cliente_tipo,
+      plano_pagamento_codigo,
+      plano_pagamento_descricao,
+      parcelas,
+      dias_entre_parcelas,
+      valor_minimo,
+      payment_method,
+      shipping_method
+  } = req.body;
+
+  // DEBUG: Log do payload recebido
+  console.log(`\n[ORDER_DEBUG] Novo pedido recebido de UserID: ${req.userId}`);
+  // Truncate para não poluir demais
+  console.log(`[ORDER_DEBUG] Payload:`, JSON.stringify(req.body).substring(0, 500)); 
+
+  // Fix: cliente_id === 0 (número) poderia ser tratado como false
+  if (cliente_id === undefined || cliente_id === null) {
+      console.log('[ORDER_DEBUG] Erro: cliente_id ausente.');
+      return res.status(400).json({ message: 'ID do cliente obrigatório.' });
+  }
+
+  if (!itens || itens.length === 0) {
+      console.log('[ORDER_DEBUG] Erro: Pedido sem itens.');
+      return res.status(400).json({ message: 'Sem itens.' });
+  }
+
+  const planCode = plano_pagamento_codigo || '';
+  const planDescription = plano_pagamento_descricao || '';
+  const planInstallments = parcelas || 1;
+  const planDays = dias_entre_parcelas || 0;
+  const planMin = valor_minimo || 0;
+
+  try {
+      // Nota: customer_id agora é TEXT no CREATE TABLE para aceitar UUIDs do frontend
+      const orderRes = isPostgres 
+        ? await db.run(
+            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value, payment_method, shipping_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, planCode, planDescription, planInstallments, planDays, planMin, payment_method || null, shipping_method || null]
+          )
+        : await db.run(
+            "INSERT INTO orders (customer_id, customer_type, total, status, created_at, seller_id, seller_name, notes, payment_plan_code, payment_plan_description, payment_installments, payment_days_between, payment_min_value, payment_method, shipping_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [String(cliente_id), cliente_tipo || 'NORMAL', total, 'confirmed', data_criacao, vendedor_id || null, vendedor_nome || null, observacao || null, planCode, planDescription, planInstallments, planDays, planMin, payment_method || null, shipping_method || null]
+          );
+      
+      const orderId = orderRes.lastID; // No PG adaptado, lastID pega o id retornado
+      console.log(`[ORDER_DEBUG] Pedido criado com ID: ${orderId}`);
+
+      for (const item of itens) {
+          await db.run(
+              "INSERT INTO order_items (order_id, product_code, quantity, unit_price) VALUES (?, ?, ?, ?)",
+              [orderId, item.codigo_produto, item.quantidade, item.valor_unitario]
+          );
+      }
+      
+      console.log(`[ORDER_DEBUG] Itens inseridos com sucesso.`);
+      res.status(201).json({ success: true, orderId, message: 'Pedido gravado.' });
+  } catch (e) {
+      console.error('[ORDER_ERROR] Erro ao gravar pedido:', e);
+      res.status(500).json({ message: `Erro Interno: ${e.message}` });
+  }
+};
+
+// Salvar Pedido
+app.post('/api/pedidos', verifyToken, handleSaveOrder);
+app.post('/api/pedidos-venda', verifyToken, handleSaveOrder);
+
+// Atualizar status de negócio do pedido no servidor (mock / exemplo)
+// PUT /api/pedidos/:id/status  body: { status: 'pre_venda' | 'separacao' | 'faturado' | 'entregue' | 'cancelado' }
+app.put('/api/pedidos/:id/status', verifyToken, async (req, res) => {
+  if (!ensureRemotePermission(req, res, 'can_edit_sales', 'Usuário sem permissão para editar pedidos.')) return;
+  const { id } = req.params;
+  const { status } = req.body || {};
+  if (!status) return res.status(400).json({ message: 'status é obrigatório.' });
+  try {
+    // Nesta base exemplo, não persistimos pedidos; retornamos sucesso para o app refletir localmente
+    res.json({ success: true, id, status });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+// Dados da Loja (privado)
+app.get('/api/store', verifyToken, async (req, res) => {
+  try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+    res.json(row || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/store', verifyToken, async (req, res) => {
+  const fields = [
+    'legal_name','trade_name','document','state_registration','municipal_registration','email','phone','street','number','neighborhood','city','state','zip','complement'
+  ];
+  const data = {};
+  fields.forEach(k => { if (req.body[k] !== undefined) data[k] = req.body[k]; });
+  data.updated_at = new Date().toISOString();
+  
+  try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    // Monta SET dinâmico
+    const setCols = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const params = Object.values(data);
+    await db.run(`UPDATE store_info SET ${setCols} WHERE id = ?`, [...params, storeId]);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+    res.json(row);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Dados da Loja (público) — usado pelo PWA em produção
+app.get('/api/store/public', async (req, res) => {
+  try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+    res.json(row || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/lojas', async (req, res) => {
+  try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+    res.json([buildStoreCatalogEntry(storeId, row || {})]);
+  } catch (e) {
+    console.error('[STORE] Falha ao montar /api/lojas local:', e.message);
+    res.status(500).json({ message: 'Erro ao carregar lojas.' });
+  }
+});
+
+app.get('/api/meta/enums', async (_req, res) => {
+  res.json({ data: [] });
+});
+
+app.put('/api/store/public', async (req, res) => {
+  const fields = [
+    'legal_name','trade_name','document','state_registration','municipal_registration','email','phone','street','number','neighborhood','city','state','zip','complement'
+  ];
+  const data = {};
+  fields.forEach(k => { if (req.body[k] !== undefined) data[k] = req.body[k]; });
+  data.updated_at = new Date().toISOString();
+
+  try {
+    const storeId = getStoreIdFromRequest(req);
+    await ensureStoreInfoRow(storeId);
+    const setCols = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const params = Object.values(data);
+    await db.run(`UPDATE store_info SET ${setCols} WHERE id = ?`, [...params, storeId]);
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+    res.json(row);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- IA (Gemini) no Backend ---
+app.post('/api/ai/pitch', verifyToken, async (req, res) => {
+  try {
+    if (!GEMINI_API_KEY || !genAI) {
+      return res.status(400).json({ message: 'GEMINI_API_KEY não configurada no servidor.' });
+    }
+    const { product } = req.body || {};
+    if (!product || !product.name) {
+      return res.status(400).json({ message: 'Produto inválido.' });
+    }
+
+    const prompt = `Atue como um vendedor experiente e persuasivo.\n` +
+      `Escreva um argumento de vendas curto (máximo 3 frases) e impactante para o seguinte produto:\n` +
+      `Nome: ${product.name}\n` +
+      `Categoria: ${product.category || ''}\n` +
+      `Preço: R$ ${product.price ?? ''}\n` +
+      `Descrição técnica: ${product.description || ''}\n` +
+      `Foque nos benefícios para o cliente. Use tom profissional mas entusiasmado.`;
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+
+    const text = response?.text || null;
+    if (!text) return res.status(500).json({ message: 'Não foi possível gerar o argumento de vendas.' });
+    return res.json({ text });
+  } catch (e) {
+    console.error('[AI] Erro pitch:', e);
+    return res.status(500).json({ message: 'Erro ao gerar argumento de vendas.' });
+  }
+});
+
+const formatMoney = (value) => `R$ ${Number(value || 0).toFixed(2)}`;
+const formatDatePtBr = (value) => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  } catch {
+    return date.toLocaleDateString('pt-BR');
+  }
+};
+const formatDateTimePtBr = (value) => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return date.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  } catch {
+    return date.toLocaleString('pt-BR');
+  }
+};
+
+const getReceiptDocumentKind = (receipt = {}) => {
+  const status = String(receipt.status || '').trim().toLowerCase();
+  const businessStatus = String(receipt.businessStatus || receipt.business_status || '').trim().toLowerCase();
+  const documentType = String(receipt.documentType || receipt.document_type || '').trim().toLowerCase();
+  if (
+    documentType === 'orcamento' ||
+    documentType === 'orçamento' ||
+    documentType === 'budget' ||
+    status === 'draft' ||
+    status === 'rascunho' ||
+    businessStatus === 'orcamento' ||
+    businessStatus === 'rascunho'
+  ) {
+    return 'orcamento';
+  }
+  return 'pedido';
+};
+
+const getReceiptDocumentLabels = (kind) => {
+  const isBudget = kind === 'orcamento';
+  return {
+    headline: isBudget ? 'ORÇAMENTO' : 'PEDIDO',
+    cover: isBudget ? 'ORÇAMENTO COMERCIAL' : 'COMPROVANTE DE PEDIDO',
+    subtitle: '',
+    items: isBudget ? 'ITENS DO ORÇAMENTO' : 'ITENS DO PEDIDO',
+    numberLabel: isBudget ? 'ORÇAMENTO Nº' : 'PEDIDO Nº',
+    filenamePrefix: isBudget ? 'orcamento' : 'pedido',
+  };
+};
+
+const renderReceiptPDF = (doc, receipt, store) => {
+  const documentKind = getReceiptDocumentKind(receipt);
+  const documentLabels = getReceiptDocumentLabels(documentKind);
+  const marginLeft = doc.page.margins.left;
+  const marginTop = doc.page.margins.top;
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const contentBottom = doc.page.height - doc.page.margins.bottom;
+  const dateLabel = formatDatePtBr(receipt.createdAt);
+  const total = Number(receipt.total || 0);
+  const items = Array.isArray(receipt.items) ? receipt.items : [];
+  const paymentPlan = receipt.paymentPlanDescription
+    ? `Plano: ${receipt.paymentPlanDescription}${receipt.paymentInstallments ? ` (${receipt.paymentInstallments}x)` : ''}`
+    : null;
+
+  const formatDisplayLabel = (value, fallback = '—') => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return fallback;
+
+    const dictionary = {
+      pix: 'PIX',
+      dinheiro: 'Dinheiro',
+      cartao: 'Cartão',
+      boleto: 'Boleto',
+      retirada: 'Retirada',
+      entrega_propria: 'Entrega Própria',
+      transportadora: 'Transportadora',
+      sem_frete: 'Sem frete',
+      fob: 'Retirada',
+      cif: 'Entrega'
+    };
+
+    if (dictionary[normalized]) return dictionary[normalized];
+
+    return normalized
+      .split(/[ _-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  };
+
+  const paymentMethodLabel = formatDisplayLabel(receipt.paymentMethod);
+  const shippingMethodLabel = formatDisplayLabel(receipt.shippingMethod);
+
+  const drawBox = (x, y, width, height, options = {}) => {
+    const { fill = null, stroke = '#d7dee7', radius = 10, lineWidth = 1 } = options;
+    doc.save();
+    doc.lineWidth(lineWidth);
+    doc.roundedRect(x, y, width, height, radius);
+    if (fill) {
+      doc.fillAndStroke(fill, stroke);
+    } else {
+      doc.strokeColor(stroke).stroke();
+    }
+    doc.restore();
+  };
+
+  const writeLabel = (label, x, y, width, align = 'left', color = '#64748b') => {
+    doc.fillColor(color).font('Helvetica-Bold').fontSize(8).text(label.toUpperCase(), x, y, { width, align });
+  };
+
+  const metaTop = marginTop;
+  const metaHeight = 128;
+  const orderCardWidth = 200;
+  const orderCardHeight = 96;
+  const companyWidth = pageWidth - orderCardWidth - 16;
+  const hasStoreIdentity = Boolean(store && (store.trade_name || store.legal_name || store.document || store.logo_url));
+
+  drawBox(marginLeft, metaTop, pageWidth, metaHeight, { fill: '#f8fafc', stroke: '#d7dee7', radius: 14 });
+
+  let logoOffset = 0;
+  if (hasStoreIdentity && store?.logo_url) {
+    try {
+      doc.image(store.logo_url, marginLeft + 16, metaTop + 16, { fit: [54, 54], align: 'center', valign: 'center' });
+      drawBox(marginLeft + 12, metaTop + 12, 62, 62, { stroke: '#d7dee7', radius: 12 });
+      logoOffset = 72;
+    } catch {}
+  }
+
+  const companyX = marginLeft + 18 + logoOffset;
+  const companyY = metaTop + 16;
+  const companyTextWidth = companyWidth - logoOffset - 10;
+  const companyBottomLimit = metaTop + metaHeight - 14;
+
+  writeLabel(documentLabels.cover, companyX, companyY, companyTextWidth);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(18).text(store?.trade_name || documentLabels.headline, companyX, companyY + 14, { width: companyTextWidth, lineBreak: false });
+
+  let companyCursorY = companyY + 40;
+  if (hasStoreIdentity) {
+    doc.fillColor('#475569').font('Helvetica').fontSize(9.5).text(store?.legal_name || documentLabels.subtitle, companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+  } else {
+    doc.fillColor('#b91c1c').font('Helvetica-Bold').fontSize(9.5).text('Dados da loja indisponíveis', companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+  }
+  companyCursorY += 16;
+
+  if (store?.document) {
+    doc.fontSize(8.5).text(`CNPJ/CPF: ${store.document}`, companyX, companyCursorY, { width: companyTextWidth, lineBreak: false });
+    companyCursorY += 12;
+  }
+
+  const addr = [store?.street, store?.number, store?.neighborhood, store?.city && `${store.city}/${store.state}`, store?.zip]
+    .filter(Boolean)
+    .join(' - ');
+
+  if (addr) {
+    const addressOptions = { width: companyTextWidth, lineGap: -1 };
+    const addrHeight = doc.fontSize(7.8).heightOfString(addr, addressOptions);
+    doc.text(addr, companyX, companyCursorY, addressOptions);
+    companyCursorY += addrHeight + 4;
+  }
+
+  const contactLine = [store?.phone ? `Fone: ${store.phone}` : null, store?.email || null]
+    .filter(Boolean)
+    .join('  •  ');
+
+  if (contactLine && companyCursorY < companyBottomLimit) {
+    doc.fontSize(7.8).text(contactLine, companyX, Math.min(companyCursorY, companyBottomLimit - 8), {
+      width: companyTextWidth,
+      lineBreak: false,
+      ellipsis: true
+    });
+  }
+
+  const orderX = marginLeft + pageWidth - orderCardWidth - 16;
+  const orderY = metaTop + 16;
+  const boxTextWidth = orderCardWidth - 24;
+  drawBox(orderX, orderY, orderCardWidth, orderCardHeight, { fill: '#ffffff', stroke: '#d7dee7', radius: 12 });
+  writeLabel(documentLabels.numberLabel, orderX + 12, orderY + 10, boxTextWidth);
+
+  // Render number with smart wrapping at dash boundaries
+  const numberStr = `#${receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || ''}`;
+  doc.fillColor('#0f172a').font('Helvetica-Bold');
+
+  let numFontSize = 10;
+  doc.fontSize(numFontSize);
+
+  // Split at dashes and render line by line, measuring each
+  const segs = numberStr.split('-');
+  const numLines = [];
+  let cur = segs[0];
+  for (let i = 1; i < segs.length; i++) {
+    const test = cur + '-' + segs[i];
+    if (doc.widthOfString(test) <= boxTextWidth) {
+      cur = test;
+    } else {
+      numLines.push(cur);
+      cur = segs[i];
+    }
+  }
+  numLines.push(cur);
+
+  // If still doesn't fit on available lines, reduce font
+  const maxLines = Math.floor((56 - 4) / 14); // lines within 56pt space at 14pt line height
+  if (numLines.length > maxLines) {
+    numFontSize = 8;
+    doc.fontSize(numFontSize);
+    // re-split
+    numLines.length = 0;
+    cur = segs[0];
+    for (let i = 1; i < segs.length; i++) {
+      const test = cur + '-' + segs[i];
+      if (doc.widthOfString(test) <= boxTextWidth) {
+        cur = test;
+      } else {
+        numLines.push(cur);
+        cur = segs[i];
+      }
+    }
+    numLines.push(cur);
+  }
+
+  const lineH = numFontSize * 1.4;
+  numLines.forEach((line, i) => {
+    doc.text(line, orderX + 12, orderY + 30 + i * lineH, { width: boxTextWidth });
+  });
+
+  const numberBlockBottom = orderY + 30 + numLines.length * lineH + 4;
+  const separatorY = Math.max(orderY + 56, numberBlockBottom);
+  doc.save();
+  doc.moveTo(orderX + 12, separatorY).lineTo(orderX + orderCardWidth - 12, separatorY).strokeColor('#e2e8f0').lineWidth(1).stroke();
+  doc.restore();
+  writeLabel('Data de Emiss\u00e3o', orderX + 12, separatorY + 8, boxTextWidth);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(dateLabel, orderX + 12, separatorY + 20, { width: boxTextWidth });
+
+  const infoTop = metaTop + metaHeight + 16;
+  const gap = 12;
+  const sellerWidth = 160;
+  const customerWidth = pageWidth - sellerWidth - gap;
+  const infoHeight = 72;
+
+  drawBox(marginLeft, infoTop, customerWidth, infoHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Cliente', marginLeft + 14, infoTop + 12, customerWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11).text(receipt.customer || '—', marginLeft + 14, infoTop + 28, { width: customerWidth - 28 });
+  doc.fillColor('#475569').font('Helvetica').fontSize(9).text(`Doc: ${receipt.customerDoc || 'N/A'}`, marginLeft + 14, infoTop + 50, { width: customerWidth - 28 });
+
+  const sellerX = marginLeft + customerWidth + gap;
+  drawBox(sellerX, infoTop, sellerWidth, infoHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Vendedor', sellerX + 14, infoTop + 12, sellerWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11).text(receipt.sellerName || '—', sellerX + 14, infoTop + 28, { width: sellerWidth - 28 });
+  doc.fillColor('#475569').font('Helvetica').fontSize(9).text(`Matrícula: ${receipt.sellerId || '—'}`, sellerX + 14, infoTop + 50, { width: sellerWidth - 28 });
+
+  const tableTop = infoTop + infoHeight + 18;
+  const tableHeaderHeight = 34;
+  const colQty = marginLeft + 14;
+  const colUnit = marginLeft + 60;
+  const colDesc = marginLeft + 102;
+  const colUnitPrice = marginLeft + pageWidth - 150;
+  const colTotal = marginLeft + pageWidth - 82;
+  const descWidth = colUnitPrice - colDesc - 12;
+
+  drawBox(marginLeft, tableTop, pageWidth, tableHeaderHeight, { fill: '#f1f5f9', stroke: '#d7dee7', radius: 12 });
+  writeLabel(documentLabels.items, marginLeft + 14, tableTop + 8, 180);
+  doc.fillColor('#334155').font('Helvetica-Bold').fontSize(9).text(items.length + ' item(ns)', marginLeft + 14, tableTop + 18, { width: 180 });
+  doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text('Valores em reais', marginLeft, tableTop + 13, { width: pageWidth - 14, align: 'right' });
+
+  const headerY = tableTop + tableHeaderHeight + 8;
+  doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8.5);
+  doc.text('Qtd', colQty, headerY, { width: 34 });
+  doc.text('Un', colUnit, headerY, { width: 28 });
+  doc.text('Descrição', colDesc, headerY, { width: descWidth });
+  doc.text('Unit.', colUnitPrice, headerY, { width: 58, align: 'right' });
+  doc.text('Total', colTotal, headerY, { width: 58, align: 'right' });
+  doc.save();
+  doc.moveTo(marginLeft, headerY + 14).lineTo(marginLeft + pageWidth, headerY + 14).strokeColor('#d7dee7').lineWidth(1).stroke();
+  doc.restore();
+
+  let cursorY = headerY + 22;
+  items.forEach((it, index) => {
+    const quantity = Number(it.quantity || 0);
+    const unitPrice = Number(it.price || 0);
+    const lineTotal = quantity * unitPrice;
+    const title = String(it.name || '');
+    const detail = String(it.description || it.id || '');
+    const descHeight = doc.heightOfString(title, { width: descWidth }) + doc.heightOfString(detail, { width: descWidth });
+    const rowHeight = Math.max(26, descHeight + 6);
+
+    if (index % 2 === 0) {
+      doc.save();
+      doc.roundedRect(marginLeft + 4, cursorY - 4, pageWidth - 8, rowHeight + 4, 8).fill('#fcfdff');
+      doc.restore();
+    }
+
+    doc.fillColor('#334155').font('Helvetica').fontSize(9).text(String(quantity), colQty, cursorY, { width: 34 });
+    doc.text(String(it.unit || ''), colUnit, cursorY, { width: 28 });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').text(title, colDesc, cursorY, { width: descWidth });
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(detail, colDesc, cursorY + 12, { width: descWidth });
+    doc.fillColor('#334155').font('Helvetica').fontSize(9).text(formatMoney(unitPrice), colUnitPrice, cursorY, { width: 58, align: 'right' });
+    doc.font('Helvetica-Bold').text(formatMoney(lineTotal), colTotal, cursorY, { width: 58, align: 'right' });
+
+    cursorY += rowHeight + 8;
+  });
+
+  let lowerTop = cursorY + 12;
+  const notesWidth = pageWidth - 200 - gap;
+  const sideCardWidth = 200;
+  const notesHeight = 116;
+  const lowerBlockHeight = notesHeight + 16 + 72 + 26 + 42;
+  if (cursorY + lowerBlockHeight > contentBottom) {
+    doc.addPage({ margin: 40, size: 'A4' });
+    lowerTop = marginTop;
+  }
+
+  drawBox(marginLeft, lowerTop, notesWidth, notesHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Observações', marginLeft + 14, lowerTop + 12, notesWidth - 28);
+  doc.fillColor('#334155').font('Helvetica').fontSize(9.5).text(receipt.notes || 'Nenhuma observação informada.', marginLeft + 14, lowerTop + 30, {
+    width: notesWidth - 28,
+    height: notesHeight - 44
+  });
+
+  const summaryX = marginLeft + notesWidth + gap;
+  drawBox(summaryX, lowerTop, sideCardWidth, notesHeight, { fill: '#f8fafc', stroke: '#cbd5e1', radius: 12 });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.6).text('RESUMO FINANCEIRO', summaryX + 14, lowerTop + 14, { width: sideCardWidth - 28 });
+  const summaryLabelWidth = 82;
+  const summaryValueX = summaryX + 14 + summaryLabelWidth;
+  const summaryValueWidth = sideCardWidth - 28 - summaryLabelWidth;
+  doc.fillColor('#475569').font('Helvetica').fontSize(8.3).text('Itens', summaryX + 14, lowerTop + 34, { width: summaryLabelWidth });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8.8).text(String(items.length), summaryValueX, lowerTop + 34, { width: summaryValueWidth, align: 'right' });
+  doc.fillColor('#475569').font('Helvetica').fontSize(8.3).text('Pagamento', summaryX + 14, lowerTop + 54, { width: summaryLabelWidth });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8.8).text(paymentMethodLabel, summaryValueX, lowerTop + 54, { width: summaryValueWidth, align: 'right' });
+  doc.save();
+  doc.moveTo(summaryX + 14, lowerTop + 76).lineTo(summaryX + sideCardWidth - 14, lowerTop + 76).strokeColor('#cbd5e1').lineWidth(1).stroke();
+  doc.restore();
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.8).text('TOTAL GERAL', summaryX + 14, lowerTop + 84, { width: sideCardWidth - 28 });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12.5).text(formatMoney(total), summaryX + 14, lowerTop + 98, {
+    width: sideCardWidth - 28,
+    align: 'right'
+  });
+
+  const paymentTop = lowerTop + notesHeight + 16;
+  const paymentWidth = (pageWidth - gap) / 2;
+  const paymentHeight = 72;
+
+  drawBox(marginLeft, paymentTop, paymentWidth, paymentHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Forma de Pagamento', marginLeft + 14, paymentTop + 12, paymentWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(paymentMethodLabel, marginLeft + 14, paymentTop + 30, { width: paymentWidth - 28 });
+  if (paymentPlan) {
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text(paymentPlan, marginLeft + 14, paymentTop + 46, { width: paymentWidth - 28 });
+  }
+
+  const shippingX = marginLeft + paymentWidth + gap;
+  drawBox(shippingX, paymentTop, paymentWidth, paymentHeight, { stroke: '#d7dee7', radius: 12 });
+  writeLabel('Tipo de Frete', shippingX + 14, paymentTop + 12, paymentWidth - 28);
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(shippingMethodLabel, shippingX + 14, paymentTop + 30, { width: paymentWidth - 28 });
+
+  const footerY = paymentTop + paymentHeight + 26;
+  doc.save();
+  doc.moveTo(marginLeft, footerY).lineTo(marginLeft + pageWidth, footerY).dash(3, { space: 3 }).strokeColor('#cbd5e1').lineWidth(1).stroke();
+  doc.undash();
+  doc.restore();
+  doc.fillColor('#94a3b8').font('Helvetica').fontSize(8.5).text('Emitido via SalesForce App', marginLeft, footerY + 12, { width: pageWidth, align: 'center' });
+  doc.text(formatDateTimePtBr(), marginLeft, footerY + 24, { width: pageWidth, align: 'center' });
+};
+
+const renderProductCatalogPDF = (doc, payload = {}) => {
+  const products = Array.isArray(payload.products) ? payload.products : [];
+  const searchTerm = String(payload.searchTerm || '').trim();
+  const selectedCategory = String(payload.category || 'Todas').trim() || 'Todas';
+  const generatedAt = formatDateTimePtBr(new Date().toISOString());
+  const marginLeft = doc.page.margins.left;
+  const marginTop = doc.page.margins.top;
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const contentBottom = doc.page.height - doc.page.margins.bottom;
+  const colCode = marginLeft + 14;
+  const colDesc = marginLeft + 110;
+  const colMeta = marginLeft + pageWidth - 180;
+  const colPrice = marginLeft + pageWidth - 84;
+  const descWidth = colMeta - colDesc - 12;
+  let pageNumber = 0;
+  let cursorY = marginTop;
+
+  const grouped = products.reduce((acc, product) => {
+    const categoryName = String(product.category || 'Sem categoria').trim() || 'Sem categoria';
+    if (!acc.has(categoryName)) acc.set(categoryName, []);
+    acc.get(categoryName).push(product);
+    return acc;
+  }, new Map());
+
+  const drawPageHeader = () => {
+    doc.save();
+    doc.roundedRect(marginLeft, marginTop, pageWidth, 78, 14).fill('#f8fafc');
+    doc.restore();
+
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(20).text('Catálogo de Produtos', marginLeft + 18, marginTop + 16, {
+      width: pageWidth - 36
+    });
+    doc.fillColor('#475569').font('Helvetica').fontSize(9.5).text(
+      `Gerado em ${generatedAt}`,
+      marginLeft + 18,
+      marginTop + 42,
+      { width: pageWidth - 36 }
+    );
+
+    const filterSummary = [
+      searchTerm ? `Busca: "${searchTerm}"` : 'Busca: todas',
+      selectedCategory && selectedCategory.toLowerCase() !== 'todas' ? `Categoria: ${selectedCategory}` : 'Categoria: todas',
+      `Produtos: ${products.length}`
+    ].join('  •  ');
+
+    doc.fillColor('#64748b').font('Helvetica').fontSize(8.5).text(
+      filterSummary,
+      marginLeft + 18,
+      marginTop + 56,
+      { width: pageWidth - 96 }
+    );
+
+    doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(8).text(
+      `Pág. ${pageNumber}`,
+      marginLeft,
+      marginTop + 58,
+      { width: pageWidth - 18, align: 'right' }
+    );
+
+    return marginTop + 98;
+  };
+
+  const startPage = () => {
+    if (pageNumber > 0) doc.addPage();
+    pageNumber += 1;
+    cursorY = drawPageHeader();
+  };
+
+  const ensureSpace = (requiredHeight) => {
+    if (cursorY + requiredHeight <= contentBottom - 24) return;
+    startPage();
+  };
+
+  const drawCategoryHeader = (categoryName, itemCount) => {
+    ensureSpace(34);
+    doc.save();
+    doc.roundedRect(marginLeft, cursorY, pageWidth, 24, 10).fill('#dbeafe');
+    doc.restore();
+    doc.fillColor('#1e3a8a').font('Helvetica-Bold').fontSize(11).text(categoryName, marginLeft + 12, cursorY + 7, {
+      width: pageWidth - 140
+    });
+    doc.fillColor('#1d4ed8').font('Helvetica-Bold').fontSize(8.5).text(
+      `${itemCount} item(ns)`,
+      marginLeft,
+      cursorY + 8,
+      { width: pageWidth - 12, align: 'right' }
+    );
+    cursorY += 32;
+  };
+
+  const drawProductRow = (product, index) => {
+    const code = String(product.id || product.plu || product.code || '-');
+    const title = String(product.name || 'Produto');
+    const detailParts = [
+      product.description ? String(product.description) : null,
+      product.unit ? `Unidade: ${product.unit}` : null,
+      Number.isFinite(Number(product.stock)) ? `Estoque: ${Number(product.stock)}` : null
+    ].filter(Boolean);
+    const detail = detailParts.join('  •  ');
+    const titleHeight = doc.heightOfString(title, { width: descWidth });
+    const detailHeight = detail ? doc.heightOfString(detail, { width: descWidth }) : 0;
+    const rowHeight = Math.max(38, titleHeight + detailHeight + 14);
+
+    ensureSpace(rowHeight + 8);
+
+    if (index % 2 === 0) {
+      doc.save();
+      doc.roundedRect(marginLeft + 4, cursorY - 2, pageWidth - 8, rowHeight, 8).fill('#fcfdff');
+      doc.restore();
+    }
+
+    doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8.5).text(code, colCode, cursorY + 4, { width: 86 });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(title, colDesc, cursorY + 4, { width: descWidth });
+    if (detail) {
+      doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(detail, colDesc, cursorY + 18, { width: descWidth });
+    }
+    doc.fillColor('#334155').font('Helvetica').fontSize(8.5).text(
+      `SKU ${code}`,
+      colMeta,
+      cursorY + 4,
+      { width: 72, align: 'right' }
+    );
+    doc.font('Helvetica-Bold').fontSize(10).text(
+      formatMoney(product.price),
+      colPrice,
+      cursorY + 4,
+      { width: 70, align: 'right' }
+    );
+
+    cursorY += rowHeight + 8;
+  };
+
+  startPage();
+
+  if (products.length === 0) {
+    doc.fillColor('#64748b').font('Helvetica').fontSize(11).text(
+      'Nenhum produto encontrado para os filtros informados.',
+      marginLeft,
+      cursorY + 16,
+      { width: pageWidth, align: 'center' }
+    );
+    return;
+  }
+
+  Array.from(grouped.entries())
+    .sort((left, right) => left[0].localeCompare(right[0], 'pt-BR'))
+    .forEach(([categoryName, items]) => {
+      drawCategoryHeader(categoryName, items.length);
+      items.forEach((product, index) => drawProductRow(product, index));
+      cursorY += 6;
+    });
+};
+// --- GERAR PDF DE RECIBO (SERVER-SIDE) ---
+// POST /api/recibo/pdf  -> Body: { id, displayId, customer, items:[{name,quantity,unit,price}], total, store? }
+app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
+  try {
+    const receipt = req.body || {};
+    const storeId = getStoreIdFromRequest(req);
+
+    // Busca store_info para cabeçalho caso não venha no body
+    let store = receipt.store;
+    if (!store) {
+      try {
+        await ensureStoreInfoRow(storeId);
+        store = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+      } catch {}
+    }
+
+    const documentKind = getReceiptDocumentKind(receipt);
+    const documentLabels = getReceiptDocumentLabels(documentKind);
+    const number = receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || 'recibo';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=${documentLabels.filenamePrefix}-${number}.pdf`);
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    doc.pipe(res);
+    renderReceiptPDF(doc, receipt, store);
+    doc.end();
+
+  } catch (e) {
+    console.error('[PDF_ERROR]', e);
+    res.status(500).json({ message: 'Falha ao gerar PDF.' });
+  }
+});
+
+// PDF público para uso direto no PWA (sem auth)
+app.post('/api/recibo/pdf/public', async (req, res) => {
+  try {
+    const receipt = req.body || {};
+    const storeId = getStoreIdFromRequest(req);
+    let store = receipt.store;
+    if (!store) {
+      try {
+        await ensureStoreInfoRow(storeId);
+        store = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+      } catch {}
+    }
+
+    const documentKind = getReceiptDocumentKind(receipt);
+    const documentLabels = getReceiptDocumentLabels(documentKind);
+    const number = receipt.numero_orcamento || receipt.numero_pedido || receipt.displayId || 'recibo';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=${documentLabels.filenamePrefix}-${number}.pdf`);
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    doc.pipe(res);
+    renderReceiptPDF(doc, receipt, store);
+    doc.end();
+  } catch (e) {
+    console.error('[PDF_PUBLIC_ERROR]', e);
+    res.status(500).json({ message: 'Falha ao gerar PDF.' });
+  }
+});
+
+app.get('/api/catalogo-produtos/pdf', verifyToken, async (req, res) => {
+  try {
+    const storeId = getStoreIdForProducts(req);
+    const searchTerm = String(req.query.search || '').trim();
+    const category = String(req.query.category || '').trim();
+    let query = `
+      SELECT plu, name, description, price, stock, category, unit
+      FROM products
+      WHERE (store_id = ? OR store_id IS NULL)
+    `;
+    const params = [storeId];
+
+    if (searchTerm) {
+      const normalizedSearch = `%${searchTerm.toLowerCase()}%`;
+      query += ` AND (
+        LOWER(COALESCE(plu, '')) LIKE ?
+        OR LOWER(COALESCE(name, '')) LIKE ?
+        OR LOWER(COALESCE(description, '')) LIKE ?
+      )`;
+      params.push(normalizedSearch, normalizedSearch, normalizedSearch);
+    }
+
+    if (category && category.toLowerCase() !== 'todas') {
+      query += ` AND LOWER(COALESCE(category, '')) = ?`;
+      params.push(category.toLowerCase());
+    }
+
+    query += ` ORDER BY category COLLATE NOCASE ASC, name COLLATE NOCASE ASC`;
+
+    const rows = await db.query(query, params);
+    const products = rows.map((product) => ({
+      id: product.plu,
+      name: product.name,
+      description: product.description,
+      price: Number(product.price || 0),
+      stock: Number(product.stock || 0),
+      category: product.category || 'Sem categoria',
+      unit: product.unit || 'UN'
+    }));
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="catalogo-produtos.pdf"');
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    doc.pipe(res);
+    renderProductCatalogPDF(doc, { products, searchTerm, category });
+    doc.end();
+  } catch (e) {
+    console.error('[PRODUCT_CATALOG_PDF_ERROR]', e);
+    res.status(500).json({ message: 'Falha ao gerar catálogo em PDF.' });
+  }
+});
+// Endpoint genérico para teste de envio de e-mail
+app.post('/api/sendmail', verifyToken, async (req, res) => {
+  if (!mailer) return res.status(400).json({ message: 'Mailer não configurado.' });
+  const { to, subject, text, html, attachments } = req.body || {};
+  if (!to || !subject) return res.status(400).json({ message: 'Parâmetros inválidos.' });
+  try {
+    const opts = { from: MAILER_FROM, to, subject, text, html };
+    if (attachments && Array.isArray(attachments)) {
+      // attachments: [{ filename, content (base64), encoding: 'base64' }]
+      opts.attachments = attachments.map(a => ({ filename: a.filename, content: a.content, encoding: a.encoding || 'base64' }));
+    }
+    const info = await mailer.sendMail(opts);
+    res.json({ success: true, id: info.messageId });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+
+app.post('/api/ai/image', verifyToken, async (req, res) => {
+  try {
+    if (!GEMINI_API_KEY || !genAI) {
+      return res.status(400).json({ message: 'GEMINI_API_KEY não configurada no servidor.' });
+    }
+    const { product } = req.body || {};
+    if (!product || !product.name) {
+      return res.status(400).json({ message: 'Produto inválido.' });
+    }
+
+    const prompt = `Professional product photography of ${product.name}, ${product.description || ''}. ` +
+      `High quality, 4k, realistic, studio lighting, white background, commercial photography.`;
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ text: prompt }] },
+    });
+
+    let dataUrl = null;
+    const candidates = response?.candidates || [];
+    if (candidates[0]?.content?.parts) {
+      for (const part of candidates[0].content.parts) {
+        if (part.inlineData?.data) {
+          const mime = part.inlineData.mimeType || 'image/png';
+          dataUrl = `data:${mime};base64,${part.inlineData.data}`;
+          break;
+        }
+      }
+    }
+
+    if (!dataUrl) return res.status(500).json({ message: 'Não foi possível gerar a imagem.' });
+    return res.json({ imageDataUrl: dataUrl });
+  } catch (e) {
+    console.error('[AI] Erro image:', e);
+    return res.status(500).json({ message: 'Erro ao gerar imagem.' });
+  }
+});
+
+const LOCAL_API_PATHS = ['/api/config/resolve', '/api/recibo/pdf/public', '/api/recibo/pdf', '/api/catalogo-produtos/pdf', '/api/store/public'];
+
+app.use('/api', async (req, res, next) => {
+  if (LOCAL_API_PATHS.some(p => req.path.startsWith(p))) return next();
+  if (res.headersSent) return next();
+  try {
+    const context = requireRemoteBackendContext(req, res);
+    if (!context) return;
+
+    const targetUrl = `${context.backendUrl}${req.originalUrl}`;
+    const forwardedHeaders = buildRemoteAuthHeaders(context.backendUrl, {});
+    const authHeader = getHeaderValue(req.headers['authorization']);
+    if (authHeader) {
+      forwardedHeaders.Authorization = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+    }
+    const acceptHeader = getHeaderValue(req.headers['accept']);
+    if (acceptHeader) {
+      forwardedHeaders.Accept = acceptHeader;
+    }
+
+    console.log(`[ERP_PROXY] ${req.method} ${targetUrl}`);
+    const response = await fetch(targetUrl, {
+      method: req.method,
+      headers: forwardedHeaders,
+      body: ['GET', 'HEAD'].includes(req.method.toUpperCase()) ? undefined : JSON.stringify(req.body || {})
+    });
+
+    const text = await response.text();
+    const contentType = response.headers.get('content-type');
+    if (contentType) {
+      res.setHeader('Content-Type', contentType);
+    }
+    return res.status(response.status).send(text);
+  } catch (error) {
+    console.error('[ERP_PROXY] Falha no proxy genérico:', error.message);
+    if (res.headersSent) return;
+    return res.status(503).json({ message: 'API do ERP indisponível' });
+  }
+});
+
+// --- SERVIR FRONTEND ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const distPath = join(__dirname, 'dist');
@@ -1167,26 +2483,22 @@ if (fs.existsSync(distPath)) {
 
 const HOST = process.env.HOST || '127.0.0.1';
 
-initDb().then(() => {
-  app.listen(PORT, HOST, () => {
-    console.log(`\n🚀 Servidor rodando em: http://localhost:${PORT}`);
-    console.log(`📦 Modo Banco de Dados: ${isPostgres ? 'PostgreSQL (Remoto)' : 'SQLite (Local)'}\n`);
-    if (process.env.NODE_ENV !== 'production') {
-      const mask = (v) => (v && v.length > 8 ? `${v.slice(0,4)}…${v.slice(-4)}` : '(defina via env)');
-      console.log(`🔑 Master Key (mascarada): ${mask(MASTER_KEY)}\n`);
-      const integrationTokens = [
-        { label: 'App Integration Token', value: APP_INTEGRATION_TOKEN },
-        { label: 'App Integration Token EDSON', value: APP_INTEGRATION_TOKEN_EDSON },
-        { label: 'App Integration Token LLFIX', value: APP_INTEGRATION_TOKEN_LLFIX }
-      ];
-      integrationTokens.forEach((entry) => {
-        if (entry.value) {
-          console.log(`🔐 ${entry.label} (mascarado): ${mask(entry.value)}\n`);
-        }
-      });
-    }
-  });
-}).catch(err => {
-  console.error('❌ Falha ao inicializar o banco de dados:', err);
-  process.exit(1);
+app.listen(PORT, HOST, () => {
+  console.log(`\n🚀 Servidor rodando em: http://localhost:${PORT}`);
+  console.log(`📦 Modo Banco de Dados: ${isPostgres ? 'PostgreSQL (Remoto)' : 'SQLite (Local)'}\n`);
+  // Evite logar segredos em produção
+  if (process.env.NODE_ENV !== 'production') {
+    const mask = (v) => (v && v.length > 8 ? `${v.slice(0,4)}…${v.slice(-4)}` : '(defina via env)');
+    console.log(`🔑 Master Key (mascarada): ${mask(MASTER_KEY)}\n`);
+    const integrationTokens = [
+      { label: 'App Integration Token', value: APP_INTEGRATION_TOKEN },
+      { label: 'App Integration Token EDSON', value: APP_INTEGRATION_TOKEN_EDSON },
+      { label: 'App Integration Token LLFIX', value: APP_INTEGRATION_TOKEN_LLFIX }
+    ];
+    integrationTokens.forEach((entry) => {
+      if (entry.value) {
+        console.log(`🔐 ${entry.label} (mascarado): ${mask(entry.value)}\n`);
+      }
+    });
+  }
 });
