@@ -400,7 +400,7 @@ class ApiService {
   }
 
   // Busca dados atualizados do perfil no servidor
-  async fetchProfile(): Promise<{name: string, seller_id?: string} | null> {
+  async fetchProfile(): Promise<any | null> {
       const endpoints = [
           '/api/me',
           '/api/auth/me',
@@ -453,11 +453,28 @@ class ApiService {
                   ''
               );
 
+              const permissionKeys = [
+                  "can_view_products", "can_view_clients", "can_view_sales",
+                  "can_create_sales", "can_edit_sales", "can_delete_sales",
+                  "can_view_purchases", "can_view_financial", "can_view_all_companies"
+              ];
+              const permissions = permissionKeys.reduce<Record<string, boolean>>((result, key) => {
+                  result[key] = (profile.permissions?.[key] ?? profile[key]) === true;
+                  return result;
+              }, {});
+              const normalizedProfile = {
+                  ...profile,
+                  name: name || profile.name || profile.username || "Vendedor",
+                  seller_id: paddedSellerId ?? sellerId ?? profile.seller_id,
+                  permissions
+              };
+              localStorage.setItem("user_profile", JSON.stringify(normalizedProfile));
+
               if (name && !this.isPlaceholderUsername(name)) {
-                  this.addLog(`Perfil identificado: ${name}`, 'success');
-                  localStorage.setItem('username', name);
-                  return { name, seller_id: paddedSellerId ?? undefined };
+                  this.addLog("Perfil identificado: " + name, "success");
+                  localStorage.setItem("username", name);
               }
+              return normalizedProfile;
           } catch (e: any) {
               lastError = e;
           }

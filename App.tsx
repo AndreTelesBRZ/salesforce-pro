@@ -120,22 +120,12 @@ export default function App() {
 
       setIsAuthenticated(validSession);
       if (validSession) {
-        const profile = apiService.getCurrentUserProfile();
+        const profile = await apiService.fetchProfile() || apiService.getCurrentUserProfile();
         setUserProfile(profile);
         const resolvedName = await apiService.resolveDisplayName();
         setCurrentUser(resolvedName);
         setSellerCode(apiService.getSellerId());
 
-        apiService.fetchProfile().then(profile => {
-          if (profile) {
-            setUserProfile((currentProfile) => currentProfile ? { ...currentProfile, ...profile } : null);
-            setCurrentUser(profile.name);
-            if (profile.seller_id) setSellerCode(profile.seller_id);
-          }
-          apiService.resolveDisplayName().then((name) => {
-            setCurrentUser(name);
-          });
-        });
         backgroundSync.start();
       }
 
@@ -264,10 +254,11 @@ export default function App() {
       .catch(() => setPendingOrderCount(0));
   }, [isAuthenticated, currentView, cart.length]);
 
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = async () => {
     const nextRouteMode = resolveRouteMode();
     setIsAuthenticated(true);
-    setUserProfile(apiService.getCurrentUserProfile());
+    const profile = await apiService.fetchProfile() || apiService.getCurrentUserProfile();
+    setUserProfile(profile);
     setCurrentUser(apiService.getUsername());
     apiService.resolveDisplayName().then((name) => {
       setCurrentUser(name);
