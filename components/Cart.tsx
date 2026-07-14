@@ -819,7 +819,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       <div className="w-full max-w-[1440px] mx-auto bg-white dark:bg-slate-900 rounded-none sm:rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_rgba(16,24,40,0.08)] border-0 sm:border border-[#eaecf0] dark:border-slate-700 overflow-hidden">
 
         {/* ── HEADER ── */}
-        <div className="flex items-center justify-between px-4 sm:px-7 py-3 sm:py-[18px] border-b border-[#eaecf0] dark:border-slate-700">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-7 py-3 sm:py-[18px] border-b border-[#eaecf0] dark:border-slate-700">
           <div>
             <p className="text-xs text-[#98a2b3] dark:text-slate-500 mb-1 font-normal">
               Vendas&nbsp;&nbsp;/&nbsp;&nbsp;<span className="text-[#475467] dark:text-slate-400 font-medium">Novo pedido</span>
@@ -837,11 +837,11 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
             <button
               onClick={handleSaveDraft}
               disabled={submitting || !selectedCustomer || planLoading}
-              className="flex items-center gap-1.5 px-[14px] py-2 text-[13px] font-medium text-[#344054] dark:text-slate-300 bg-white dark:bg-slate-800 border border-[#d0d5dd] dark:border-slate-600 rounded-lg hover:bg-[#f9fafb] dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-1.5 px-[14px] py-2 text-[13px] font-medium text-[#344054] dark:text-slate-300 bg-white dark:bg-slate-800 border border-[#d0d5dd] dark:border-slate-600 rounded-lg hover:bg-[#f9fafb] dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? <div className="w-3.5 h-3.5 border-2 border-[#667085] border-t-transparent rounded-full animate-spin" /> : null}
               Salvar rascunho
@@ -849,7 +849,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             <button
               onClick={handleSendToERP}
               disabled={submitting || !selectedCustomer || planLoading}
-              className="flex items-center gap-1.5 px-[14px] py-2 text-[13px] font-semibold text-white bg-[#155eef] hover:bg-[#1349c5] rounded-lg shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-1.5 px-[14px] py-2 text-[13px] font-semibold text-white bg-[#155eef] hover:bg-[#1349c5] rounded-lg shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
                 <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -971,7 +971,8 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               <table className="w-full border-collapse mb-2">
               <thead>
                 <tr>
-                  <td className="w-[38%] text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 pr-2">Produto</td>
+                  <td aria-hidden="true" className="hidden sm:table-cell w-10 pb-2 border-b border-[#eaecf0] dark:border-slate-700"></td>
+                  <td className="w-[50%] lg:w-[38%] text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 pr-2">Produto</td>
                   <td className="text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Qtde.</td>
                   <td className="hidden lg:table-cell text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-center pr-2">Und.</td>
                   <td className="hidden lg:table-cell text-[11px] font-semibold text-[#98a2b3] dark:text-slate-500 uppercase tracking-[0.02em] pb-2 border-b border-[#eaecf0] dark:border-slate-700 text-right pr-2">Valor emb.</td>
@@ -1006,7 +1007,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                   return (
                     <tr key={item.id} className="border-b border-[#f2f4f7] dark:border-slate-800 hover:bg-[#f9fafb] dark:hover:bg-slate-800/40 group transition-colors">
                       {/* Thumb */}
-                      <td className="py-[13px] pr-2 w-10">
+                      <td className="hidden sm:table-cell py-[13px] pr-2 w-10">
                         <div className="w-9 h-9 rounded-lg overflow-hidden bg-[#f2f4f7] dark:bg-slate-800">
                           {item.imageUrl ? (
                             <img src={item.imageUrl} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; }} />
@@ -1026,6 +1027,14 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
                           title="Editar preço"
                         >
                           {item.name}
+                        </button>
+                        <button
+                          onClick={() => setEditingPrice({ id: item.id, name: item.name, price: item.price, unit: item.unit, basePrice: referencePrice })}
+                          className="mt-2 flex lg:hidden items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300"
+                          title="Editar preço unitário"
+                        >
+                          Unitário {formatMoney(item.price)}
+                          <span aria-hidden="true">✎</span>
                         </button>
                         {hasDiscount && (
                           <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">

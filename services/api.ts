@@ -2058,7 +2058,9 @@ class ApiService {
             let local = await dbService.getLocalCustomers();
             // Filtro estrito: se houver vendedor logado, lista SOMENTE clientes vinculados a ele
             if (currentSellerId) {
-                local = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
+                const sellerScoped = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
+                const hasSellerMetadata = local.some(c => String(c.sellerId || '').trim());
+                if (hasSellerMetadata) local = sellerScoped;
             }
             local = local.filter(c => c.type !== 'TEMPORARIO');
             if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
