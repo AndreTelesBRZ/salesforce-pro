@@ -56,12 +56,14 @@ function buildUrl(minioBase: string, objectKey: string): string {
 }
 
 async function objectExists(url: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, { method: 'HEAD' });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  if (typeof Image === 'undefined') return false;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
 }
 
 export interface MinioResult {

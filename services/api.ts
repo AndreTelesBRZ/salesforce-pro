@@ -1,5 +1,5 @@
 
-import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption, PaginatedResults, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportColumn, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView, SalesHistoryResponse, ProdutoImagem, CategoriaImagem } from '../types';
+import { Product, Order, AppConfig, Customer, CartItem, PaymentPlan, DelinquencyItem, EnumOption, PaginatedResults, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportColumn, SalesHistoryReportGroup, SalesHistoryReportRow, SalesHistoryReportView, SalesHistoryResponse, ProdutoImagem, CategoriaImagem, Transportadora } from '../types';
 
 const PAGAMENTO_STATUS = {
   PENDENTE: 'aguardando',
@@ -54,6 +54,7 @@ const isBearerLikeToken = (value?: string | null): boolean => {
 import { dbService } from './db';
 import { resolveMinioImage } from './minioResolver';
 import { getBackendUrlForCurrentHost, getIntegrationTokenForCurrentHost, getStoreCodeForApi, getStoreCodeForCurrentHost, isLlfixHostForCurrent, isStoreSelectionLockedForCurrent, normalizeStoreCode } from './storeHost';
+import { getTenantConfig } from '../src/config/tenantConfig';
 
 // Cliente Coringa (Consumidor Final)
 const WALK_IN_CUSTOMER: Customer = {
@@ -350,12 +351,48 @@ class ApiService {
               this.config.theme = 'system';
               await dbService.saveSettings(this.config);
           }
+          const tenantConfigApplied = this.applyTenantConfigForCurrentHost();
+          if (tenantConfigApplied) {
+              await dbService.saveSettings(this.config);
+          }
           localStorage.setItem('appConfig', JSON.stringify(this.config));
       } catch (e: any) {
           this.addLog(`Erro init config: ${e.message}`, 'error');
       } finally {
           this.isInitialized = true;
       }
+  }
+
+  private applyTenantConfigForCurrentHost(): boolean {
+      if (typeof window === 'undefined') return false;
+      const tenant = getTenantConfig(window.location.hostname);
+      if (!tenant.mapped) return false;
+
+      const previousBackend = String(this.config.backendUrl || '').trim();
+      const previousStoreCode = this.getStoredStoreCode();
+      const tenantStoreCode = tenant.storeCode.padStart(6, '0');
+
+      this.config = {
+          ...this.config,
+          backendUrl: tenant.backendUrl,
+          apiToken: '',
+          useMockData: false,
+          connectionValidated: true,
+      };
+
+      localStorage.setItem('erpStoreCode', tenantStoreCode);
+
+      const changedBackend = previousBackend && previousBackend !== tenant.backendUrl;
+      const changedStore = previousStoreCode && previousStoreCode !== tenantStoreCode;
+      if (changedBackend || changedStore) {
+          this.token = null;
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('username');
+          localStorage.removeItem('sellerId');
+          localStorage.removeItem('user_profile');
+          this.addLog(`Configuração da ${tenant.label} aplicada pelo domínio ${tenant.hostname}.`, 'warning');
+      }
+      return true;
   }
 
   getConfig(): AppConfig {
@@ -496,6 +533,22 @@ class ApiService {
       return null;
   }
 
+  async getLoggedSellerId(): Promise<string | null> {
+      try {
+          const profile = await this.fetchProfile();
+          const sellerId =
+              profile?.seller_id ||
+              profile?.sellerId ||
+              profile?.vendedor_codigo ||
+              profile?.codigo_vendedor ||
+              profile?.cod_vendedor ||
+              profile?.vendor_code;
+          const resolved = this.persistSellerId(sellerId);
+          if (resolved) return resolved;
+      } catch {}
+      return this.getSellerId();
+  }
+
   private resolveProtectedStoreCode(): string {
       const storedCode = this.getStoredStoreCode();
       if (storedCode) return storedCode;
@@ -509,40 +562,13 @@ class ApiService {
   private async ensureStoreFromERP(): Promise<void> {
       if (this.config.useMockData) return;
       try {
-          const r = await this.fetchWithAuth('/api/lojas');
+          const r = await this.fetchAppLocal('/api/store/refresh-public', { method: 'POST' });
           if (!r.ok) return;
-          const ct = r.headers.get('content-type') || '';
-          if (!ct.includes('application/json')) {
-              this.addLog('ERP /api/lojas não retornou JSON.', 'warning');
-              return;
-          }
-          const payload = await r.json();
-          const data = Array.isArray(payload) ? payload : (payload.data || []);
-          if (!data || data.length === 0) return;
-          const targetStoreCode = normalizeStoreCode(this.resolveProtectedStoreCode());
-          const loja = data.find((l:any)=> normalizeStoreCode(l.LOJCOD || l.lojcod || l.codigo || '') === targetStoreCode) || data[0];
-          if (!loja) return;
-          const pick = (obj:any, keys:string[]) => { for (const k of keys) if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return String(obj[k]); return ''; };
-          const findBy = (obj:any, regex:RegExp) => { for (const k of Object.keys(obj)) if (regex.test(k)) return String(obj[k]); return ''; };
-          const mapped = {
-              legal_name: pick(loja, ['AGEEMP','RAZAO','RAZAO_SOCIAL','RAZAO SOCIAL','RAZÃO SOCIAL','NOME_RAZAO','EMPRESA','Razao Social','Razão Social']),
-              trade_name: pick(loja, ['AGEFAN','FANTASIA','NOME_FANTASIA','Nome Fantasia']),
-              document: pick(loja, ['AGECGC','AGECGCPF','CNPJ','CPF_CNPJ','CGC','CNPJ/CPF']),
-              state_registration: pick(loja, ['AGECGF','CGF','INSCR_ESTADUAL','INSCRICAO_ESTADUAL','IE']),
-              municipal_registration: pick(loja, ['INSC_MUN','INSC_MUNICIPAL','Insc. Mun.']),
-              email: pick(loja, ['AGEMAIL','AGECORELE','EMAIL','E-mail']) || findBy(loja, /email/i),
-              phone: pick(loja, ['AGETEL','AGETELE','AGETEL1','AGETEL2','AGETELF','AGETELEFONE','AGECELP','TEL 1','TEL 2','TEL1','TEL2','CELULAR','TELEFONE','Telefone']) || findBy(loja, /(tel|fone|cel)/i),
-              street: pick(loja, ['AGEEND','ENDERECO','ENDEREÇO','LOGRADOURO','RUA','Endereco','Endereço']),
-              number: pick(loja, ['AGEBNU','AGENUM','NUMERO','NRO','NUM','Numero']),
-              complement: pick(loja, ['AGECPL','COMPLEMENTO','Complemento']),
-              neighborhood: pick(loja, ['AGEBAI','BAIRRO','Bairro']),
-              city: pick(loja, ['AGECIDADE','AGECID','CIDADE','MUNICIPIO','Cidade']),
-              state: pick(loja, ['AGEEST','UF','ESTADO','Estado']),
-              zip: pick(loja, ['AGECEP','CEP'])
-          };
-          await this.fetchAppLocal('/api/store/public', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mapped) });
           this.addLog('Dados da loja importados automaticamente.', 'success');
-      } catch {}
+      } catch (error: any) {
+          const msg = typeof error?.message === 'string' ? error.message : 'erro desconhecido';
+          this.addLog(`Falha ao importar dados da loja: ${msg}`, 'warning');
+      }
   }
 
   /**
@@ -1618,8 +1644,12 @@ class ApiService {
       const sellerName = order.sellerName || this.getUsername() || '';
       const clienteId = order.customerId ?? '0';
 
-      const backendOrder: Record<string, any> = {
-        data_criacao: order.createdAt,
+	      const backendOrder: Record<string, any> = {
+	        id_local: order.id,
+	        display_id: order.displayId,
+	        numero_orcamento: order.numero_orcamento || (order.displayId ? String(order.displayId) : ''),
+	        numero_pedido: order.numero_pedido || '',
+	        data_criacao: order.createdAt,
         total: order.total,
         cliente_id: clienteId,
         cliente_tipo: order.customerType || 'NORMAL',
@@ -1629,25 +1659,42 @@ class ApiService {
         vendedor_codigo: sellerCode,
         vendedor_nome: sellerName,
         plano_pagamento_codigo: planCode || '',
-        plano_pagamento_descricao: planDescription || '',
-        parcelas: planInstallments || 1,
-        dias_entre_parcelas: planDaysBetween || 0,
-        valor_minimo: planMinValue || 0,
-        observacao: extraNotes,
-        vendedor_id: sellerCode,
-        itens: order.items.map(item => ({ 
-            codigo_produto: item.id,
-            quantidade: item.quantity, 
-            valor_unitario: item.price 
-        }))
-      };
-
-      if (!this.getBaseUrl()) {
-        backendOrder.payment_method = order.paymentMethod || '';
-        backendOrder.shipping_method = order.shippingMethod || '';
-      }
-      
-      this.addLog(`Enviando Pedido #${order.displayId} (Itens: ${order.items.length})`, 'info');
+	        plano_pagamento_descricao: planDescription || '',
+	        parcelas: planInstallments || 1,
+	        dias_primeira_parcela: order.paymentFirstInstallmentDays || planDaysBetween || 0,
+	        payment_first_installment_days: order.paymentFirstInstallmentDays || planDaysBetween || 0,
+	        dias_entre_parcelas: planDaysBetween || 0,
+	        valor_minimo: planMinValue || 0,
+	        observacao: extraNotes,
+	        vendedor_id: sellerCode,
+	        loja_codigo: this.resolveProtectedStoreCode(),
+	        loja: this.resolveProtectedStoreCode(),
+	        payment_method: order.paymentMethod || '',
+	        payment_method_id: order.paymentMethodId || order.paymentMethod || '',
+	        forma_pagamento: order.paymentMethod || '',
+	        meio_pagamento: order.paymentMethod || '',
+	        shipping_method: order.shippingMethod || '',
+	        shipping_method_id: order.shippingMethodId || order.shippingMethod || '',
+	        forma_entrega: order.shippingMethod || '',
+	        codigo_transportadora: order.codigo_transportadora || '',
+	        codigo_agente_transportadora: order.codigo_agente || '',
+	        nome_transportadora: order.nome_transportadora || '',
+	        itens: order.items.map(item => ({ 
+	            codigo_produto: item.id,
+	            produto_codigo: item.id,
+	            nome_produto: item.name,
+	            descricao: item.description || item.name,
+	            unidade: item.unit || 'UND',
+	            quantidade: item.quantity, 
+	            valor_unitario: item.price,
+	            valor_tabela: item.basePrice ?? item.price,
+	            preco_tabela: item.basePrice ?? item.price,
+	            valor_desconto: Math.max((item.basePrice ?? item.price) - item.price, 0),
+	            valor_acrescimo: Math.max(item.price - (item.basePrice ?? item.price), 0),
+	        }))
+	      };
+	
+	      this.addLog(`Enviando Pedido #${order.displayId} (Itens: ${order.items.length})`, 'info');
       
       const response = await this.fetchWithAuth(`/api/pedidos`, {
         method: 'POST',
@@ -1912,7 +1959,7 @@ class ApiService {
       const count = await dbService.countProducts();
       if (count > 0) {
         const result = await dbService.searchProducts(page, limit, searchTerm, category);
-        if (result.products.length > 0 || searchTerm !== '') return result.products;
+        if (result.products.length > 0 || searchTerm !== '') return this.resolveProductImages(result.products);
       }
       // Sem produtos locais; se estiver em modo demonstração, cria um catálogo base
       if (this.config.useMockData && (count === 0)) {
@@ -1926,7 +1973,7 @@ class ApiService {
          ];
          await dbService.bulkAddProducts(demo);
          const seeded = await dbService.searchProducts(page, limit, searchTerm, category);
-         if (seeded.products.length > 0) return seeded.products;
+         if (seeded.products.length > 0) return this.resolveProductImages(seeded.products);
       }
     } catch (e) {}
 
@@ -1938,7 +1985,7 @@ class ApiService {
       const count = await dbService.countProducts();
       if (count > 0) {
         const localProducts = await dbService.getAllProducts();
-        if (localProducts.length > 0) return localProducts;
+        if (localProducts.length > 0) return this.resolveProductImages(localProducts);
       }
 
       if (this.config.useMockData && count === 0) {
@@ -1966,7 +2013,8 @@ class ApiService {
       const data = await response.json();
       const list = Array.isArray(data) ? data : (data.data || []);
       
-      return list.map((item: any) => this.mapProduct(item));
+      const mapped = list.map((item: any) => this.mapProduct(item));
+      return this.resolveProductImages(mapped);
     } catch (error) {
       return [];
     }
@@ -1987,7 +2035,8 @@ class ApiService {
         if (!Array.isArray(list) || list.length === 0) break;
 
         const mapped = list.map((item: any) => this.mapProduct(item));
-        mapped.forEach((product) => {
+        const withResolvedImages = await this.resolveProductImages(mapped);
+        withResolvedImages.forEach((product) => {
           if (seen.has(product.id)) return;
           seen.add(product.id);
           collected.push(product);
@@ -2011,12 +2060,18 @@ class ApiService {
         const jsonCheck = await this.ensureJsonResponse(response, 'Produtos');
         if (!jsonCheck.ok) throw new Error(jsonCheck.message || 'Resposta inválida.');
         const data = await response.json();
-        const list = Array.isArray(data) ? data : (data.data || []);
+        const list = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.data)
+                ? data.data
+                : Array.isArray(data?.results)
+                    ? data.results
+                    : null;
+        if (!list) throw new Error('Resposta inválida de produtos.');
         
-        await dbService.clearProducts();
         const mapped = list.map((i: any) => this.mapProduct(i));
         const withResolvedImages = await this.resolveProductImages(mapped);
-        await dbService.bulkAddProducts(withResolvedImages);
+        await dbService.replaceProducts(withResolvedImages);
         
         onProgress(withResolvedImages.length, withResolvedImages.length);
         return { success: true, count: withResolvedImages.length };
@@ -2047,9 +2102,13 @@ class ApiService {
           item.subgrupo ?? item.codigo_subgrupo ?? item.cod_subgrupo ?? item.subgrupo_codigo ?? item.subgroup ?? item.subgroup_code
       );
 
-      return {
-        id: String(item.plu || item.codigo || item.id),
-        name: productName,
+	      return {
+	        id: String(item.codigo || item.id || item.plu),
+	        code: readCode(item.codigo || item.id),
+	        plu: readCode(item.plu),
+	        reference: readCode(item.referencia || item.reference || item.refplu),
+	        barcode: readCode(item.ean || item.barcode || item.codigo_barras),
+	        name: productName,
         // Evita duplicação se a descrição for igual ao nome
         description: (item.descricao_completa && item.descricao_completa !== productName) ? item.descricao_completa : (item.description || ''),
         price: rawPrice,
@@ -2069,17 +2128,21 @@ class ApiService {
   async getCustomers(): Promise<Customer[]> {
       const currentSellerId = await this.resolveSellerIdFromProfile();
 
+      const loadLocalCustomers = async (): Promise<Customer[]> => {
+         let local = await dbService.getLocalCustomers();
+         // Filtro estrito: se houver vendedor logado, lista SOMENTE clientes vinculados a ele
+         if (currentSellerId) {
+             const sellerScoped = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
+             const hasSellerMetadata = local.some(c => String(c.sellerId || '').trim());
+             if (hasSellerMetadata) local = sellerScoped;
+         }
+         return local.filter(c => c.type !== 'TEMPORARIO');
+      };
+
       try {
          // Se configuração exigir, ignora cache local e busca sempre do backend
          if (!this.config.alwaysFetchCustomers) {
-            let local = await dbService.getLocalCustomers();
-            // Filtro estrito: se houver vendedor logado, lista SOMENTE clientes vinculados a ele
-            if (currentSellerId) {
-                const sellerScoped = local.filter(c => this.isSameSeller(c.sellerId, currentSellerId));
-                const hasSellerMetadata = local.some(c => String(c.sellerId || '').trim());
-                if (hasSellerMetadata) local = sellerScoped;
-            }
-            local = local.filter(c => c.type !== 'TEMPORARIO');
+            const local = await loadLocalCustomers();
             if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
          }
 
@@ -2102,7 +2165,12 @@ class ApiService {
              ? mapped.filter((c: Customer) => this.isSameSeller(c.sellerId, currentSellerId))
              : mapped;
          return [WALK_IN_CUSTOMER, ...filtered];
-      } catch (e) {}
+      } catch (e) {
+         try {
+            const local = await loadLocalCustomers();
+            if (local.length > 0) return [WALK_IN_CUSTOMER, ...local];
+         } catch {}
+      }
 
       return [WALK_IN_CUSTOMER];
   }
@@ -2172,6 +2240,22 @@ class ApiService {
       return this.mapCustomer(data);
   }
 
+  // --- TRANSPORTADORAS ---
+
+  async getTransportadoras(q?: string): Promise<Transportadora[]> {
+      const params = q ? `?q=${encodeURIComponent(q)}` : '';
+      try {
+          const resp = await this.fetchWithAuth(`/api/transportadoras${params}`);
+          if (!resp.ok) {
+              this.addLog(`Erro ao buscar transportadoras: ${resp.status}`, 'error');
+              return [];
+          }
+          return resp.json();
+      } catch (err) {
+          this.addLog(`Erro ao buscar transportadoras: ${String(err)}`, 'error');
+          return [];
+      }
+  }
 
   private appendSalesHistoryFilters(params: URLSearchParams, filters: SalesHistoryFilters = {}, options: { includeCustomerCode?: boolean } = {}): URLSearchParams {
       const includeCustomerCode = options.includeCustomerCode ?? true;
@@ -2341,7 +2425,7 @@ class ApiService {
 
       return {
           groupBy: (source.groupBy ?? source.group_by) === 'data_emissao' ? 'data_emissao' : 'data_emissao',
-          order: source.order === 'asc' ? 'asc' : 'asc',
+          order: source.order === 'desc' ? 'desc' : 'asc',
           layout: source.layout === 'resumo_por_emissao' ? 'resumo_por_emissao' : 'resumo_por_emissao',
           columns,
           groups: Array.isArray(source.groups) ? source.groups.map((group) => this.mapSalesHistoryReportGroup(group)) : [],
@@ -2471,7 +2555,7 @@ class ApiService {
   }
 
   async getPaymentPlansForCustomer(customerId: string, pedidoTotal?: number): Promise<{ total: number; plans: PaymentPlan[] }> {
-      const catalog = await this.fetchPaymentPlanCatalog();
+      const catalog: any[] = [];
       const query = new URLSearchParams();
       if (typeof pedidoTotal === 'number' && Number.isFinite(pedidoTotal)) {
           query.set('pedido_total', pedidoTotal.toString());
@@ -2677,7 +2761,17 @@ class ApiService {
           const jsonCheck = await this.ensureJsonResponse(res, 'Clientes');
           if (!jsonCheck.ok) throw new Error(`${endpoint}: ${jsonCheck.message || 'Resposta inválida.'}`);
           const data = await res.json();
-          return { data: Array.isArray(data) ? data : (data.data || []) };
+          const list = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.data)
+              ? data.data
+              : Array.isArray(data?.results)
+                ? data.results
+                : Array.isArray(data?.clientes)
+                  ? data.clientes
+                  : null;
+          if (!list) throw new Error(`${endpoint}: Resposta inválida de clientes.`);
+          return { data: list };
         } catch (error: any) {
           lastError = error instanceof Error ? error : new Error(String(error));
         }
@@ -2761,10 +2855,10 @@ class ApiService {
      try {
         const view = await this.fetchClientSyncView('all');
         const rawList = Array.isArray(view.data) ? view.data : (Array.isArray(view) ? view : []);
+        if (!Array.isArray(rawList)) throw new Error('Resposta inválida de clientes.');
         
-        await dbService.clearCustomers();
         const mapped = rawList.map((c: any) => this.mapCustomer(c));
-        await dbService.bulkAddCustomers(mapped);
+        await dbService.replaceCustomers(mapped);
         
         onProgress(mapped.length);
       return { success: true, count: mapped.length };

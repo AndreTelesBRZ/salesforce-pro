@@ -12,6 +12,33 @@ import { GoogleGenAI } from '@google/genai';
 import PDFDocument from 'pdfkit';
 import nodemailer from 'nodemailer';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const loadEnvFile = (filePath) => {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, 'utf8');
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (process.env[key] !== undefined) continue;
+    let value = rawValue.trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+};
+
+loadEnvFile(join(__dirname, '.env.local'));
+loadEnvFile(join(__dirname, '.env'));
+
 // Configuração Básica
 const app = express();
 const PORT = process.env.PORT || 8080; 
@@ -235,6 +262,13 @@ const parseRemoteJson = async (response) => {
 };
 
 const extractRemoteMessage = (payload, fallbackText, status) => {
+  if (Array.isArray(payload?.detail)) {
+    const detailMessage = payload.detail
+      .map((item) => item?.msg || item?.message || item?.detail || '')
+      .filter(Boolean)
+      .join('; ');
+    if (detailMessage) return detailMessage;
+  }
   const candidate =
     payload?.message ||
     payload?.detail ||
@@ -260,6 +294,225 @@ const buildRemoteAuthHeaders = (backendUrl, extraHeaders = {}) => {
     headers['X-App-Token'] = integrationToken;
   }
   return headers;
+};
+
+const firstNonEmpty = (obj, keys) => {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return String(value).trim();
+    }
+  }
+  return '';
+};
+
+const firstMatchingValue = (obj, regex) => {
+  for (const key of Object.keys(obj || {})) {
+    if (regex.test(key)) {
+      const value = obj[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return String(value).trim();
+      }
+    }
+  }
+  return '';
+};
+
+const getRemoteStoreCode = (store) => firstNonEmpty(store, [
+  'LOJCOD', 'lojcod', 'codigo', 'code', 'id', 'loja', 'loja_codigo', 'store_code', 'codigo_loja'
+]);
+
+const mapRemoteStoreInfo = (store) => ({
+  legal_name: firstNonEmpty(store, [
+    'legal_name', 'razao_social', 'razaoSocial', 'RAZAO_SOCIAL', 'RAZAO SOCIAL', 'RAZÃO SOCIAL',
+    'NOME_RAZAO', 'nome_razao', 'AGEDES', 'AGEEMP', 'empresa', 'EMPRESA', 'nome', 'NOME'
+  ]),
+  trade_name: firstNonEmpty(store, [
+    'trade_name', 'nome_fantasia', 'nomeFantasia', 'FANTASIA', 'NOME_FANTASIA',
+    'AGEFAN', 'fantasia', 'Nome Fantasia'
+  ]),
+  document: firstNonEmpty(store, [
+    'document', 'cnpj_cpf', 'cpf_cnpj', 'CNPJ_CPF', 'CPF_CNPJ', 'CNPJ/CPF', 'CNPJ',
+    'AGECGCCPF', 'AGECGC', 'AGECGCPF', 'CGC'
+  ]),
+  state_registration: firstNonEmpty(store, [
+    'state_registration', 'inscricao_estadual', 'INSCR_ESTADUAL', 'INSCRICAO_ESTADUAL',
+    'IE', 'AGECGFRG', 'AGECGF', 'CGF'
+  ]),
+  municipal_registration: firstNonEmpty(store, [
+    'municipal_registration', 'inscricao_municipal', 'INSC_MUN', 'INSC_MUNICIPAL'
+  ]),
+  email: firstNonEmpty(store, [
+    'email', 'EMAIL', 'E-mail', 'AGEMAIL', 'AGECORELE'
+  ]) || firstMatchingValue(store, /email|mail|correio/i),
+  phone: firstNonEmpty(store, [
+    'phone', 'telefone', 'TELEFONE', 'TEL', 'TEL1', 'TEL2', 'CELULAR', 'AGETEL',
+    'AGETELE', 'AGETEL1', 'AGETEL2', 'AGETELF', 'AGETELEFONE', 'AGECELP'
+  ]) || firstMatchingValue(store, /tel|fone|cel/i),
+  street: firstNonEmpty(store, [
+    'street', 'logradouro', 'endereco', 'ENDERECO', 'ENDEREÇO', 'LOGRADOURO',
+    'RUA', 'AGEEND', 'Endereco', 'Endereço'
+  ]),
+  number: firstNonEmpty(store, [
+    'number', 'numero', 'NUMERO', 'NRO', 'NUM', 'AGEBNU', 'AGENUM'
+  ]),
+  neighborhood: firstNonEmpty(store, [
+    'neighborhood', 'bairro', 'BAIRRO', 'AGEBAI'
+  ]),
+  city: firstNonEmpty(store, [
+    'city', 'cidade', 'CIDADE', 'municipio', 'MUNICIPIO', 'AGECIDADE', 'AGECID'
+  ]),
+  state: firstNonEmpty(store, [
+    'state', 'uf', 'UF', 'estado', 'ESTADO', 'AGEEST'
+  ]),
+  zip: firstNonEmpty(store, [
+    'zip', 'cep', 'CEP', 'AGECEP'
+  ]),
+  complement: firstNonEmpty(store, [
+    'complement', 'complemento', 'COMPLEMENTO', 'AGECPL'
+  ])
+});
+
+const sanitizeStoreForPdf = (store) => {
+  if (!store || typeof store !== 'object') return null;
+  const mapped = mapRemoteStoreInfo(store);
+  const rawLogo = firstNonEmpty(store, ['logo_url', 'logoUrl', 'logo', 'LOGO_URL']);
+  // PDFKit cannot load remote HTTP(S) URLs directly. Keep only safe inline/local sources.
+  if (rawLogo && (/^data:image\//i.test(rawLogo) || rawLogo.startsWith('/'))) {
+    mapped.logo_url = rawLogo;
+  }
+  return mapped;
+};
+
+const getRemoteProductCode = (product) => firstNonEmpty(product, [
+  'codigo', 'code', 'id', 'produto_codigo', 'codigo_produto', 'CODIGO', 'PROCOD'
+]);
+
+const getRemoteProductPlu = (product) => firstNonEmpty(product, [
+  'plu', 'PLU', 'refplu', 'REFPLU'
+]);
+
+const getRemoteProductName = (product) => firstNonEmpty(product, [
+  'descricao_completa', 'nome', 'name', 'description', 'descricao'
+]);
+
+const getRemoteProductUnit = (product) => firstNonEmpty(product, [
+  'unidade', 'sigla_unidade', 'unit', 'UNIDADE'
+]);
+
+const getRemoteProductPrice = (product) => {
+  const raw =
+    product?.preco_promocao1 ??
+    product?.preco ??
+    product?.price ??
+    product?.preco_normal ??
+    product?.valor_unitario ??
+    0;
+  const normalized = typeof raw === 'string' ? raw.replace(/\./g, '').replace(',', '.') : raw;
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : 0;
+};
+
+const listRemoteProductsForOrderValidation = async (req, backendUrl) => {
+  const storeCode = String(req.body?.loja_codigo || req.query?.loja_codigo || req.query?.loja || getStoreIdForProducts(req)).trim();
+  const loja = storeCode.padStart(6, '0');
+  const forwardedHeaders = buildRemoteAuthHeaders(backendUrl, {});
+  const authHeader = getHeaderValue(req.headers['authorization']);
+  if (authHeader) {
+    forwardedHeaders.Authorization = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+  }
+
+  const remote = await callRemoteJson({
+    backendUrl,
+    paths: [`/api/produtos?loja=${encodeURIComponent(loja)}`, `/api/products?loja=${encodeURIComponent(loja)}`],
+    method: 'GET',
+    headers: forwardedHeaders
+  });
+
+  if (!remote.response.ok) return [];
+  const payload = remote.data;
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+};
+
+const normalizeOrderProductCodes = async (req, backendUrl) => {
+  const items = Array.isArray(req.body?.itens) ? req.body.itens : [];
+  if (items.length === 0) return { ok: true };
+
+  const products = await listRemoteProductsForOrderValidation(req, backendUrl);
+  if (products.length === 0) return { ok: true };
+
+  const byCode = new Map();
+  const byPlu = new Map();
+  for (const product of products) {
+    const code = getRemoteProductCode(product);
+    const plu = getRemoteProductPlu(product);
+    if (code) byCode.set(code, product);
+    if (plu) byPlu.set(plu, product);
+  }
+
+  const invalid = [];
+  for (const item of items) {
+    const rawCode = String(item?.codigo_produto || item?.produto_codigo || item?.codigo || '').trim();
+    let matchedProduct = null;
+    if (!rawCode) {
+      invalid.push('(sem codigo)');
+      continue;
+    }
+    if (byCode.has(rawCode)) {
+      matchedProduct = byCode.get(rawCode);
+    }
+    const byPluProduct = byPlu.get(rawCode);
+    if (!matchedProduct && byPluProduct) {
+      const officialCode = getRemoteProductCode(byPluProduct);
+      if (officialCode) {
+        item.codigo_produto = officialCode;
+        item.plu = rawCode;
+        item.nome_produto = item.nome_produto || getRemoteProductName(byPluProduct);
+        console.log(`[ORDER_DEBUG] Produto normalizado PLU ${rawCode} -> codigo ${officialCode}`);
+        matchedProduct = byPluProduct;
+      }
+    }
+    if (matchedProduct) {
+      item.produto_codigo = item.produto_codigo || item.codigo_produto;
+      item.nome_produto = item.nome_produto || getRemoteProductName(matchedProduct);
+      item.descricao = item.descricao || getRemoteProductName(matchedProduct);
+      item.unidade = item.unidade || getRemoteProductUnit(matchedProduct) || 'UND';
+      const catalogPrice = getRemoteProductPrice(matchedProduct);
+      const sentPrice = Number(item.valor_unitario);
+      if (
+        catalogPrice > 0 &&
+        Number.isFinite(sentPrice)
+      ) {
+        const diff = Number((catalogPrice - sentPrice).toFixed(2));
+        item.valor_tabela = item.valor_tabela ?? catalogPrice;
+        item.preco_tabela = item.preco_tabela ?? catalogPrice;
+        item.preco_catalogo = item.preco_catalogo ?? catalogPrice;
+        item.valor_unitario_editado = sentPrice;
+        item.preco_editado = sentPrice;
+        if (diff > 0) {
+          item.valor_desconto = item.valor_desconto ?? diff;
+          item.percentual_desconto = item.percentual_desconto ?? Number(((diff / catalogPrice) * 100).toFixed(4));
+        } else if (diff < 0) {
+          item.valor_acrescimo = item.valor_acrescimo ?? Math.abs(diff);
+          item.percentual_acrescimo = item.percentual_acrescimo ?? Number(((Math.abs(diff) / catalogPrice) * 100).toFixed(4));
+        }
+      }
+      continue;
+    }
+    invalid.push(rawCode);
+  }
+
+  if (invalid.length > 0) {
+    return {
+      ok: false,
+      message: `Produto fora do catálogo atual do ERP: ${invalid.join(', ')}. Sincronize os produtos e adicione o item novamente.`
+    };
+  }
+
+  return { ok: true };
 };
 
 const requireRemoteBackendContext = (req, res) => {
@@ -1086,6 +1339,18 @@ const verifyToken = async (req, res, next) => {
       return res.status(403).json({ message: 'Token não fornecido.' });
   }
 
+  if (isIntegrationTokenForRequest(req, authInfo.token)) {
+      req.remoteUser = enrichRemoteUserPermissions({
+          id: 0,
+          username: 'app_token',
+          vendor_code: null,
+          is_app_token: true,
+      });
+      req.userId = 0;
+      req.jwtPayload = req.remoteUser;
+      return next();
+  }
+
   try {
       const context = requireRemoteBackendContext(req, res);
       if (!context) return;
@@ -1497,11 +1762,60 @@ app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req
     const { cliente_codigo } = req.params;
     if (!cliente_codigo) return res.status(400).json({ message: 'Cliente obrigatório.' });
 
+    const proxyRemotePlans = async () => {
+        const context = requireRemoteBackendContext(req, res);
+        if (!context) return true;
+
+        const forwardedHeaders = buildRemoteAuthHeaders(context.backendUrl, {});
+        const authHeader = getHeaderValue(req.headers['authorization']);
+        if (authHeader) {
+            forwardedHeaders.Authorization = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+        }
+
+        const queryString = new URLSearchParams(req.query).toString();
+        const remotePath = `/api/planos-pagamento-cliente/${encodeURIComponent(cliente_codigo)}${queryString ? `?${queryString}` : ''}`;
+        const remote = await callRemoteJson({
+            backendUrl: context.backendUrl,
+            paths: [remotePath],
+            method: 'GET',
+            headers: forwardedHeaders
+        });
+
+        if (!remote.response.ok) {
+            const message = extractRemoteMessage(remote.data, remote.text, remote.response.status);
+            return res.status(remote.response.status).json({ message });
+        }
+
+        const normalizeRemotePaymentPlan = (plan) => ({
+            ...plan,
+            disponivel: plan?.disponivel ?? true,
+            documento: plan?.documento || plan?.document || 'BOLETO',
+            meio_pagamento: plan?.meio_pagamento || plan?.meioPagamento || 'boleto',
+            plano_codigo: plan?.plano_codigo || plan?.codigo || plan?.code || plan?.PLACOD || plan?.placod,
+            plano_descricao: plan?.plano_descricao || plan?.descricao || plan?.description || plan?.PLADES || plan?.plades,
+            parcelas: plan?.parcelas ?? plan?.installments ?? plan?.PLANUMPAR ?? plan?.planumpar,
+            dias_entre_parcelas: plan?.dias_entre_parcelas ?? plan?.days_between_installments ?? plan?.PLAINTPAR ?? plan?.plaintpar ?? 0,
+            valor_minimo: plan?.valor_minimo ?? plan?.min_value ?? plan?.PLAVLRMIN ?? plan?.plavlrmin ?? 0
+        });
+        const payload = remote.data ?? [];
+        if (Array.isArray(payload)) {
+            return res.status(remote.response.status).json(payload.map(normalizeRemotePaymentPlan));
+        }
+        if (Array.isArray(payload.data)) {
+            return res.status(remote.response.status).json({
+                ...payload,
+                data: payload.data.map(normalizeRemotePaymentPlan)
+            });
+        }
+
+        return res.status(remote.response.status).json(payload);
+    };
+
     try {
         const sellerId = await resolveSellerIdForRequest(req);
         const privileged = isPrivilegedUser(req.userId);
         if (!sellerId && !privileged) {
-            return res.status(403).json({ message: 'Usuário sem vendedor vinculado.' });
+            return proxyRemotePlans();
         }
 
         const customerQuery = privileged
@@ -1511,24 +1825,24 @@ app.get('/api/planos-pagamento-cliente/:cliente_codigo', verifyToken, async (req
             ? [String(cliente_codigo)]
             : [String(cliente_codigo), sellerId];
         const customer = await db.get(customerQuery, customerParams);
-        if (!customer) return res.status(404).json({ message: 'Cliente não encontrado.' });
+        if (!customer) return proxyRemotePlans();
 
         const plans = await db.query(
             `SELECT p.code as plano_codigo, p.description as plano_descricao,
                     p.installments as parcelas, p.days_between_installments as dias_entre_parcelas,
-                    p.min_value as valor_minimo
+                    p.min_value as valor_minimo, 1 as disponivel, 'BOLETO' as documento, 'boleto' as meio_pagamento
              FROM customer_payment_plans cpp
              JOIN payment_plans p ON p.code = cpp.plan_code
              WHERE cpp.customer_id = ?`,
             [String(cliente_codigo)]
         );
 
-        if (plans.length === 0 && customer.status === 'TEMPORARIO') {
-            const fallback = await db.get(
-                "SELECT code as plano_codigo, description as plano_descricao, installments as parcelas, days_between_installments as dias_entre_parcelas, min_value as valor_minimo FROM payment_plans WHERE code = ?",
-                ["01"]
+        if (plans.length === 0) {
+            const commonPlans = await db.query(
+                "SELECT code as plano_codigo, description as plano_descricao, installments as parcelas, days_between_installments as dias_entre_parcelas, min_value as valor_minimo, 1 as disponivel, 'BOLETO' as documento, 'boleto' as meio_pagamento FROM payment_plans ORDER BY code",
+                []
             );
-            if (fallback) return res.json([fallback]);
+            return res.json(commonPlans);
         }
 
         return res.json(plans);
@@ -1571,6 +1885,106 @@ const handleSaveOrder = async (req, res) => {
   if (!itens || itens.length === 0) {
       console.log('[ORDER_DEBUG] Erro: Pedido sem itens.');
       return res.status(400).json({ message: 'Sem itens.' });
+  }
+
+  const context = requireRemoteBackendContext(req, res);
+  if (context) {
+      try {
+          const storeCode = resolveExpectedStoreCodeForBackend(context.backendUrl) || formatStoreCode(getStoreIdFromRequest(req));
+          req.body.loja_codigo = req.body.loja_codigo || storeCode;
+          req.body.loja = req.body.loja || storeCode;
+          if (!req.body.numero_orcamento) {
+              const stamp = new Date(req.body.data_criacao || Date.now()).toISOString().slice(0, 10).replace(/-/g, '');
+              req.body.numero_orcamento = `ORC-${storeCode}-${req.body.vendedor_codigo || req.body.vendedor_id || req.userId || '0'}-${stamp}-${Date.now().toString().slice(-6)}`;
+          }
+          req.body.display_id = req.body.display_id || req.body.numero_orcamento;
+          const notesText = String(req.body.observacao || '');
+          const inferredPaymentMethod = req.body.payment_method || req.body.forma_pagamento || req.body.meio_pagamento || (/pagamento:\s*boleto/i.test(notesText) ? 'boleto' : '');
+          const inferredShippingMethod = req.body.shipping_method || req.body.forma_entrega || (/frete:\s*([a-z0-9_ -]+)/i.exec(notesText)?.[1] || '');
+          if (inferredPaymentMethod) {
+              req.body.payment_method = req.body.payment_method || inferredPaymentMethod;
+              req.body.payment_method_id = req.body.payment_method_id || inferredPaymentMethod;
+              req.body.forma_pagamento = req.body.forma_pagamento || inferredPaymentMethod;
+              req.body.meio_pagamento = req.body.meio_pagamento || inferredPaymentMethod;
+          }
+          if (inferredShippingMethod) {
+              req.body.shipping_method = req.body.shipping_method || inferredShippingMethod;
+              req.body.shipping_method_id = req.body.shipping_method_id || inferredShippingMethod;
+              req.body.forma_entrega = req.body.forma_entrega || inferredShippingMethod;
+          }
+          if (!req.body.dias_primeira_parcela && req.body.plano_pagamento_descricao) {
+              const firstPlanNumber = String(req.body.plano_pagamento_descricao).match(/\d+/)?.[0];
+              if (firstPlanNumber) {
+                  req.body.dias_primeira_parcela = Number(firstPlanNumber);
+                  req.body.payment_first_installment_days = Number(firstPlanNumber);
+              }
+          }
+          if (Array.isArray(req.body.itens)) {
+              req.body.itens = req.body.itens.map((item) => ({
+                  ...item,
+                  loja_codigo: item.loja_codigo || storeCode,
+                  loja: item.loja || storeCode
+              }));
+          }
+
+          const forwardedHeaders = buildRemoteAuthHeaders(context.backendUrl, {});
+          const authHeader = getHeaderValue(req.headers['authorization']);
+          if (authHeader) {
+              forwardedHeaders.Authorization = authHeader.startsWith('Bearer ') ? authHeader : `Bearer ${authHeader}`;
+          }
+
+          const productCodeValidation = await normalizeOrderProductCodes(req, context.backendUrl);
+          if (!productCodeValidation.ok) {
+              console.log(`[ORDER_DEBUG] Pedido bloqueado antes do ERP: ${productCodeValidation.message}`);
+              return res.status(400).json({ message: productCodeValidation.message });
+          }
+          console.log('[ORDER_DEBUG] Payload normalizado para ERP:', JSON.stringify({
+              cliente_id: req.body?.cliente_id,
+              total: req.body?.total,
+              status: req.body?.status,
+              pagamento_status: req.body?.pagamento_status,
+              frete_modalidade: req.body?.frete_modalidade,
+              loja_codigo: req.body?.loja_codigo,
+              numero_orcamento: req.body?.numero_orcamento,
+              payment_method: req.body?.payment_method,
+              shipping_method: req.body?.shipping_method,
+              dias_primeira_parcela: req.body?.dias_primeira_parcela,
+              plano_pagamento_codigo: req.body?.plano_pagamento_codigo,
+              itens: Array.isArray(req.body?.itens)
+                  ? req.body.itens.map((item) => ({
+                      codigo_produto: item.codigo_produto,
+                      plu: item.plu,
+                      loja_codigo: item.loja_codigo,
+                      unidade: item.unidade,
+                      quantidade: item.quantidade,
+                      valor_unitario: item.valor_unitario,
+                      valor_tabela: item.valor_tabela,
+                      valor_desconto: item.valor_desconto,
+                      valor_acrescimo: item.valor_acrescimo
+                  }))
+                  : []
+          }));
+
+          const remote = await callRemoteJson({
+              backendUrl: context.backendUrl,
+              paths: ['/api/pedidos', '/api/pedidos/'],
+              method: 'POST',
+              body: req.body,
+              headers: forwardedHeaders
+          });
+
+          if (!remote.response.ok) {
+              const message = extractRemoteMessage(remote.data, remote.text, remote.response.status);
+              console.log(`[ORDER_DEBUG] ERP recusou pedido (${remote.response.status}): ${message}`);
+              return res.status(remote.response.status).json({ message, detail: remote.data ?? remote.text });
+          }
+
+          console.log(`[ORDER_DEBUG] Pedido enviado ao ERP Django com sucesso (${remote.response.status}).`);
+          return res.status(remote.response.status).json(remote.data ?? { success: true });
+      } catch (e) {
+          console.error('[ORDER_ERROR] Falha ao enviar pedido ao ERP:', e);
+          return res.status(502).json({ message: `Erro ao enviar pedido ao ERP: ${e.message}` });
+      }
   }
 
   const planCode = plano_pagamento_codigo || '';
@@ -1671,6 +2085,59 @@ app.get('/api/store/public', async (req, res) => {
     res.json(row || {});
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/store/refresh-public', async (req, res) => {
+  try {
+    const context = requireRemoteBackendContext(req, res);
+    if (!context) return;
+
+    const storeId = getStoreIdFromRequest(req);
+    const expectedStoreCode = formatStoreCode(storeId);
+    const remoteStores = await callRemoteJson({
+      backendUrl: context.backendUrl,
+      paths: ['/api/lojas', '/lojas'],
+      method: 'GET'
+    });
+
+    if (!remoteStores.response.ok) {
+      const message = extractRemoteMessage(remoteStores.data, remoteStores.text, remoteStores.response.status);
+      return res.status(remoteStores.response.status).json({ message });
+    }
+
+    const payload = remoteStores.data;
+    const stores = Array.isArray(payload) ? payload : (payload?.data || payload?.results || payload?.lojas || []);
+    if (!Array.isArray(stores) || stores.length === 0) {
+      return res.status(502).json({ message: 'ERP não retornou dados de lojas.' });
+    }
+
+    const selectedStore = stores.find((store) => formatStoreCode(getRemoteStoreCode(store)) === expectedStoreCode) || stores[0];
+    const mapped = mapRemoteStoreInfo(selectedStore);
+    const nonEmptyEntries = Object.entries(mapped).filter(([, value]) => String(value || '').trim() !== '');
+
+    await ensureStoreInfoRow(storeId);
+
+    if (nonEmptyEntries.length > 0) {
+      const setCols = nonEmptyEntries.map(([key]) => `${key} = ?`);
+      const params = nonEmptyEntries.map(([, value]) => value);
+      setCols.push('updated_at = ?');
+      params.push(new Date().toISOString());
+      await db.run(`UPDATE store_info SET ${setCols.join(', ')} WHERE id = ?`, [...params, storeId]);
+    } else {
+      await db.run("UPDATE store_info SET updated_at = ? WHERE id = ?", [new Date().toISOString(), storeId]);
+    }
+
+    const row = await db.get("SELECT * FROM store_info WHERE id = ?", [storeId]);
+    return res.json({
+      ...row,
+      refreshed: true,
+      remote_store_code: getRemoteStoreCode(selectedStore) || null
+    });
+  } catch (e) {
+    console.error('[STORE] Falha ao atualizar dados da loja pelo ERP:', e.message);
+    if (res.headersSent) return;
+    return res.status(503).json({ message: 'Falha ao atualizar dados da loja pelo ERP.' });
   }
 });
 
@@ -2282,7 +2749,7 @@ app.post('/api/recibo/pdf', verifyToken, async (req, res) => {
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     doc.pipe(res);
-    renderReceiptPDF(doc, receipt, store);
+    renderReceiptPDF(doc, receipt, sanitizeStoreForPdf(store));
     doc.end();
 
   } catch (e) {
@@ -2312,7 +2779,7 @@ app.post('/api/recibo/pdf/public', async (req, res) => {
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     doc.pipe(res);
-    renderReceiptPDF(doc, receipt, store);
+    renderReceiptPDF(doc, receipt, sanitizeStoreForPdf(store));
     doc.end();
   } catch (e) {
     console.error('[PDF_PUBLIC_ERROR]', e);
@@ -2470,13 +2937,20 @@ app.use('/api', async (req, res, next) => {
 });
 
 // --- SERVIR FRONTEND ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 const distPath = join(__dirname, 'dist');
 
 if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-store');
+        } else if (filePath.includes('/assets/')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    }));
     app.get('*', (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
         res.sendFile(join(distPath, 'index.html'));
     });
 }

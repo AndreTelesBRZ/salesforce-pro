@@ -44,10 +44,12 @@ export const buildDraftPayload = async (params: {
   } | null;
   status: DraftStatus;
   carrier?: string;
+  selectedTransportadora?: { codigo_transportadora: string; codigo_agente: string; nome_fantasia: string; razao_social: string } | null;
 }): Promise<OrderDraft> => {
   const {
     cart, total, selectedCustomer, storeInfo, sellerCode, currentDraft,
     notes, paymentMethod, shippingMethod, selectedPlan, status, carrier,
+    selectedTransportadora,
   } = params;
   const now = new Date().toISOString();
   const draftId = currentDraft?.id || createOrderUUID();
@@ -74,6 +76,9 @@ export const buildDraftPayload = async (params: {
     numero_orcamento: numeroOrcamento,
     notes,
     carrier: carrier || 'Retirada em Loja',
+    codigo_transportadora: selectedTransportadora?.codigo_transportadora || currentDraft?.codigo_transportadora || '',
+    codigo_agente: selectedTransportadora?.codigo_agente || currentDraft?.codigo_agente || '',
+    nome_transportadora: selectedTransportadora ? (selectedTransportadora.nome_fantasia || selectedTransportadora.razao_social) : currentDraft?.nome_transportadora || '',
     payment_method: paymentMethod,
     payment_method_id: paymentMethod,
     shipping_method: shippingMethod,
@@ -130,6 +135,9 @@ export const buildOrderFromDraft = (draft: OrderDraft, params: {
     paymentMethodId: draft.payment_method_id,
     shippingMethod: draft.shipping_method,
     shippingMethodId: draft.shipping_method_id,
+    codigo_transportadora: draft.codigo_transportadora,
+    codigo_agente: draft.codigo_agente,
+    nome_transportadora: draft.nome_transportadora,
     status: 'pending',
     createdAt: draft.data_criacao,
   };

@@ -43,7 +43,7 @@ const TENANTS: TenantDefinition[] = [
     storeCode: '000001',
     label: 'Loja 01',
     storeName: 'EDSON DOS PARAFUSOS',
-    backendUrl: '',
+    backendUrl: 'https://apiforce.edsondosparafusos.app.br',
   },
   {
     tenant: 'LLFIX',
@@ -51,7 +51,7 @@ const TENANTS: TenantDefinition[] = [
     storeCode: '000003',
     label: 'Loja 03',
     storeName: 'LL FIX DISTRIBUIDORA - EI',
-    backendUrl: '',
+    backendUrl: 'https://apiforce.llfix.app.br',
   },
 ];
 

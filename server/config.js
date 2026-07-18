@@ -47,6 +47,7 @@ export const STORE_DOMAIN_MAP = {
 export const EDSON_BACKEND_URL = 'https://apiforce.edsondosparafusos.app.br';
 export const LLFIX_BACKEND_URL = 'https://apiforce.llfix.app.br';
 export const SUPPORTED_REMOTE_BACKENDS = [EDSON_BACKEND_URL, LLFIX_BACKEND_URL];
+export const DEV_TENANT = (process.env.TENANT || '').toUpperCase().trim();
 
 // ── Helper Functions ─────────────────────────────────────────────────────────
 
@@ -82,16 +83,20 @@ export const getRequestedBackendUrl = (req) => {
   const host = getRequestHost(req);
   if (matchesDomain(host, LLFIX_DOMAIN)) return LLFIX_BACKEND_URL;
   if (matchesDomain(host, EDSON_DOMAIN)) return EDSON_BACKEND_URL;
+  if (DEV_TENANT === 'EDSON') return EDSON_BACKEND_URL;
+  if (DEV_TENANT === 'LLFIX') return LLFIX_BACKEND_URL;
   return '';
 };
 
 export const resolveBackendUrlForRequest = (req) => {
-  return getRequestedBackendUrl(req) || LLFIX_BACKEND_URL;
+  return getRequestedBackendUrl(req);
 };
 
 export const resolveStoreIdFromHost = (host) => {
   if (matchesDomain(host, LLFIX_DOMAIN)) return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
   if (matchesDomain(host, EDSON_DOMAIN)) return STORE_DOMAIN_MAP[EDSON_DOMAIN];
+  if (DEV_TENANT === 'EDSON') return STORE_DOMAIN_MAP[EDSON_DOMAIN];
+  if (DEV_TENANT === 'LLFIX') return STORE_DOMAIN_MAP[LLFIX_DOMAIN];
   return DEFAULT_STORE_ID;
 };
 
@@ -106,6 +111,12 @@ export const resolveIntegrationTokensForHost = (host) => {
   }
   if (matchesDomain(normalized, EDSON_DOMAIN) && APP_INTEGRATION_TOKEN_EDSON) {
     tokens.push(APP_INTEGRATION_TOKEN_EDSON);
+  }
+  if (tokens.length === 0 && DEV_TENANT === 'EDSON' && APP_INTEGRATION_TOKEN_EDSON) {
+    tokens.push(APP_INTEGRATION_TOKEN_EDSON);
+  }
+  if (tokens.length === 0 && DEV_TENANT === 'LLFIX' && APP_INTEGRATION_TOKEN_LLFIX) {
+    tokens.push(APP_INTEGRATION_TOKEN_LLFIX);
   }
   return tokens;
 };

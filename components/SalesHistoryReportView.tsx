@@ -117,7 +117,7 @@ const buildFallbackRows = (items: SalesHistoryItem[]): SalesHistoryReportGroup[]
   });
 
   return Array.from(grouped.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => right.localeCompare(left))
     .map(([, group]) => group);
 };
 

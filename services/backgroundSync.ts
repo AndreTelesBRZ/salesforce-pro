@@ -46,6 +46,12 @@ class BackgroundSyncService {
     ]);
   }
 
+  private assertSyncResult(result: { success: boolean; message?: string }, label: string) {
+    if (!result.success) {
+      throw new Error(result.message || `Falha na ${label}`);
+    }
+  }
+
   private async checkConnection(): Promise<boolean> {
     try {
       const controller = new AbortController();
@@ -77,29 +83,29 @@ class BackgroundSyncService {
         return;
       }
 
-      await this.withTimeout(
+      this.assertSyncResult(await this.withTimeout(
         apiService.syncFullCatalog(() => {}),
         this.SYNC_TIMEOUT_MS,
         'Sincronização de produtos'
-      );
+      ), 'sincronização de produtos');
 
-      await this.withTimeout(
+      this.assertSyncResult(await this.withTimeout(
         apiService.syncCustomers(() => {}),
         this.SYNC_TIMEOUT_MS,
         'Sincronização de clientes'
-      );
+      ), 'sincronização de clientes');
 
-      await this.withTimeout(
+      this.assertSyncResult(await this.withTimeout(
         apiService.syncDelinquency(),
         this.SYNC_TIMEOUT_MS,
         'Sincronização de inadimplência'
-      );
+      ), 'sincronização de inadimplência');
 
-      await this.withTimeout(
+      this.assertSyncResult(await this.withTimeout(
         apiService.syncOrders(),
         this.SYNC_TIMEOUT_MS,
         'Sincronização de pedidos'
-      );
+      ), 'sincronização de pedidos');
 
       this._status = 'success';
       this._lastSyncAt = new Date();

@@ -1,3 +1,16 @@
+export interface Transportadora {
+  codigo_transportadora: string;
+  codigo_agente: string;
+  razao_social: string;
+  nome_fantasia: string;
+  cnpj_cpf: string;
+  inscricao_estadual: string;
+  data_cadastro: string;
+  codigo_anterior: string;
+  registro_permanente: string;
+  registro_fixo: string;
+  loja_codigo: string;
+}
 
 export interface Product {
   id: string;
@@ -85,6 +98,9 @@ export interface Order {
   paymentMethodId?: string;
   shippingMethod?: string;
   shippingMethodId?: string;
+  codigo_transportadora?: string;
+  codigo_agente?: string;
+  nome_transportadora?: string;
   paymentStatus?: string;
   createdAt: string;
   shippingCost?: number;
@@ -364,7 +380,7 @@ export interface SalesHistoryReportGroup {
 
 export interface SalesHistoryReportView {
   groupBy: 'data_emissao';
-  order: 'asc';
+  order: 'asc' | 'desc';
   layout: 'resumo_por_emissao';
   columns: SalesHistoryReportColumn[];
   groups: SalesHistoryReportGroup[];

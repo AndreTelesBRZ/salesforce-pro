@@ -277,6 +277,21 @@ class DatabaseService {
     }));
   }
 
+  async replaceProducts(products: Product[]): Promise<void> {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_PRODUCTS], 'readwrite');
+      const store = transaction.objectStore(STORE_PRODUCTS);
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+
+      store.clear();
+      products.forEach(product => {
+        store.put(product);
+      });
+    }));
+  }
+
   async getProductById(id: string): Promise<Product | null> {
     return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_PRODUCTS], 'readonly');
@@ -405,6 +420,21 @@ class DatabaseService {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
 
+      customers.forEach(customer => {
+        store.put(customer);
+      });
+    }));
+  }
+
+  async replaceCustomers(customers: Customer[]): Promise<void> {
+    return this.withDatabaseRetry((db) => new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_CUSTOMERS], 'readwrite');
+      const store = transaction.objectStore(STORE_CUSTOMERS);
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+
+      store.clear();
       customers.forEach(customer => {
         store.put(customer);
       });

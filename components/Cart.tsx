@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, CartItem, Order, Customer, PaymentPlan, EnumOption } from '../types';
-import { Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Check, CloudOff, CreditCard, Loader2, QrCode, Banknote, FileText, Truck, Package } from 'lucide-react';
+import { Product, CartItem, Order, Customer, PaymentPlan, EnumOption, Transportadora } from '../types';
+import { Plus, Minus, ShoppingCart, User, Store, Save, Search, AlertTriangle, X, ArrowRight, Check, CloudOff, CreditCard, Loader2, QrCode, Banknote, FileText, Truck, Package, Trash2 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { dbService } from '../services/db';
 import { deleteDraft, saveDraft, updateDraft } from '../src/services/draftDB';
@@ -97,6 +97,10 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
   const [paymentMethod, setPaymentMethod] = useState('dinheiro');
   const [shippingMethod, setShippingMethod] = useState('sem_frete');
   const [carrier, setCarrier] = useState('Retirada em Loja');
+  const [selectedTransportadora, setSelectedTransportadora] = useState<Transportadora | null>(null);
+  const [transportadoraSearch, setTransportadoraSearch] = useState('');
+  const [transportadoras, setTransportadoras] = useState<Transportadora[]>([]);
+  const [transportadoraLoading, setTransportadoraLoading] = useState(false);
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState(() => localStorage.getItem('PRODUCT_SEARCH_CART') || '');
   const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -212,6 +216,23 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     setPaymentMethod(draftToEdit.payment_method || 'dinheiro');
     setShippingMethod(draftToEdit.shipping_method || 'sem_frete');
     setCarrier(draftToEdit.carrier || 'Retirada em Loja');
+    if (draftToEdit.codigo_transportadora) {
+      setSelectedTransportadora({
+        codigo_transportadora: draftToEdit.codigo_transportadora,
+        codigo_agente: draftToEdit.codigo_agente || '',
+        nome_fantasia: draftToEdit.nome_transportadora || '',
+        razao_social: '',
+        cnpj_cpf: '',
+        inscricao_estadual: '',
+        data_cadastro: '',
+        codigo_anterior: '',
+        registro_permanente: '',
+        registro_fixo: '',
+        loja_codigo: '',
+      });
+    } else {
+      setSelectedTransportadora(null);
+    }
     setLastOrderNumber(draftToEdit.display_id ? String(draftToEdit.display_id) : null);
     setPendingCustomerId(draftToEdit.cliente_id || null);
     if (draftToEdit) {
@@ -316,6 +337,22 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     return () => clearTimeout(delayDebounceFn);
   }, [productSearchTerm, showProductSearch]);
 
+  useEffect(() => {
+    const fetchTransportadoras = async () => {
+      setTransportadoraLoading(true);
+      try {
+        const data = await apiService.getTransportadoras(transportadoraSearch || undefined);
+        setTransportadoras(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setTransportadoraLoading(false);
+      }
+    };
+    const delayFn = setTimeout(fetchTransportadoras, transportadoraSearch ? 300 : 0);
+    return () => clearTimeout(delayFn);
+  }, [transportadoraSearch]);
+
   // Keyboard navigation inside search results
   useEffect(() => {
     if (!showProductSearch) return;
@@ -365,7 +402,16 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
         .then((response) => {
             if (!isActive) return;
             const data = response.plans;
-            const planosDisponiveis = data.filter((plan) => plan.disponivel === true || plan.disponivel === undefined || plan.disponivel === null);
+            const planosDisponiveis = data.filter((plan) => {
+                const available = plan.disponivel === true || plan.disponivel === undefined || plan.disponivel === null;
+                const label = `${plan.code || ''} ${plan.description || ''} ${plan.document || ''} ${plan.meioPagamento || ''}`;
+                const immediatePayment = /\b(pix|dinheiro|cart[aã]o|cartao|cash)\b/i.test(label);
+                const boletoPlan = /boleto/i.test(label)
+                    || Number(plan.installments || 0) > 0
+                    || Number(plan.daysFirstInstallment || 0) > 0
+                    || Number(plan.daysBetweenInstallments || 0) > 0;
+                return available && boletoPlan && !immediatePayment;
+            });
             console.log('Planos recebidos:', data);
             console.log('Planos disponíveis:', planosDisponiveis);
             const shouldShowError = response.total === 0 || planosDisponiveis.length === 0;
@@ -464,7 +510,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
       cart, total, selectedCustomer, storeInfo,
       sellerCode: apiService.getSellerId() || apiService.getUsername(),
       currentDraft, notes, paymentMethod, shippingMethod,
-      selectedPlan, status, carrier,
+      selectedPlan, status, carrier, selectedTransportadora,
     });
     return { ...draft, display_id: displayId };
   };
@@ -546,6 +592,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
     setPaymentMethod('dinheiro');
     setShippingMethod('sem_frete');
     setCarrier('Retirada em Loja');
+    setSelectedTransportadora(null);
     setSelectedPlan(null);
     setNotes('');
     if (onClearDraft) onClearDraft();
@@ -837,7 +884,16 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(true)}
+              disabled={submitting || cart.length === 0}
+              className="flex items-center justify-center gap-1.5 px-[14px] py-2 text-[13px] font-medium text-rose-700 dark:text-rose-300 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/60 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Limpar
+            </button>
             <button
               onClick={handleSaveDraft}
               disabled={submitting || !selectedCustomer || planLoading}
@@ -1203,15 +1259,44 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onUpdatePric
             {/* Transportadora */}
             <div className="mb-3.5">
               <p className="text-[11px] text-[#667085] dark:text-slate-500 mb-1">Transportadora</p>
+              <input
+                type="text"
+                value={transportadoraSearch}
+                onChange={e => setTransportadoraSearch(e.target.value)}
+                placeholder="Buscar transportadora..."
+                className="app-input w-full text-[12px] px-[10px] py-[5px] mb-1.5"
+              />
               <div className="relative">
                 <select
-                  value={carrier}
-                  onChange={e => setCarrier(e.target.value)}
+                  value={selectedTransportadora ? selectedTransportadora.codigo_transportadora : carrier}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === 'Retirada em Loja' || val === 'Entrega Própria') {
+                      setCarrier(val);
+                      setSelectedTransportadora(null);
+                    } else {
+                      const found = transportadoras.find(t => t.codigo_transportadora === val);
+                      if (found) {
+                        setCarrier(found.nome_fantasia || found.razao_social || 'Transportadora');
+                        setSelectedTransportadora(found);
+                      }
+                    }
+                  }}
                   className="app-input w-full text-[13px] font-medium px-[10px] py-[7px] appearance-none cursor-pointer"
                 >
-                  {['Retirada em Loja', 'Entrega Própria', 'Expresso Log', 'Rede Cargo', 'Direct Transportes'].map(opt => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
+                  <optgroup label="Modalidade">
+                    <option value="Retirada em Loja">Retirada em Loja</option>
+                    <option value="Entrega Própria">Entrega Própria</option>
+                  </optgroup>
+                  {transportadoras.length > 0 && (
+                    <optgroup label="Transportadoras">
+                      {transportadoras.map(t => (
+                        <option key={t.codigo_transportadora} value={t.codigo_transportadora}>
+                          {t.nome_fantasia || t.razao_social || t.codigo_transportadora}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98a2b3" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>

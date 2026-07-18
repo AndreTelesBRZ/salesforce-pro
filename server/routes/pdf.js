@@ -95,6 +95,10 @@ const renderReceiptPDF = (doc, receipt, store) => {
 
   const paymentMethodLabel = formatDisplayLabel(receipt.paymentMethod);
   const shippingMethodLabel = formatDisplayLabel(receipt.shippingMethod);
+  const carrierName = receipt.nome_transportadora || receipt.carrier || '';
+  const shippingDisplay = (receipt.shippingMethod === 'transportadora' && carrierName)
+    ? `Transportadora: ${carrierName}`
+    : shippingMethodLabel;
 
   const drawBox = (x, y, width, height, options = {}) => {
     const { fill = null, stroke = '#d7dee7', radius = 10, lineWidth = 1 } = options;
@@ -354,7 +358,7 @@ const renderReceiptPDF = (doc, receipt, store) => {
   const shippingX = marginLeft + paymentWidth + gap;
   drawBox(shippingX, paymentTop, paymentWidth, paymentHeight, { stroke: '#d7dee7', radius: 12 });
   writeLabel('Tipo de Frete', shippingX + 14, paymentTop + 12, paymentWidth - 28);
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(shippingMethodLabel, shippingX + 14, paymentTop + 30, { width: paymentWidth - 28 });
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(shippingDisplay, shippingX + 14, paymentTop + 30, { width: paymentWidth - 28 });
 
   const footerY = paymentTop + paymentHeight + 26;
   doc.save();

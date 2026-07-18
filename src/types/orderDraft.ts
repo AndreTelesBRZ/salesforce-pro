@@ -30,6 +30,9 @@ export interface OrderDraft {
   numero_pedido?: string;
   notes?: string;
   carrier?: string;
+  codigo_transportadora?: string;
+  codigo_agente?: string;
+  nome_transportadora?: string;
   payment_method?: string;
   payment_method_id?: string;
   shipping_method?: string;

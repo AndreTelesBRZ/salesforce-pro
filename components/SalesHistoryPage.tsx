@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { apiService } from '../services/api';
 import { getStoreCodeForApi } from '../services/storeHost';
 import { Customer, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportRow, SalesHistoryResponse } from '../types';
@@ -39,6 +39,7 @@ const getForcedSalesHistoryStoreCode = (): string => {
 const getDefaultFilters = (): SalesHistoryFilters => {
   const today = new Date();
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
   const forcedStoreCode = getForcedSalesHistoryStoreCode();
 
   return {
@@ -47,7 +48,7 @@ const getDefaultFilters = (): SalesHistoryFilters => {
     nota_numero: '',
     produto_codigo: '',
     data_inicio: formatInputDate(startOfMonth),
-    data_fim: formatInputDate(today),
+    data_fim: formatInputDate(endOfMonth),
     loja_codigo: forcedStoreCode,
     pedido_codigo: '',
     saida_codigo: '',
@@ -81,6 +82,29 @@ const formatDateTime = (value?: string): string => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString('pt-BR');
+};
+
+const toInputDate = (value?: string): string => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return isoMatch[1] + '-' + isoMatch[2] + '-' + isoMatch[3];
+  const brMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (brMatch) return brMatch[3] + '-' + brMatch[2] + '-' + brMatch[1];
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return formatInputDate(parsed);
+};
+
+const normalizeCode = (value?: string | number): string => {
+  const trimmed = String(value || '').trim();
+  const withoutZeros = trimmed.replace(/^0+/, '');
+  return withoutZeros || '0';
+};
+
+const findInitialCustomerSale = (items: SalesHistoryItem[], customer: Customer): SalesHistoryItem | null => {
+  const customerCode = normalizeCode(customer.id);
+  return items.find((item) => normalizeCode(item.clienteCodigo) === customerCode) || null;
 };
 
 const customerLabel = (customer: Customer): string => {
@@ -233,6 +257,8 @@ const buildCustomerHistoryFallback = (items: SalesHistoryItem[], customerCode: s
 };
 
 export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCustomer, onNavigate }) => {
+  const initialCustomerKeyRef = useRef('');
+  const autoSelectedSaleKeyRef = useRef('');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customersLoading, setCustomersLoading] = useState(true);
   const [draftFilters, setDraftFilters] = useState<SalesHistoryFilters>(() => getDefaultFilters());
@@ -249,6 +275,34 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   const [pageSize, setPageSize] = useState(10);
   const [refreshTick, setRefreshTick] = useState(0);
   const [selectedHistoryNote, setSelectedHistoryNote] = useState<SelectedHistoryNoteContext | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadLoggedSeller = async () => {
+      const sellerId = await apiService.getLoggedSellerId();
+      if (!active || !sellerId) return;
+
+      const applySeller = (current: SalesHistoryFilters): SalesHistoryFilters => {
+        if (current.vendedor_codigo === sellerId && current.loja_codigo === getForcedSalesHistoryStoreCode()) {
+          return current;
+        }
+        return {
+          ...current,
+          vendedor_codigo: sellerId,
+          loja_codigo: getForcedSalesHistoryStoreCode(),
+        };
+      };
+
+      setDraftFilters(applySeller);
+      setAppliedFilters(applySeller);
+    };
+
+    loadLoggedSeller();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -275,10 +329,35 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
 
   useEffect(() => {
     if (!initialCustomer || !initialCustomer.id || initialCustomer.id === '0') return;
+    const initialKey = [
+      initialCustomer.id,
+      getForcedSalesHistoryStoreCode(),
+      apiService.getSellerId() || initialCustomer.sellerId || '',
+    ].join('|');
+    if (initialCustomerKeyRef.current === initialKey) return;
+    initialCustomerKeyRef.current = initialKey;
+    autoSelectedSaleKeyRef.current = '';
+
+    const filters: SalesHistoryFilters = {
+      ...getDefaultFilters(),
+      cliente_codigo: initialCustomer.id,
+      vendedor_codigo: apiService.getSellerId() || initialCustomer.sellerId || '',
+      loja_codigo: getForcedSalesHistoryStoreCode(),
+      q: '',
+      nota_numero: '',
+      produto_codigo: '',
+      pedido_codigo: '',
+      saida_codigo: '',
+    };
+
     setCustomerQuery(customerLabel(initialCustomer));
-    setDraftFilters((current) => ({ ...current, cliente_codigo: initialCustomer.id }));
-    setAppliedFilters((current) => ({ ...current, cliente_codigo: initialCustomer.id }));
+    setDraftFilters(filters);
+    setAppliedFilters(filters);
+    setSelectedHistoryNote(null);
+    setExpandedNotes({});
+    setNoteItems({});
     setPage(1);
+    setPageSize(10);
   }, [initialCustomer]);
 
   const selectedDraftCustomer = useMemo(() => {
@@ -596,6 +675,23 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
       await loadNoteItems(customerCode, noteNumber, String(item.notaSerie || '').trim(), fallbackItems);
     }
   };
+
+  useEffect(() => {
+    if (!initialCustomer || loadingHistory || historyError || !flatHistory.results.length) return;
+    const sale = findInitialCustomerSale(flatHistory.results, initialCustomer);
+    if (!sale) return;
+
+    const saleKey = [
+      normalizeCode(sale.clienteCodigo),
+      String(sale.notaNumero || '').trim(),
+      String(sale.notaSerie || '').trim(),
+      toInputDate(sale.notaData || sale.dataMovimento || sale.pedidoData || sale.prevendaData),
+    ].join('|');
+
+    if (!saleKey.trim() || autoSelectedSaleKeyRef.current === saleKey) return;
+    autoSelectedSaleKeyRef.current = saleKey;
+    handleHistoryRowSelect(sale);
+  }, [flatHistory.results, historyError, initialCustomer, loadingHistory]);
 
   return (
     <div className="p-4 pb-20 space-y-4 text-slate-900 dark:text-slate-100">
