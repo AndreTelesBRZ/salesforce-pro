@@ -60,6 +60,44 @@ const formatNfeLabel = (row: SalesHistoryReportRow): string => {
   return "-";
 };
 
+const buildSaleRowKey = (row: SalesHistoryReportRow, index: number): string => {
+  const pedido = String(row.pedido || '').trim();
+  if (pedido) return `pedido:${pedido}`;
+
+  const nota = String(row.notaNumero || '').trim();
+  const serie = String(row.notaSerie || '').trim();
+  const saida = String(row.saidaCodigo || '').trim();
+  if (nota || saida) return `nota:${nota}|serie:${serie}|saida:${saida}`;
+
+  // Without a document identity, keeping the row is safer than merging
+  // unrelated sales that happen to share customer, date and value.
+  return `sem-documento:${index}`;
+};
+
+const consolidateReportGroups = (groups: SalesHistoryReportGroup[]): SalesHistoryReportGroup[] => (
+  groups.map((group) => {
+    const seen = new Set<string>();
+    const rows = group.rows.filter((row, index) => {
+      const key = buildSaleRowKey(row, index);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return {
+      ...group,
+      rows,
+      totalDataEmissao: rows.reduce(
+        (totals, row) => ({
+          valorBruto: totals.valorBruto + (Number(row.valorBruto) || 0),
+          valorTotal: totals.valorTotal + (Number(row.valorTotal) || 0),
+        }),
+        { valorBruto: 0, valorTotal: 0 },
+      ),
+    };
+  })
+);
+
 const buildFallbackRows = (items: SalesHistoryItem[]): SalesHistoryReportGroup[] => {
   const grouped = new Map<string, SalesHistoryReportGroup>();
 
@@ -169,10 +207,11 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
   onDetailRow,
 }) => {
   const fallbackGroups = useMemo(() => buildFallbackRows(fallbackItems), [fallbackItems]);
-  const groups = reportView?.groups?.length ? reportView.groups : fallbackGroups;
-  const totalGeral = reportView
-    ? reportView.totals.valorTotal
-    : fallbackGroups.reduce((sum, group) => sum + group.totalDataEmissao.valorTotal, 0);
+  const groups = useMemo(
+    () => consolidateReportGroups(reportView?.groups?.length ? reportView.groups : fallbackGroups),
+    [reportView, fallbackGroups],
+  );
+  const totalGeral = groups.reduce((sum, group) => sum + group.totalDataEmissao.valorTotal, 0);
 
   if (loading) {
     return (

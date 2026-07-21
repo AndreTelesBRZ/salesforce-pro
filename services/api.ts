@@ -2278,6 +2278,14 @@ class ApiService {
           if (value) params.set(key, value);
       });
 
+      // Store scope comes from the authenticated tenant/host, never from an
+      // editable report filter. This keeps every history endpoint pinned to
+      // the same store used by the rest of the application.
+      const protectedStoreCode = this.resolveProtectedStoreCode();
+      if (protectedStoreCode) {
+          params.set('loja_codigo', protectedStoreCode);
+      }
+
       return params;
   }
 
@@ -2526,6 +2534,8 @@ class ApiService {
   async searchSalesHistory(q: string, page: number = 1, pageSize: number = 20): Promise<SalesHistoryResponse> {
       const query = new URLSearchParams();
       if (q.trim()) query.set('q', q.trim());
+      const protectedStoreCode = this.resolveProtectedStoreCode();
+      if (protectedStoreCode) query.set('loja_codigo', protectedStoreCode);
       query.set('page', String(page));
       query.set('page_size', String(pageSize));
       const response = await this.fetchWithAuth(`/api/vendas/historico?${query.toString()}`);
