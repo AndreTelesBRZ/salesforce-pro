@@ -176,6 +176,54 @@ export function createAuthRoutes(ctx) {
     }
   });
 
+  router.post('/api/auth/password-reset/request', async (req, res) => {
+    const { login } = req.body || {};
+    if (!login) return res.status(400).json({ message: 'Informe o usuário ou e-mail.' });
+    try {
+      const context = requireRemoteBackendContext(req, res);
+      if (!context) return;
+      const remote = await callRemoteJson({
+        backendUrl: context.backendUrl,
+        paths: ['/auth/password-reset/request', '/api/auth/password-reset/request'],
+        method: 'POST',
+        body: { login },
+      });
+      const message = extractRemoteMessage(remote.data, remote.text, remote.response.status);
+      return res.status(remote.response.status).json({
+        success: remote.response.ok,
+        message,
+      });
+    } catch (e) {
+      console.error('[AUTH_PROXY] Falha ao solicitar recuperação de senha:', e.message);
+      return res.status(503).json({ message: 'API do ERP indisponível.' });
+    }
+  });
+
+  router.post('/api/auth/password-reset/confirm', async (req, res) => {
+    const { login, code, new_password } = req.body || {};
+    if (!login || !code || !new_password) {
+      return res.status(400).json({ message: 'Dados incompletos.' });
+    }
+    try {
+      const context = requireRemoteBackendContext(req, res);
+      if (!context) return;
+      const remote = await callRemoteJson({
+        backendUrl: context.backendUrl,
+        paths: ['/auth/password-reset/confirm', '/api/auth/password-reset/confirm'],
+        method: 'POST',
+        body: { login, code, new_password },
+      });
+      const message = extractRemoteMessage(remote.data, remote.text, remote.response.status);
+      return res.status(remote.response.status).json({
+        success: remote.response.ok,
+        message,
+      });
+    } catch (e) {
+      console.error('[AUTH_PROXY] Falha ao confirmar recuperação de senha:', e.message);
+      return res.status(503).json({ message: 'API do ERP indisponível.' });
+    }
+  });
+
   // Autenticação com Google (indisponível)
   router.post('/api/auth/google', async (req, res) => {
     return res.status(501).json({ message: 'Login Google não disponível neste ambiente.' });

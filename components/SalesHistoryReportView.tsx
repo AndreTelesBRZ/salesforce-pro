@@ -74,6 +74,10 @@ const buildSaleRowKey = (row: SalesHistoryReportRow, index: number): string => {
   return `sem-documento:${index}`;
 };
 
+const isCancelledRow = (row: SalesHistoryReportRow): boolean => (
+  String(row.status || '').trim().toUpperCase() === 'A'
+);
+
 const consolidateReportGroups = (groups: SalesHistoryReportGroup[]): SalesHistoryReportGroup[] => (
   groups.map((group) => {
     const seen = new Set<string>();
@@ -88,7 +92,7 @@ const consolidateReportGroups = (groups: SalesHistoryReportGroup[]): SalesHistor
       ...group,
       rows,
       totalDataEmissao: rows.reduce(
-        (totals, row) => ({
+        (totals, row) => isCancelledRow(row) ? totals : ({
           valorBruto: totals.valorBruto + (Number(row.valorBruto) || 0),
           valorTotal: totals.valorTotal + (Number(row.valorTotal) || 0),
         }),
@@ -150,8 +154,10 @@ const buildFallbackRows = (items: SalesHistoryItem[]): SalesHistoryReportGroup[]
     const group = grouped.get(groupKey);
     if (!group) return;
     group.rows.push(row);
-    group.totalDataEmissao.valorBruto += valorBruto;
-    group.totalDataEmissao.valorTotal += valorTotal;
+    if (!isCancelledRow(row)) {
+      group.totalDataEmissao.valorBruto += valorBruto;
+      group.totalDataEmissao.valorTotal += valorTotal;
+    }
   });
 
   return Array.from(grouped.entries())
@@ -256,20 +262,30 @@ export const SalesHistoryReportView: React.FC<SalesHistoryReportViewProps> = ({
               <tbody>
                 {group.rows.map((row, index) => {
                   const sourceItem = resolveSourceItem(row, fallbackItems);
-                  const isSelectable = !!sourceItem && !!row.notaNumero;
+                  const isSelectable = !!onDetailRow && !!(row.pedido || row.notaNumero || sourceItem);
+                  const isCancelled = isCancelledRow(row);
                   return (
                   <tr
                     key={group.dataEmissaoDisplay + '-' + index}
-                    className={"border-t border-slate-100 dark:border-slate-800" + (isSelectable ? " cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40" : "")}
+                    className={"border-t border-slate-100 dark:border-slate-800" + (isCancelled ? " bg-red-50/70 dark:bg-red-950/20" : "") + (isSelectable ? " cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40" : "")}
                     onClick={() => {
-                      if (sourceItem && onSelectRow) onSelectRow(sourceItem);
+                      if (onDetailRow && isSelectable) {
+                        onDetailRow({ row, item: sourceItem });
+                      } else if (sourceItem && onSelectRow) {
+                        onSelectRow(sourceItem);
+                      }
                     }}
                   >
                     <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{row.status || '-'}</td>
                     <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{row.cliente}</td>
                     <td className="px-3 py-2 text-slate-900 dark:text-slate-100">
                       <div className="flex items-center gap-2">
-                        <span>{formatNfeLabel(row)}</span>
+                        <span
+                          className={isCancelled ? "font-semibold text-red-700 underline decoration-2 underline-offset-4 dark:text-red-300" : undefined}
+                          title={isCancelled ? "Nota fiscal cancelada — valor não incluído nos totais" : undefined}
+                        >
+                          {formatNfeLabel(row)}
+                        </span>
                         {row.notaNumero && onDetailRow ? (
                           <button
                             type="button"
