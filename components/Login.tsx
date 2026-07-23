@@ -18,7 +18,7 @@ interface LoginProps {
   storeInfo?: any | null;
 }
 
-type LoginMode = 'password' | 'code_request' | 'code_verify';
+type LoginMode = 'password' | 'reset_request' | 'reset_confirm';
 
 export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, storeInfo }) => {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -34,6 +34,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
   // Code Login States
   const [codeEmail, setCodeEmail] = useState('');
   const [accessCode, setAccessCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -74,12 +76,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
       setError('');
       setSuccessMsg('');
       
-      const result = await apiService.sendAccessCode(codeEmail);
+      const result = await apiService.requestPasswordReset(codeEmail);
       setLoading(false);
 
       if (result.success) {
-          setSuccessMsg(result.message || 'Código enviado! Verifique seu email.');
-          setLoginMode('code_verify');
+          setSuccessMsg(result.message || 'Se houver um e-mail cadastrado, enviaremos um código.');
+          setLoginMode('reset_confirm');
       } else {
           setError(result.message || 'Erro ao enviar código.');
       }
@@ -90,11 +92,21 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
       setLoading(true);
       setError('');
       
-      const result = await apiService.loginWithAccessCode(codeEmail, accessCode);
+      if (newPassword !== newPasswordConfirm) {
+          setLoading(false);
+          setError('As senhas não coincidem.');
+          return;
+      }
+      const result = await apiService.confirmPasswordReset(codeEmail, accessCode, newPassword);
       setLoading(false);
       
       if (result.success) {
-          onLoginSuccess();
+          setSuccessMsg(result.message || 'Senha alterada com sucesso. Faça login.');
+          setPassword('');
+          setAccessCode('');
+          setNewPassword('');
+          setNewPasswordConfirm('');
+          setLoginMode('password');
       } else {
           setError(result.message || 'Código inválido.');
       }
@@ -179,7 +191,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
               </button>
           </div>
 
-          {isRegistering && (
+          {(isRegistering || loginMode !== 'password') && (
              <button 
                onClick={() => {
                    setIsRegistering(false);
@@ -343,7 +355,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Senha</label>
                          <button 
                             type="button" 
-                            onClick={() => setError('Login por código não está disponível neste ambiente. Use o ERP oficial para recuperar a senha.')}
+                            onClick={() => {
+                                setCodeEmail(username);
+                                setError('');
+                                setSuccessMsg('');
+                                setLoginMode('reset_request');
+                            }}
                             className="text-xs text-purple-600 hover:text-purple-800 font-semibold"
                          >
                             Esqueci a senha
@@ -363,6 +380,74 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
                         />
                     </div>
                   </div>
+              </form>
+          )}
+
+          {!isRegistering && loginMode === 'reset_request' && (
+              <form onSubmit={handleSendCode} className="space-y-5 animate-in fade-in">
+                  <div className="text-center mb-4">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                          Recuperar senha
+                      </span>
+                      <p className="mt-2 text-sm text-slate-500">
+                          Informe seu usuário ou e-mail cadastrado.
+                      </p>
+                  </div>
+                  <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 ml-1">
+                          Usuário / E-mail
+                      </label>
+                      <input
+                          type="text"
+                          required
+                          autoFocus
+                          value={codeEmail}
+                          onChange={(e) => setCodeEmail(e.target.value)}
+                          className="app-input block w-full px-3 py-3"
+                          placeholder="admin"
+                      />
+                  </div>
+              </form>
+          )}
+
+          {!isRegistering && loginMode === 'reset_confirm' && (
+              <form onSubmit={handleVerifyCode} className="space-y-5 animate-in fade-in">
+                  <div className="text-center mb-4">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                          Código de recuperação
+                      </span>
+                  </div>
+                  <input
+                      type="text"
+                      required
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={accessCode}
+                      onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, ''))}
+                      className="app-input block w-full px-3 py-3 text-center tracking-[0.5em]"
+                      placeholder="000000"
+                      aria-label="Código de recuperação"
+                  />
+                  <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="app-input block w-full px-3 py-3"
+                      placeholder="Nova senha (mínimo 8 caracteres)"
+                      aria-label="Nova senha"
+                  />
+                  <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={newPasswordConfirm}
+                      onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                      className="app-input block w-full px-3 py-3"
+                      placeholder="Confirme a nova senha"
+                      aria-label="Confirme a nova senha"
+                  />
               </form>
           )}
 
@@ -399,6 +484,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
           <button
               onClick={
                   isRegistering ? handleRegister : 
+                  loginMode === 'reset_request' ? handleSendCode :
+                  loginMode === 'reset_confirm' ? handleVerifyCode :
                   handleLogin
               }
               disabled={loading}
@@ -409,10 +496,14 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, onOpenSettings, st
           >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 
                isRegistering ? <UserPlus className="w-5 h-5" /> : 
+               loginMode === 'reset_request' ? <Send className="w-5 h-5" /> :
+               loginMode === 'reset_confirm' ? <KeyRound className="w-5 h-5" /> :
                <LogIn className="w-5 h-5" />}
               
               {loading ? 'Processando...' : 
                isRegistering ? 'Criar Minha Conta' : 
+               loginMode === 'reset_request' ? 'Enviar código' :
+               loginMode === 'reset_confirm' ? 'Alterar senha' :
                'Entrar no Sistema'}
           </button>
             

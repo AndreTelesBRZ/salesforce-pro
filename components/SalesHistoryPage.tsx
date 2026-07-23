@@ -3,7 +3,7 @@ import { apiService } from '../services/api';
 import { getStoreCodeForApi } from '../services/storeHost';
 import { Customer, SalesHistoryCustomerGrouped, SalesHistoryFilters, SalesHistoryItem, SalesHistoryNote, SalesHistoryNoteItem, SalesHistoryReportRow, SalesHistoryResponse } from '../types';
 import { OrderDraft } from '../src/types/orderDraft';
-import { AlertCircle, BarChart3, Briefcase, Calendar, ChevronDown, ChevronUp, ClipboardList, Copy, FileText, Filter, Loader2, RefreshCcw, Search, Store, Users } from 'lucide-react';
+import { AlertCircle, BarChart3, Briefcase, Calendar, ChevronDown, ChevronUp, ClipboardList, Copy, FileText, Filter, Loader2, RefreshCcw, Search, Store, Users, X } from 'lucide-react';
 import { SalesHistoryReportView } from './SalesHistoryReportView';
 
 interface SalesHistoryPageProps {
@@ -275,6 +275,9 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   const [pageSize, setPageSize] = useState(10);
   const [refreshTick, setRefreshTick] = useState(0);
   const [selectedHistoryNote, setSelectedHistoryNote] = useState<SelectedHistoryNoteContext | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailModalLoading, setDetailModalLoading] = useState(false);
+  const [detailModalError, setDetailModalError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -599,49 +602,70 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
   };
 
   const handleReportRowDetail = async ({ row, item }: { row: SalesHistoryReportRow; item?: SalesHistoryItem }) => {
-    if (item) {
-      await handleHistoryRowSelect(item);
-      return;
-    }
+    setDetailModalOpen(true);
+    setDetailModalLoading(true);
+    setDetailModalError('');
 
-    const customerCode = String(row.clienteCodigo || appliedFilters.cliente_codigo || '').trim();
-    const noteNumber = String(row.notaNumero || '').trim();
-    const noteSerie = String(row.notaSerie || '').trim();
-    if (!noteNumber) return;
+    try {
+      const orderCode = String(row.pedido || item?.pedidoCodigo || item?.prevendaCodigo || '').trim();
+      const requestedNoteNumber = String(row.notaNumero || item?.notaNumero || '').trim();
+      const requestedNoteSerie = String(row.notaSerie || item?.notaSerie || '').trim();
+      let matchingItems = flatHistory.results.filter((entry) => (
+        (!orderCode || String(entry.pedidoCodigo || entry.prevendaCodigo || '').trim() === orderCode)
+        && (!requestedNoteNumber || String(entry.notaNumero || '').trim() === requestedNoteNumber)
+        && (!requestedNoteSerie || String(entry.notaSerie || '').trim() === requestedNoteSerie)
+      ));
 
-    const matchingItems = flatHistory.results.filter((entry) => (
-      String(entry.notaNumero || '').trim() === noteNumber
-      && String(entry.notaSerie || '').trim() === noteSerie
-      && (!customerCode || String(entry.clienteCodigo || '').trim() === customerCode)
-    ));
-    const fallbackItems = matchingItems.map(mapHistoryItemToNoteItem);
-    const referenceItem = matchingItems[0];
+      if (orderCode || requestedNoteNumber) {
+        const payload = await apiService.getSalesHistory({
+          ...appliedFilters,
+          pedido_codigo: orderCode,
+          nota_numero: requestedNoteNumber,
+          produto_codigo: '',
+          q: '',
+        }, 1, 200);
+        if (payload.results.length) matchingItems = payload.results;
+      }
 
-    const note: SalesHistoryNote = {
-      lojaCodigo: referenceItem?.lojaCodigo || undefined,
-      prevendaCodigo: referenceItem?.prevendaCodigo || undefined,
-      pedidoCodigo: referenceItem?.pedidoCodigo || String(row.pedido || '').trim() || undefined,
-      saidaCodigo: referenceItem?.saidaCodigo || String(row.saidaCodigo || '').trim() || undefined,
-      notaData: referenceItem?.notaData || String(row.emissao || '').trim() || undefined,
-      notaSerie: noteSerie || undefined,
-      notaNumero: noteNumber,
-      notaValorTotal: Number(referenceItem?.notaValorTotal) || Number(row.valorTotal) || 0,
-      documentoStatus: referenceItem?.documentoStatus || String(row.status || '').trim() || undefined,
-      nfeStatus: undefined,
-      documentoTipo: referenceItem?.documentoTipo || String(row.documentoTipo || '').trim() || undefined,
-      itens: fallbackItems,
-    };
+      const referenceItem = matchingItems[0] || item;
+      const customerCode = String(referenceItem?.clienteCodigo || row.clienteCodigo || appliedFilters.cliente_codigo || '').trim();
+      const noteNumber = String(referenceItem?.notaNumero || requestedNoteNumber).trim();
+      const noteSerie = String(referenceItem?.notaSerie || requestedNoteSerie).trim();
+      if (!noteNumber) throw new Error('A nota fiscal deste pedido não foi localizada.');
 
-    setSelectedHistoryNote({
-      customerCode,
-      customerName: referenceItem?.clienteRazaoSocial || referenceItem?.clienteFantasia || row.clienteNome || row.cliente || customerCode || noteNumber,
-      sellerLabel: row.vendedor || referenceItem?.vendedorNome || referenceItem?.vendedorCodigo || '',
-      note,
-    });
+      const fallbackItems = matchingItems
+        .filter((entry) => (
+          String(entry.notaNumero || '').trim() === noteNumber
+          && (!noteSerie || String(entry.notaSerie || '').trim() === noteSerie)
+        ))
+        .map(mapHistoryItemToNoteItem);
+      const note: SalesHistoryNote = {
+        lojaCodigo: referenceItem?.lojaCodigo || undefined,
+        prevendaCodigo: referenceItem?.prevendaCodigo || undefined,
+        pedidoCodigo: referenceItem?.pedidoCodigo || orderCode || undefined,
+        saidaCodigo: referenceItem?.saidaCodigo || String(row.saidaCodigo || '').trim() || undefined,
+        notaData: referenceItem?.notaData || String(row.emissao || '').trim() || undefined,
+        notaSerie: noteSerie || undefined,
+        notaNumero: noteNumber,
+        notaValorTotal: Number(referenceItem?.notaValorTotal) || Number(row.valorTotal) || 0,
+        documentoStatus: referenceItem?.documentoStatus || String(row.status || '').trim() || undefined,
+        nfeStatus: referenceItem?.nfeStatus || undefined,
+        documentoTipo: referenceItem?.documentoTipo || String(row.documentoTipo || '').trim() || undefined,
+        itens: fallbackItems,
+      };
 
-    setExpandedNotes((current) => ({ ...current, [noteNumber]: true }));
-    if (!noteItems[noteNumber]) {
-      await loadNoteItems(customerCode, noteNumber, noteSerie, fallbackItems);
+      setSelectedHistoryNote({
+        customerCode,
+        customerName: referenceItem?.clienteRazaoSocial || referenceItem?.clienteFantasia || row.clienteNome || row.cliente || customerCode || noteNumber,
+        sellerLabel: row.vendedor || referenceItem?.vendedorNome || referenceItem?.vendedorCodigo || '',
+        note,
+      });
+      setNoteItems((current) => ({ ...current, [noteNumber]: { loading: false, items: fallbackItems } }));
+      setExpandedNotes((current) => ({ ...current, [noteNumber]: true }));
+    } catch (error: any) {
+      setDetailModalError(error?.message || 'Não foi possível carregar os dados do pedido.');
+    } finally {
+      setDetailModalLoading(false);
     }
   };
 
@@ -692,6 +716,12 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
     autoSelectedSaleKeyRef.current = saleKey;
     handleHistoryRowSelect(sale);
   }, [flatHistory.results, historyError, initialCustomer, loadingHistory]);
+
+  const detailModalNote = selectedHistoryNote?.note;
+  const detailModalNoteNumber = String(detailModalNote?.notaNumero || '').trim();
+  const detailModalItems = detailModalNoteNumber && noteItems[detailModalNoteNumber]?.items?.length
+    ? noteItems[detailModalNoteNumber].items
+    : (detailModalNote?.itens || []);
 
   return (
     <div className="p-4 pb-20 space-y-4 text-slate-900 dark:text-slate-100">
@@ -991,6 +1021,89 @@ export const SalesHistoryPage: React.FC<SalesHistoryPageProps> = ({ initialCusto
           </div>
         )}
       </section>
+
+      {detailModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Detalhes do pedido"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDetailModalOpen(false);
+          }}
+        >
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Detalhes do pedido</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">{selectedHistoryNote?.customerName || 'Informações fiscais e itens da venda'}</p>
+              </div>
+              <button type="button" onClick={() => setDetailModalOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white" aria-label="Fechar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(90vh-73px)] overflow-y-auto p-5">
+              {detailModalLoading ? (
+                <div className="p-10 text-center text-sm text-slate-600 dark:text-slate-300"><Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-blue-700" />Carregando dados do pedido...</div>
+              ) : detailModalError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">{detailModalError}</div>
+              ) : detailModalNote ? (
+                <div className="space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nota fiscal</p>
+                      <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{detailModalNote.notaNumero || '-'}</p>
+                      <p className="text-xs text-slate-500">Série {detailModalNote.notaSerie || '-'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Data de emissão</p>
+                      <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{formatDateTime(detailModalNote.notaData)}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pedido</p>
+                      <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{detailModalNote.pedidoCodigo || '-'}</p>
+                      <p className="text-xs text-slate-500">Total {formatCurrency(detailModalNote.notaValorTotal)}</p>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+                      <h4 className="font-semibold text-slate-900 dark:text-white">Itens do pedido ({detailModalItems.length})</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-white dark:bg-slate-900">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-200">Código</th>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-200">Descrição</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-200">Qtd.</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-200">Unitário</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-200">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detailModalItems.length ? detailModalItems.map((detailItem, index) => (
+                            <tr key={`${detailModalNoteNumber}-modal-item-${index}`} className="border-t border-slate-100 dark:border-slate-800">
+                              <td className="px-3 py-2 font-mono text-xs text-slate-900 dark:text-slate-100">{detailItem.produtoCodigo || '-'}</td>
+                              <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{detailItem.produtoDescricao || '-'}</td>
+                              <td className="px-3 py-2 text-right text-slate-900 dark:text-slate-100">{detailItem.itemQuantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
+                              <td className="px-3 py-2 text-right text-slate-900 dark:text-slate-100">{formatCurrency(detailItem.itemValorUnitario)}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(detailItem.itemValorLiquido || detailItem.itemValorTotal)}</td>
+                            </tr>
+                          )) : (
+                            <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Nenhum item encontrado para esta nota.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
     </div>
   );

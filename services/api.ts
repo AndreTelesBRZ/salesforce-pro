@@ -1268,6 +1268,38 @@ class ApiService {
       }
   }
 
+  async requestPasswordReset(login: string): Promise<{ success: boolean; message?: string }> {
+      try {
+          const response = await fetch('/api/auth/password-reset/request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...this.getTenantHeaders() },
+              body: JSON.stringify({ login })
+          });
+          const data = await response.json().catch(() => ({}));
+          return { success: response.ok, message: data.message || data.detail };
+      } catch (error: any) {
+          return { success: false, message: this.mapNetworkError(error) };
+      }
+  }
+
+  async confirmPasswordReset(
+      login: string,
+      code: string,
+      newPassword: string
+  ): Promise<{ success: boolean; message?: string }> {
+      try {
+          const response = await fetch('/api/auth/password-reset/confirm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...this.getTenantHeaders() },
+              body: JSON.stringify({ login, code, new_password: newPassword })
+          });
+          const data = await response.json().catch(() => ({}));
+          return { success: response.ok, message: data.message || data.detail };
+      } catch (error: any) {
+          return { success: false, message: this.mapNetworkError(error) };
+      }
+  }
+
   async loginWithAccessCode(email: string, code: string): Promise<{ success: boolean; message?: string }> {
       const baseUrl = this.getBaseUrl();
       const endpoint = '/api/auth/verify-code';
@@ -2587,10 +2619,15 @@ class ApiService {
       const payload = await res.json();
       const list = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
       const mappedPlans = list.map((p: any) => this.mapPaymentPlan(p, catalog));
+      const normalizedPlans = isLlfixHostForCurrent()
+          ? Array.from(new Map(mappedPlans.map((plan: PaymentPlan) => [plan.code, plan])).values())
+          : mappedPlans;
       const totalValue = Number(payload.total ?? payload.count ?? mappedPlans.length);
       return {
-          total: Number.isFinite(totalValue) ? totalValue : mappedPlans.length,
-          plans: mappedPlans
+          total: isLlfixHostForCurrent()
+              ? normalizedPlans.length
+              : (Number.isFinite(totalValue) ? totalValue : mappedPlans.length),
+          plans: normalizedPlans
       };
   }
 
@@ -2691,7 +2728,7 @@ class ApiService {
           plan.disponibil ??
           plan.isAvailable ??
           plan.disponivel_completa ??
-          false;
+          (isLlfixHostForCurrent() ? true : false);
       const disponivelFlag = this.toBoolean(availabilitySource);
       const meioPagamentoValue = plan.meio_pagamento || plan.meioPagamento || plan.paymentMethod || plan.forma_pagamento || plan.meio || '';
 
